@@ -4,22 +4,23 @@
 from __future__ import annotations
 
 import math
+from array import array
 from dataclasses import dataclass, field
 from typing import Iterable
 
 from .model import AddressMode, Coverage
 
 
-def _prefix(values: Iterable[bool]) -> tuple[int, ...]:
-    result = [0]
+def _prefix(values: Iterable[bool]) -> array:
+    result = array("I", [0])
     total = 0
     for value in values:
         total += int(value)
         result.append(total)
-    return tuple(result)
+    return result
 
 
-def _periodic_count(prefix: tuple[int, ...], start: int, stop: int) -> int:
+def _periodic_count(prefix: array, start: int, stop: int) -> int:
     if stop <= start:
         return 0
     period = len(prefix) - 1
@@ -40,23 +41,19 @@ def _periodic_count(prefix: tuple[int, ...], start: int, stop: int) -> int:
 class AlphaGrid:
     width: int
     height: int
-    affected: tuple[bool, ...]
-    _row_prefixes: tuple[tuple[int, ...], ...] = field(init=False, repr=False)
-    _mirror_prefixes: tuple[tuple[int, ...], ...] = field(init=False, repr=False)
+    affected: bytes | bytearray | tuple[bool, ...]
+    _row_prefixes: dict[int, array] = field(init=False, repr=False)
+    _mirror_prefixes: dict[int, array] = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         if self.width <= 0 or self.height <= 0:
             raise ValueError("image dimensions must be positive")
         if len(self.affected) != self.width * self.height:
             raise ValueError("affected mask length does not match dimensions")
-        rows = tuple(
-            self.affected[row * self.width : (row + 1) * self.width]
-            for row in range(self.height)
-        )
-        self._row_prefixes = tuple(_prefix(row) for row in rows)
-        self._mirror_prefixes = tuple(
-            _prefix((*row, *reversed(row))) for row in rows
-        )
+        if not isinstance(self.affected, bytes):
+            self.affected = bytes(self.affected)
+        self._row_prefixes = {}
+        self._mirror_prefixes = {}
 
     @classmethod
     def from_alpha_values(
@@ -69,13 +66,32 @@ class AlphaGrid:
     ) -> "AlphaGrid":
         if not 0.0 <= threshold <= 1.0:
             raise ValueError("threshold must be between 0 and 1")
-        affected = []
+        affected = bytearray()
         for value in values:
             alpha = float(value)
             if not math.isfinite(alpha):
                 raise ValueError("alpha values must be finite")
             affected.append(alpha < threshold)
-        return cls(width, height, tuple(affected))
+        return cls(width, height, bytes(affected))
+
+    def _row_values(self, row: int) -> bytes:
+        start = row * self.width
+        return self.affected[start : start + self.width]
+
+    def _row_prefix(self, row: int) -> array:
+        prefix = self._row_prefixes.get(row)
+        if prefix is None:
+            prefix = _prefix(self._row_values(row))
+            self._row_prefixes[row] = prefix
+        return prefix
+
+    def _mirror_prefix(self, row: int) -> array:
+        prefix = self._mirror_prefixes.get(row)
+        if prefix is None:
+            values = self._row_values(row)
+            prefix = _prefix((*values, *reversed(values)))
+            self._mirror_prefixes[row] = prefix
+        return prefix
 
     @staticmethod
     def _mirror_index(value: int, size: int) -> int:
@@ -99,11 +115,11 @@ class AlphaGrid:
         if resolved_row is None:
             return stop - start
 
-        prefix = self._row_prefixes[resolved_row]
+        prefix = self._row_prefix(resolved_row)
         if mode is AddressMode.REPEAT:
             return _periodic_count(prefix, start, stop)
         if mode is AddressMode.MIRROR:
-            return _periodic_count(self._mirror_prefixes[resolved_row], start, stop)
+            return _periodic_count(self._mirror_prefix(resolved_row), start, stop)
         if mode is AddressMode.CLIP:
             inside_start = max(start, 0)
             inside_stop = min(stop, self.width)

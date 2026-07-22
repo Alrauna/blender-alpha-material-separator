@@ -38,7 +38,7 @@ class AlphaAddressingTests(unittest.TestCase):
 
     def test_threshold_is_strictly_below(self):
         grid = AlphaGrid.from_alpha_values(2, 1, (0.998, 0.999), threshold=0.999)
-        self.assertEqual(grid.affected, (True, False))
+        self.assertEqual(grid.affected, bytes((True, False)))
 
 
 class ClassificationTests(unittest.TestCase):

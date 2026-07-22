@@ -13,6 +13,7 @@ from .model import (
     FaceClass,
     InvalidRasterInput,
     RasterBudgetExceeded,
+    Coverage,
 )
 from .raster import Point, rasterize_polygon
 
@@ -50,6 +51,17 @@ def classify_polygon(
             unsupported_reason="INVALID_UV",
         )
 
+    return classify_coverage(coverage, alpha, address_mode=address_mode, settings=settings)
+
+
+def classify_coverage(
+    coverage: Coverage,
+    alpha: AlphaGrid,
+    *,
+    address_mode: AddressMode = AddressMode.REPEAT,
+    settings: AnalysisSettings = AnalysisSettings(),
+) -> ClassificationResult:
+    """Classify a previously rasterized polygon coverage union."""
     covered = coverage.stats.covered_texels
     if covered == 0:
         return ClassificationResult(

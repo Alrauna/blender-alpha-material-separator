@@ -29,14 +29,12 @@ ADDRESS_MODES = ("REPEAT", "EXTEND", "CLIP", "MIRROR")
 
 GUARANTEED_MATERIAL_PATTERNS = (
     "DIRECT_IMAGE_ALPHA_TO_ACTIVE_PRINCIPLED_ALPHA",
-    "EXPLICIT_IMAGE_AND_UV_OVERRIDE",
-)
-
-PROPOSED_MATERIAL_PATTERNS = (
+    "EXPLICIT_IMAGE_UV_AND_CHANNEL_OVERRIDE",
     "ACTIVE_RENDER_UV_FOR_UNLINKED_IMAGE_VECTOR",
     "DIRECT_UV_MAP_NODE",
     "DIRECT_TEXTURE_COORDINATE_UV",
     "SIMPLE_REROUTE_IN_ALPHA_PATH",
+    "UNIQUE_BASE_COLOR_IMAGE_STORED_ALPHA",
 )
 
 
@@ -56,9 +54,10 @@ def capability_payload() -> dict[str, Any]:
         "address_modes": list(ADDRESS_MODES),
         "api_version": dotted(API_VERSION),
         "capabilities": {
-            "analysis": False,
-            "face_selection_preview": False,
-            "material_assignment": False,
+            "analysis": True,
+            "explicit_channel_override": True,
+            "face_selection_preview": True,
+            "material_assignment": True,
             "material_support_matrix_ready": True,
             "query_capabilities": True,
         },
@@ -66,7 +65,7 @@ def capability_payload() -> dict[str, Any]:
         "extension_version": dotted(EXTENSION_VERSION),
         "guaranteed_material_patterns": list(GUARANTEED_MATERIAL_PATTERNS),
         "operator_ids": list(PUBLIC_OPERATOR_IDS),
-        "proposed_material_patterns": list(PROPOSED_MATERIAL_PATTERNS),
+        "supported_material_patterns": list(GUARANTEED_MATERIAL_PATTERNS),
         "supported_blender": {"minimum": "5.2.0"},
     }
 

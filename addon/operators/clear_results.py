@@ -33,6 +33,8 @@ class ALPHA_MATERIAL_SEPARATOR_OT_clear_results(bpy.types.Operator):
             return {"CANCELLED"}
 
         runtime.clear()
+        state.analysis_id = ""
+        state.report_json = "{}"
         state.last_status_code = "CLEARED"
         state.last_status_json = api_contract.dumps(
             api_contract.status_payload("CLEARED", "Transient results cleared")

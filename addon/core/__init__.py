@@ -2,7 +2,7 @@
 """Pure-Python rasterization and classification package."""
 
 from .alpha import AlphaGrid
-from .classify import classify_polygon
+from .classify import classify_coverage, classify_polygon
 from .model import (
     AddressMode,
     AnalysisSettings,
@@ -26,6 +26,7 @@ __all__ = (
     "RasterBudgetExceeded",
     "RasterStats",
     "classify_polygon",
+    "classify_coverage",
     "rasterize_polygon",
     "uv_to_texel_edge",
 )
