@@ -17,7 +17,7 @@ class ALPHA_MATERIAL_SEPARATOR_PT_main(bpy.types.Panel):
 
     def draw(self, context: bpy.types.Context) -> None:
         layout = self.layout
-        layout.label(text="Material support checkpoint", icon="INFO")
+        layout.label(text="Support matrix awaits approval", icon="INFO")
         layout.label(text="Analysis is not implemented yet")
         layout.operator(
             "alpha_material_separator.query_capabilities",

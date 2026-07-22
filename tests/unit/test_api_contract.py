@@ -22,6 +22,7 @@ class ApiContractTests(unittest.TestCase):
         self.assertEqual(payload["api_version"], "1.0")
         self.assertEqual(payload["extension_version"], "0.1.0")
         self.assertTrue(payload["capabilities"]["query_capabilities"])
+        self.assertTrue(payload["capabilities"]["material_support_matrix_ready"])
         self.assertFalse(payload["capabilities"]["analysis"])
         self.assertFalse(payload["capabilities"]["material_assignment"])
         self.assertIn("SUPPRESSED", payload["classifications"])
@@ -31,6 +32,10 @@ class ApiContractTests(unittest.TestCase):
                 "DIRECT_IMAGE_ALPHA_TO_ACTIVE_PRINCIPLED_ALPHA",
                 "EXPLICIT_IMAGE_AND_UV_OVERRIDE",
             ],
+        )
+        self.assertIn(
+            "SIMPLE_REROUTE_IN_ALPHA_PATH",
+            payload["proposed_material_patterns"],
         )
 
     def test_status_json_uses_stable_sorting(self) -> None:

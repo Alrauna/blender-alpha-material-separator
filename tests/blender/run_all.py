@@ -14,6 +14,9 @@ if str(REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(REPOSITORY_ROOT))
 
 import addon  # noqa: E402
+from tests.blender.test_material_characterization import (  # noqa: E402
+    run as run_characterization_tests,
+)
 
 
 def assert_operator_registered() -> None:
@@ -64,6 +67,7 @@ def run() -> None:
         addon.unregister()
         assert_unregistered()
 
+    run_characterization_tests()
     print("ALPHA_MATERIAL_SEPARATOR_BLENDER_TESTS_OK")
 
 

@@ -32,6 +32,13 @@ GUARANTEED_MATERIAL_PATTERNS = (
     "EXPLICIT_IMAGE_AND_UV_OVERRIDE",
 )
 
+PROPOSED_MATERIAL_PATTERNS = (
+    "ACTIVE_RENDER_UV_FOR_UNLINKED_IMAGE_VECTOR",
+    "DIRECT_UV_MAP_NODE",
+    "DIRECT_TEXTURE_COORDINATE_UV",
+    "SIMPLE_REROUTE_IN_ALPHA_PATH",
+)
+
 
 def dotted(version: tuple[int, ...]) -> str:
     """Return a deterministic dotted version string."""
@@ -52,13 +59,14 @@ def capability_payload() -> dict[str, Any]:
             "analysis": False,
             "face_selection_preview": False,
             "material_assignment": False,
-            "material_support_matrix_ready": False,
+            "material_support_matrix_ready": True,
             "query_capabilities": True,
         },
         "classifications": list(CLASSIFICATIONS),
         "extension_version": dotted(EXTENSION_VERSION),
         "guaranteed_material_patterns": list(GUARANTEED_MATERIAL_PATTERNS),
         "operator_ids": list(PUBLIC_OPERATOR_IDS),
+        "proposed_material_patterns": list(PROPOSED_MATERIAL_PATTERNS),
         "supported_blender": {"minimum": "5.2.0"},
     }
 
