@@ -3,13 +3,21 @@
 - API version: `1.0`
 - Extension version: `0.1.0`
 
-The checkpoint build currently implements:
+The current build implements:
 
 - `bpy.ops.alpha_material_separator.query_capabilities`
+- `bpy.ops.alpha_material_separator.analyze`
+- `bpy.ops.alpha_material_separator.select_faces`
+- `bpy.ops.alpha_material_separator.assign_materials`
 - `bpy.ops.alpha_material_separator.clear_results`
 
-Analysis, preview, and assignment operator IDs are reserved but their capability
-flags remain `false` until those milestones pass.
+Capability flags report the implemented operations. The analysis operator also
+accepts `image_channel` (`ALPHA`, `RED`, `GREEN`, `BLUE`, or `LUMINANCE`) as an
+optional backward-compatible argument in addition to the approved API fields.
+Together with `image_name` and `uv_map_name`, this is the documented escape
+hatch for packed masks and alpha sources the automatic resolver cannot trace.
+Combined or procedural alpha must first be baked to an image; the extension
+never silently approximates shader math.
 
 Machine-readable JSON strings are exposed through
 `WindowManager.alpha_material_separator_api`:

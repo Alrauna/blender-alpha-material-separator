@@ -4,12 +4,14 @@
 
 - Date: 2026-07-22
 - Blender: 5.2.0 LTS
-- Private reference files available: 0
-- Private materials inspected: 0
+- Private reference files initially available: 0
+- Later private before/after pairs inspected: 1
 
-No `.blend` references were present in `.local-references/`. The bounded survey
-therefore completed without waiting for or downloading inputs. No claims about
-real-world prevalence can be made from this checkpoint.
+No `.blend` references were present at the initial checkpoint, so it completed
+without waiting for or downloading inputs. A later lawful private before/after
+pair was inspected after approval. No identifying names, paths, assets, graph
+dumps, or raw results are retained here, and no prevalence claim is made from a
+single pair.
 
 The guaranteed version 0.1 boundary remains:
 
@@ -18,9 +20,16 @@ The guaranteed version 0.1 boundary remains:
 - Explicit image and UV-map overrides.
 - Repeat, Extend, Clip, and Mirror addressing.
 
-Additional patterns are proposed or deferred in
-[`material-support.md`](material-support.md) and require approval before their
-resolver behavior is frozen.
+Approved and deferred patterns are recorded in
+[`material-support.md`](material-support.md).
+
+The anonymous pair confirmed an unchanged mesh, topology, UV set, rigging data,
+and modifier structure; its expected result added one graph-equivalent material
+section and reassigned only affected source faces. It also demonstrated a unique
+base-color image whose stored alpha was not connected to Blender's shader Alpha
+input, motivating the approved narrow fallback. The committed algorithm remains
+the exact positive-area rasterizer, so the manually authored face set is treated
+as a directional workflow reference rather than an exact golden oracle.
 
 ## Method
 
@@ -63,8 +72,7 @@ fields.
 
 ## Limitations
 
-- The checkpoint has no lawful real-world sample population.
+- The checkpoint has no representative real-world sample population.
 - A graph being synthetically traceable does not demonstrate that it is common.
 - Structural presence does not prove intended shader semantics.
-- Material graph expansion beyond the guaranteed boundary remains blocked on
-  explicit approval of the support matrix.
+- Unsupported material graphs remain explicit rather than guessed.

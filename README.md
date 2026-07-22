@@ -5,9 +5,11 @@ finding mesh faces whose UV-covered image texels need alpha rendering. Its
 production operation assigns those faces to a distinct material slot without
 cutting or separating geometry.
 
-Version 0.1 is in development. The repository is currently at the material
-support characterization checkpoint; alpha analysis and assignment are not yet
-implemented.
+Version 0.1 is in development. Analysis, preview, conservative material-slot
+assignment, packaging, automated Blender acceptance coverage, the first
+performance baseline, and the interactive Blender smoke test are implemented
+locally. Manual Unity material/submesh validation remains a release checkpoint;
+this is not yet a released build.
 
 ## Why this exists
 
@@ -21,7 +23,7 @@ The tradeoff is an additional material section, which commonly means another
 draw call. The extension reports the estimated slot/section increase so the
 user can decide whether the overdraw reduction is worthwhile.
 
-## Planned workflow
+## Workflow
 
 1. Select one or more original/base mesh objects in Blender.
 2. Resolve each polygon's material, image, and UV map.
@@ -51,10 +53,17 @@ Guaranteed version 0.1 inputs are:
 - Explicit image and UV-map overrides.
 - Repeat, Extend, Clip, and Mirror image addressing.
 
-Additional automatic graph patterns remain unsupported until the bounded,
-anonymized characterization matrix in
-[`docs/material-support.md`](docs/material-support.md) is approved. Ambiguous
-materials are reported rather than guessed.
+Approved deterministic automatic paths also include simple reroutes, a unique
+Base Color image fallback, direct UV Map nodes, and Texture Coordinate UV. See
+[`docs/material-support.md`](docs/material-support.md) for the exact boundary.
+Ambiguous materials are reported rather than guessed.
+
+If a separate mask, packed channel, node group, or shader calculation supplies
+alpha, use the image, UV, and channel overrides. Red, green, blue, alpha, and
+luminance channels are available. For combined or procedural masks, bake the
+intended alpha result to an image and select that image as the override. This
+manual path preserves flexibility without claiming that arbitrary node graphs
+have been evaluated.
 
 ## Unity and VRChat
 
@@ -98,8 +107,9 @@ $Blender52 = 'C:\Program Files\Blender Foundation\Blender 5.2\blender.exe'
 
 python -m unittest discover -s tests/unit -t . -v
 & $Blender52 --factory-startup --background --python-exit-code 1 --python tests/blender/run_all.py
-& $Blender52 --factory-startup --command extension validate addon
-& $Blender52 --factory-startup --command extension build --source-dir addon --output-dir .packaged-releases
+& $Blender52 --command extension validate addon
+.\scripts\build_extension.ps1 -Blender $Blender52
+.\scripts\run_benchmarks.ps1 -Blender $Blender52
 ```
 
 Private references belong only in `.local-references/`. Built ZIPs belong only

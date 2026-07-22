@@ -1,7 +1,10 @@
 # Blender Alpha Material Separator 0.1 implementation plan
 
-Status: approved for local implementation on
-`feat/alpha-material-separator-0.1`, with mandatory approval checkpoints.
+Status: milestones 0-4 are implemented locally on
+`feat/alpha-material-separator-0.1`. Milestone 5 automated validation, the
+first performance baseline, and the interactive Blender smoke test are
+complete. Manual Unity material/submesh validation remains the release gate;
+VRChat validation remains optional stack-specific reference evidence.
 
 ## Product outcome
 
@@ -39,6 +42,11 @@ reproductions.
 **Mandatory checkpoint:** stop after `docs/material-support.md` and
 `docs/material-characterization.md`; obtain approval before freezing or adding
 automatic resolver patterns.
+
+Checkpoint result: approved. The direct-alpha, simple-reroute, unique Base
+Color image, direct UV Map, and Texture Coordinate UV patterns are frozen for
+0.1. Explicit image/UV/channel overrides and baked masks provide the manual
+escape hatch for other alpha sources.
 
 ## Milestone 2: pure coverage and classification core
 
