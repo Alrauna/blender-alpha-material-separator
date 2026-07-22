@@ -1,9 +1,10 @@
 # Coverage algorithm contract
 
-Implementation begins only after the material-support checkpoint is approved.
+The material-support checkpoint is approved and the pure-Python implementation
+follows this contract.
 
 For each original polygon, Blender's loop triangulation supplies UV triangles
-without modifying topology. The pure core will:
+without modifying topology. The pure core:
 
 1. Convert `(u, v)` to texel-edge coordinates `(u * width, v * height)`.
 2. Clip each triangle against unit-height scanline strips.
@@ -18,5 +19,5 @@ Edge/corner-only contact does not count. Individual degenerate triangles may be
 skipped with a warning; an all-degenerate polygon is unsupported. Budget
 failures are unsupported and never trigger sparse sampling.
 
-The optimized interval output will be compared with a slow positive-area
+The optimized interval output is compared with a slow positive-area
 triangle/cell clipping oracle over fixed-seed randomized cases.
