@@ -1,122 +1,217 @@
 # Blender Alpha Material Separator
 
-Blender Alpha Material Separator is a standalone Blender 5.2 LTS extension for
-finding mesh faces whose UV-covered image texels need alpha rendering. Its
-production operation assigns those faces to a distinct material slot without
-cutting or separating geometry.
+## What it does
 
-Version 0.1 is in development. Analysis, preview, conservative material-slot
-assignment, packaging, automated Blender acceptance coverage, the first
-performance baseline, and the interactive Blender smoke test are implemented
-locally. Manual Unity material/submesh validation remains a release checkpoint;
-this is not yet a released build.
+Blender Alpha Material Separator finds mesh faces that use alpha-affected image
+pixels and puts those faces in a second material slot. Opaque faces stay on the
+original material. The result is one object with opaque and alpha material
+sections. The extension does not cut geometry, split the object, or configure
+Unity or VRChat shaders automatically.
 
-## Why this exists
+Version 0.1.0 targets Blender 5.2 LTS and is still undergoing release
+validation.
 
-Avatar materials commonly use transparent rendering for an entire mesh even
-when most of its faces only cover fully opaque texture regions. In Unity this
-can cause avoidable transparent overdraw and sorting costs. The extension is
-designed to keep proven-opaque faces on the original material while routing
-faces that need alpha to a derived material.
+![The Simple interface in Blender's Alpha Material sidebar](docs/images/01-panel-simple.png)
 
-The tradeoff is an additional material section, which commonly means another
-draw call. The extension reports the estimated slot/section increase so the
-user can decide whether the overdraw reduction is worthwhile.
+## Requirements and installation
 
-## Workflow
+1. Download or build `alpha_material_separator-0.1.0.zip`. Do not unzip it.
+2. In Blender 5.2, open **Edit → Preferences → Get Extensions**.
+3. Open the menu at the upper right, choose **Install from Disk**, and select the
+   ZIP.
+4. Confirm that **Blender Alpha Material Separator** is enabled.
+5. Return to a 3D View, press `N`, and open the **Alpha Material** tab.
 
-1. Select one or more original/base mesh objects in Blender.
-2. Resolve each polygon's material, image, and UV map.
-3. Rasterize every texel cell with positive-area intersection with each UV
-   triangle; centroid, vertex-only, and sparse sampling are not used.
-4. Review the report and preview affected faces.
-5. Assign reviewed alpha-affected and mixed faces to `<source>__AMS_ALPHA`.
-6. Export the model and configure the two materials manually in Unity.
+Save your `.blend` before processing an important model. Assignment supports
+Blender Undo, but a saved file is still the safest starting point.
 
-## Classification terms
+## 60-second Simple workflow
 
-- **Opaque**: no covered texel is below the configured alpha threshold.
-- **Alpha-affected**: significant alpha evidence exists across the entire face.
-- **Mixed**: the same original polygon covers both opaque and alpha-affected
-  texels. It cannot become fully opaque without cutting geometry.
-- **Suppressed**: alpha evidence exists but user-configured significance filters
-  rejected it. Suppressed evidence is never reported as proven opacity and
-  blocks assignment by default.
-- **Unsupported**: the extension cannot make a trustworthy determination.
+1. In Object Mode, select the mesh object or objects you want to process.
+2. Leave the interface on **Simple** and click **Analyze Selected Meshes**.
+3. Read the face counts and material cards. Automatic detection is the normal
+   path; no settings are required for supported materials.
+4. Click **Preview Faces to Move**. Blender enters multi-object Edit Mode and
+   selects the faces that would use alpha. Inspect the orange selection. Press
+   `Tab` when you want to leave Edit Mode.
+5. Click **Apply Material Separation**. Clean results apply immediately. A
+   warning dialog appears only for mixed, suppressed, unsupported, skipped, or
+   conflicting input.
+6. Check the object's material slots. The original material remains the opaque
+   candidate and `<source>__AMS_ALPHA` is the alpha candidate.
 
-## Material support boundary
+![Completed analysis with counts and material preflight](docs/images/02-analysis-review.png)
 
-Guaranteed version 0.1 inputs are:
+![Alpha-affected faces selected in Edit Mode](docs/images/03-face-preview.png)
 
-- An Image Texture Alpha output directly connected to the active Principled
-  BSDF Alpha input.
-- Explicit image and UV-map overrides.
-- Repeat, Extend, Clip, and Mirror image addressing.
+![The source and alpha material slots after assignment](docs/images/04-material-slots.png)
 
-Approved deterministic automatic paths also include simple reroutes, a unique
-Base Color image fallback, direct UV Map nodes, and Texture Coordinate UV. See
-[`docs/material-support.md`](docs/material-support.md) for the exact boundary.
-Ambiguous materials are reported rather than guessed.
+## What the results mean
 
-If a separate mask, packed channel, node group, or shader calculation supplies
-alpha, use the image, UV, and channel overrides. Red, green, blue, alpha, and
-luminance channels are available. For combined or procedural masks, bake the
-intended alpha result to an image and select that image as the override. This
-manual path preserves flexibility without claiming that arbitrary node graphs
-have been evaluated.
+| Result shown in Blender | Meaning | Default action |
+| --- | --- | --- |
+| **Stay on opaque material** | No covered image pixel is below the alpha threshold. | Keep the face on the source material. |
+| **Move to alpha material** | Every covered image pixel is alpha-affected. | Move the face to `__AMS_ALPHA`. |
+| **Mixed—must use alpha without cutting geometry** | One polygon covers both opaque and alpha-affected pixels. | Move it to alpha. Making only part opaque would require topology cutting, which 0.1 does not do. |
+| **Below significance—needs review** | Alpha evidence exists but is below an Expert minimum. | Skip that entire source-material group by default. |
+| **Could not analyze** | The material, image, UVs, or safety conditions do not support a trustworthy result. | Skip that entire source-material group by default. |
 
-## Unity and VRChat
+The Apply preflight lists faces to move, source and destination materials,
+additional slots, and anything that will be skipped. One uncertain face can
+conservatively skip its entire source-material group; other safe groups may
+still be applied after warning confirmation.
 
-The original Blender material remains the source/opaque candidate. The derived
-`__AMS_ALPHA` material represents alpha-affected and mixed faces. Blender
-material duplication does **not** configure Unity or VRChat shaders.
+## Simple and Expert interfaces
 
-After FBX import:
+**Simple** is the recommended interface. It keeps the safe defaults and shows
+only Analyze, Review, and Apply.
 
-1. Confirm that the source and alpha material sections both exist and are used.
-2. Configure the source material as opaque.
-3. Configure the alpha variant as cutout/alpha-clip or transparent in the
-   chosen shader.
-4. Reapply the same color, normal, and mask textures as needed.
-5. Validate filtering, mipmaps, compression, cutoff, animation, and blendshapes
-   in the target project.
+**Expert** adds analysis thresholds and limits, per-material manual alpha
+sources, alternate classification inspection, exception policies, and technical
+diagnostics.
 
-Raw Blender image alpha and an optional texel margin cannot exactly reproduce
-Unity texture filtering, mipmaps, compression, alpha clipping, or
-shader-specific behavior. Ordinary Unity submesh/material validation is a
-release requirement. VRChat SDK and shader validation is a documented reference
-test for the exact versions tested, not a universal compatibility claim.
+The defaults normally stay unchanged: threshold `0.999`, minimum affected
+pixels `1`, minimum fraction `0`, margin `0`, automatic addressing, mixed faces
+to alpha, and conservative skips for below-significance or unsupported faces.
+Switching Simple/Expert does not invalidate a result; changing an analysis
+setting or manual source does.
 
-## Version 0.1 exclusions
+## Manual alpha sources
 
-- Topology cutting, subdivision, or physical object separation.
-- Shader rewriting or Unity editor automation.
-- Automatic CATS integration or a CATS dependency.
-- Evaluated-modifier topology analysis.
-- Arbitrary or ambiguous shader evaluation.
-- Automatic make-local or single-user conversion.
-- Runtime dependency installation, updating, telemetry, or network access.
+Automatic detection supports the common direct Image Texture Alpha path and a
+single authoritative Base Color image containing stored alpha. If a material
+card says **No clear alpha image was found**, click **Set Manual Alpha Source**.
+The interface switches to Expert mode and creates an override for only that
+material. Other materials remain automatic.
 
-## Development
+Each manual record has:
 
-The extension package lives directly under `addon/`; tests, scripts, and
-documentation remain outside the packaged directory.
+- **Target Material**: the only material affected by the record.
+- **Alpha Image**: optional. When blank, the automatically resolved image is
+  retained.
+- **Image Channel**: Alpha, Red, Green, Blue, or Luminance. Non-alpha channels
+  are available only after an explicit image is selected.
+- **UV Map**: optional exact name. Blank uses the resolved active render UV.
+- **Addressing**: Automatic, Repeat, Extend, Clip, or Mirror.
+
+Typical recipes:
+
+- **Separate alpha-mask texture:** select that image and its Alpha channel.
+- **Mask packed into RGB:** select the packed image and the correct Red, Green,
+  or Blue channel.
+- **Different raw UV layer:** leave the image blank if automatic detection is
+  correct, then enter the intended UV map.
+- **Mapped, multiplied, grouped, or procedural alpha:** bake the final intended
+  mask to an image, then select the baked image/channel/UV. The extension does
+  not guess or evaluate arbitrary shader math.
+
+Every override participates in stale-result detection. Analyze again after
+editing an image, material graph, UV, threshold, or override.
+
+## What each step changes
+
+- **Analyze** reads selected base meshes, materials, UVs, and image pixels. It
+  makes no persistent mesh or material change.
+- **Preview** changes face selection and normally enters multi-object Edit Mode.
+  It does not change topology or material assignments.
+- **Apply** creates or reuses local `<source>__AMS_ALPHA` materials, appends
+  reviewed material slots, and changes only the intended polygons' material
+  indices.
+- Source materials, shaders, images, armatures, weights, shape keys, UVs,
+  normals, attributes, modifiers, parenting, and unselected objects are not
+  rewritten.
+
+## Undo, rerun, and stale results
+
+Press `Ctrl+Z` to undo assignment and `Ctrl+Shift+Z` to redo it. Assignment
+clears the active report, so analyze again before another preview or apply.
+Repeated runs are idempotent: a valid existing alpha material and slot are
+reused, and the UI reports **Already separated—no additional changes**.
+
+Shared multi-user meshes, linked/read-only data, and restricted library
+overrides are skipped instead of being made local or single-user automatically.
+
+## Unity and VRChat handoff
+
+After FBX export, the source Blender material is the opaque candidate and
+`__AMS_ALPHA` is the cutout/transparent candidate. Blender material duplication
+does **not** select Unity or VRChat shaders.
+
+1. Import the processed FBX and confirm both material sections/submeshes exist.
+2. Bind the source section to an opaque Unity material.
+3. Bind the `__AMS_ALPHA` section to a cutout/alpha-clip or transparent material.
+4. If the project already has correctly configured Unity materials, reassign
+   those existing materials instead of recreating shader settings in Blender.
+5. Verify textures, cutoff, filtering, mipmaps, compression, animation, and
+   blendshapes in the target project.
+
+This can reduce transparent overdraw but usually adds a material section and
+draw call. Raw Blender image alpha cannot exactly reproduce Unity filtering,
+mipmaps, compression, clipping, or shader-specific behavior. See the detailed
+[Unity and VRChat workflow](docs/unity-vrchat-workflow.md).
+
+## Troubleshooting
+
+| Message or symptom | What to do |
+| --- | --- |
+| **No mesh objects selected** | Select one or more Mesh objects in Object Mode. |
+| **No clear alpha image was found** | Use **Set Manual Alpha Source** for that material. |
+| **No active render UV map** | Set an active render UV or enter the exact UV name in Expert mode. |
+| **Texture coordinates are not a supported UV path** | Choose a raw UV map or bake the mapped result. |
+| **Image type/projection is not supported** | Use a static flat-UV image or bake the intended mask. |
+| **Mesh data is shared/read-only/linked** | Make a deliberate editable copy. The extension never does this automatically. |
+| **Below significance—needs review** | Inspect the faces and deliberately choose an Expert policy if the default skip is not appropriate. |
+| **Inputs Changed—Analyze Again** | A setting, material, image, UV, slot, or object changed after analysis. Reanalyze. |
+| **Source or alpha material changed** | Preserve the edited material and explicitly choose reuse or a new variant in Expert mode. |
+| Everything stays opaque | Confirm the intended image/channel and that affected pixels are below `0.999`. |
+| Analysis is slow | Full 4K/8K image verification is intentionally conservative. Wait, press Esc, or use **Cancel Analysis** safely. |
+
+Technical codes remain available under Expert → **Technical Details** for bug
+reports and integrations.
+
+## Supported and unsupported material setups
+
+Supported automatic paths include direct Image Texture Alpha to the active
+Principled Alpha input, simple reroutes, a unique Base Color image containing
+stored alpha, direct UV Map nodes, and Texture Coordinate UV. Manual image,
+channel, UV, and addressing records are available per material. Ambiguous
+multiple-image graphs are reported instead of guessed.
+
+Version 0.1 does not cut contours, subdivide geometry, separate objects, rewrite
+shaders, automate Unity, integrate CATS automatically, analyze evaluated
+modifier topology, or install runtime dependencies. See the exact
+[material-support matrix](docs/material-support.md).
+
+## Glossary
+
+- **Alpha:** image data used for cutout or transparent rendering.
+- **UV map:** coordinates that place mesh faces over an image.
+- **Pixel/texel:** an image cell covered by a UV-mapped face.
+- **Source material:** the existing Blender material retained for opaque faces.
+- **Alpha material:** the local `__AMS_ALPHA` copy used by affected faces.
+- **Material slot/submesh:** a material section on one mesh; it does not mean a
+  separate Blender object.
+
+## Developer documentation
+
+The extension package lives under `addon/`. Generated ZIPs belong in
+`.packaged-releases/`; private references belong in `.local-references/`. Both
+are ignored by Git.
 
 ```powershell
 $Blender52 = 'C:\Program Files\Blender Foundation\Blender 5.2\blender.exe'
 
 python -m unittest discover -s tests/unit -t . -v
 & $Blender52 --factory-startup --background --python-exit-code 1 --python tests/blender/run_all.py
-& $Blender52 --command extension validate addon
+& $Blender52 --factory-startup --command extension validate addon
 .\scripts\build_extension.ps1 -Blender $Blender52
-.\scripts\run_benchmarks.ps1 -Blender $Blender52
 ```
 
-Private references belong only in `.local-references/`. Built ZIPs belong only
-in `.packaged-releases/`. Both locations are ignored by Git.
+Further references: [testing](docs/testing.md),
+[performance](docs/performance.md), and
+[integration API](docs/integration-api.md).
 
 ## License
 
-Blender Alpha Material Separator is licensed under
-`GPL-3.0-or-later`. The canonical GNU GPL version 3 text is preserved in
-[`LICENSE`](LICENSE).
+Blender Alpha Material Separator is licensed under `GPL-3.0-or-later`. The
+canonical GNU GPL version 3 text is preserved in [LICENSE](LICENSE).
