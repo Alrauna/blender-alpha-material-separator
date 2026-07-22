@@ -1,0 +1,292 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Recorded local performance characterization; output stays ignored."""
+
+from __future__ import annotations
+
+import argparse
+import ctypes
+from ctypes import wintypes
+import gc
+import json
+import platform
+import statistics
+import sys
+import time
+from pathlib import Path
+
+import bpy
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+if str(REPOSITORY_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPOSITORY_ROOT))
+
+from addon import runtime  # noqa: E402
+from addon.adapters.analysis import AnalysisConfig, AnalysisEngine  # noqa: E402
+from addon.adapters.image_data import read_image_snapshot  # noqa: E402
+from addon.core import AddressMode, RasterBudgetExceeded, rasterize_polygon  # noqa: E402
+
+
+class _PROCESS_MEMORY_COUNTERS_EX(ctypes.Structure):
+    _fields_ = [
+        ("cb", wintypes.DWORD),
+        ("PageFaultCount", wintypes.DWORD),
+        ("PeakWorkingSetSize", ctypes.c_size_t),
+        ("WorkingSetSize", ctypes.c_size_t),
+        ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+        ("QuotaPagedPoolUsage", ctypes.c_size_t),
+        ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+        ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+        ("PagefileUsage", ctypes.c_size_t),
+        ("PeakPagefileUsage", ctypes.c_size_t),
+        ("PrivateUsage", ctypes.c_size_t),
+    ]
+
+
+def _memory() -> dict[str, int]:
+    counters = _PROCESS_MEMORY_COUNTERS_EX()
+    counters.cb = ctypes.sizeof(counters)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    get_current_process = kernel32.GetCurrentProcess
+    get_current_process.restype = wintypes.HANDLE
+    get_process_memory_info = kernel32.K32GetProcessMemoryInfo
+    get_process_memory_info.argtypes = (
+        wintypes.HANDLE,
+        ctypes.POINTER(_PROCESS_MEMORY_COUNTERS_EX),
+        wintypes.DWORD,
+    )
+    get_process_memory_info.restype = wintypes.BOOL
+    if not get_process_memory_info(
+        get_current_process(),
+        ctypes.byref(counters),
+        counters.cb,
+    ):
+        raise ctypes.WinError(ctypes.get_last_error())
+    return {
+        "peak_working_set_bytes": int(counters.PeakWorkingSetSize),
+        "private_bytes": int(counters.PrivateUsage),
+        "working_set_bytes": int(counters.WorkingSetSize),
+    }
+
+
+def _material(name: str, image):
+    material = bpy.data.materials.new(name)
+    material.use_nodes = True
+    tree = material.node_tree
+    tree.nodes.clear()
+    output = tree.nodes.new("ShaderNodeOutputMaterial")
+    output.is_active_output = True
+    principled = tree.nodes.new("ShaderNodeBsdfPrincipled")
+    texture = tree.nodes.new("ShaderNodeTexImage")
+    texture.image = image
+    tree.links.new(principled.outputs["BSDF"], output.inputs["Surface"])
+    tree.links.new(texture.outputs["Color"], principled.inputs["Base Color"])
+    return material
+
+
+def _grid_fixture(name, segments, image_sizes, material_count, uv_scale=1.0, uv_offset=0.0):
+    images = [
+        bpy.data.images.new(
+            f"{name}_IMAGE_{index:02d}", width=size, height=size, alpha=True
+        )
+        for index, size in enumerate(image_sizes)
+    ]
+    vertices = [
+        (float(x), float(y), 0.0)
+        for y in range(segments + 1)
+        for x in range(segments + 1)
+    ]
+    stride = segments + 1
+    faces = []
+    for y in range(segments):
+        for x in range(segments):
+            first = y * stride + x
+            faces.append((first, first + 1, first + stride + 1, first + stride))
+    mesh = bpy.data.meshes.new(f"{name}_MESH")
+    mesh.from_pydata(vertices, (), faces)
+    materials = [
+        _material(
+            f"{name}_MATERIAL_{index:02d}",
+            images[index % len(images)],
+        )
+        for index in range(material_count)
+    ]
+    for material in materials:
+        mesh.materials.append(material)
+    for polygon in mesh.polygons:
+        polygon.material_index = polygon.index % material_count
+    uv_layer = mesh.uv_layers.new(name="UVMap", do_init=False)
+    uv_layer.active_render = True
+    modern = getattr(uv_layer, "uv", None)
+    for loop in mesh.loops:
+        x, y, _z = vertices[loop.vertex_index]
+        uv = (
+            uv_offset + uv_scale * x / segments,
+            uv_offset + uv_scale * y / segments,
+        )
+        if modern is not None:
+            modern[loop.index].vector = uv
+        else:
+            uv_layer.data[loop.index].uv = uv
+    object_ = bpy.data.objects.new(name, mesh)
+    bpy.context.collection.objects.link(object_)
+    return object_, images, materials
+
+
+def _run_analysis(object_, *, clear_coverage):
+    if clear_coverage:
+        runtime.clear_coverage_cache()
+    started = time.perf_counter()
+    engine = AnalysisEngine((object_,), AnalysisConfig())
+    while not engine.step(4096):
+        pass
+    report = engine.finish()
+    elapsed = time.perf_counter() - started
+    return elapsed, dict(report.metrics)
+
+
+def _digest_benchmark(size: int) -> dict:
+    image = bpy.data.images.new(
+        f"AMS_DIGEST_{size}", width=size, height=size, alpha=True
+    )
+    times = []
+    retained = None
+    for run in range(6):
+        started = time.perf_counter()
+        snapshot = read_image_snapshot(image, channel="ALPHA", threshold=0.999)
+        elapsed = time.perf_counter() - started
+        if run:
+            times.append(elapsed)
+        retained = snapshot
+        if run < 5:
+            del snapshot
+            gc.collect()
+    prefix_started = time.perf_counter()
+    for row in range(size):
+        retained.grid.count_run(row, 0, size, AddressMode.REPEAT)
+    prefix_first = time.perf_counter() - prefix_started
+    prefix_started = time.perf_counter()
+    for row in range(size):
+        retained.grid.count_run(row, 0, size, AddressMode.REPEAT)
+    prefix_reuse = time.perf_counter() - prefix_started
+    result = {
+        "digest_seconds_median_5": statistics.median(times),
+        "digest_seconds_runs": times,
+        "image_size": size,
+        "prefix_build_seconds": prefix_first,
+        "prefix_reuse_seconds": prefix_reuse,
+        "memory": _memory(),
+        "texels": size * size,
+    }
+    del retained
+    bpy.data.images.remove(image)
+    gc.collect()
+    print(f"DIGEST {size} complete", flush=True)
+    return result
+
+
+def _analysis_benchmark(tier: dict) -> dict:
+    object_, images, materials = _grid_fixture(**tier)
+    cold_times = []
+    cold_metrics = None
+    for run in range(6):
+        elapsed, metrics = _run_analysis(object_, clear_coverage=True)
+        if run:
+            cold_times.append(elapsed)
+        cold_metrics = metrics
+    reuse_time, reuse_metrics = _run_analysis(object_, clear_coverage=False)
+    images[0].pixels[3] = 0.5
+    changed_image_time, changed_metrics = _run_analysis(
+        object_, clear_coverage=False
+    )
+    result = {
+        "cold_seconds_median_5": statistics.median(cold_times),
+        "cold_seconds_runs": cold_times,
+        "coverage_reuse_seconds": reuse_time,
+        "coverage_reuse_with_changed_image_seconds": changed_image_time,
+        "cold_metrics": cold_metrics,
+        "reuse_metrics": reuse_metrics,
+        "changed_image_metrics": changed_metrics,
+        "image_sizes": tier["image_sizes"],
+        "material_count": tier["material_count"],
+        "memory": _memory(),
+        "polygons": len(object_.data.polygons),
+        "triangles": len(object_.data.polygons) * 2,
+        "uv_scale": tier.get("uv_scale", 1.0),
+    }
+    mesh = object_.data
+    bpy.data.objects.remove(object_, do_unlink=True)
+    bpy.data.meshes.remove(mesh)
+    for material in materials:
+        bpy.data.materials.remove(material)
+    for image in images:
+        bpy.data.images.remove(image)
+    runtime.clear_coverage_cache()
+    gc.collect()
+    print(f"ANALYSIS {tier['name']} complete", flush=True)
+    return result
+
+
+def _pathological() -> dict:
+    triangle = (((0.0, 0.0), (1.0, 0.0), (0.0, 1_000_001.0)),)
+    started = time.perf_counter()
+    reason = ""
+    try:
+        rasterize_polygon(triangle, max_scanlines=1_000_000)
+    except RasterBudgetExceeded as error:
+        reason = error.budget
+    return {
+        "budget": reason,
+        "seconds": time.perf_counter() - started,
+        "terminated": reason == "scanlines",
+    }
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--output", type=Path, required=True)
+    args = parser.parse_args(argv)
+    tiers = (
+        {"name": "small", "segments": 70, "image_sizes": [1024], "material_count": 1},
+        {
+            "name": "typical",
+            "segments": 224,
+            "image_sizes": [2048, 2048, 4096],
+            "material_count": 10,
+        },
+        {
+            "name": "high",
+            "segments": 388,
+            "image_sizes": [4096, 4096, 8192],
+            "material_count": 16,
+        },
+        {
+            "name": "large_tiled_uv",
+            "segments": 70,
+            "image_sizes": [1024],
+            "material_count": 4,
+            "uv_scale": 4.0,
+            "uv_offset": -1.5,
+        },
+    )
+    result = {
+        "analysis": {tier["name"]: _analysis_benchmark(tier) for tier in tiers},
+        "blender_version": bpy.app.version_string,
+        "digest": {str(size): _digest_benchmark(size) for size in (1024, 2048, 4096, 8192)},
+        "machine": {
+            "platform": platform.platform(),
+            "processor": platform.processor(),
+            "python": platform.python_version(),
+        },
+        "method": "one discarded warm-up, median of five measured runs",
+        "pathological": _pathological(),
+        "schema_version": 1,
+    }
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    print(f"BENCHMARK_OUTPUT {args.output}", flush=True)
+    return 0
+
+
+if __name__ == "__main__":
+    script_args = sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []
+    raise SystemExit(main(script_args))

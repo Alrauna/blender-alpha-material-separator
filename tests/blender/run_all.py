@@ -17,6 +17,16 @@ import addon  # noqa: E402
 from tests.blender.test_material_characterization import (  # noqa: E402
     run as run_characterization_tests,
 )
+from tests.blender.test_analysis_preview import run as run_analysis_preview_tests  # noqa: E402
+from tests.blender.test_assignment import run as run_assignment_tests  # noqa: E402
+from tests.blender.test_assignment_policies import (  # noqa: E402
+    run as run_assignment_policy_tests,
+)
+from tests.blender.test_identity_transitions import (  # noqa: E402
+    run as run_identity_transition_tests,
+)
+from tests.blender.test_fbx_export import run as run_fbx_export_tests  # noqa: E402
+from tests.blender.test_preservation import run as run_preservation_tests  # noqa: E402
 
 
 def assert_operator_registered() -> None:
@@ -29,7 +39,8 @@ def assert_operator_registered() -> None:
     status = json.loads(state.last_status_json)
     assert capabilities["api_version"] == "1.0", capabilities
     assert capabilities["capabilities"]["query_capabilities"] is True
-    assert capabilities["capabilities"]["analysis"] is False
+    assert capabilities["capabilities"]["analysis"] is True
+    assert capabilities["capabilities"]["face_selection_preview"] is True
     assert status["code"] == "OK", status
 
 
@@ -38,15 +49,30 @@ def assert_unregistered() -> None:
         bpy.types.WindowManager, "alpha_material_separator_api"
     ), "WindowManager property leaked after unregister"
     assert not hasattr(
+        bpy.types.WindowManager, "alpha_material_separator_settings"
+    ), "WindowManager settings leaked after unregister"
+    assert not hasattr(
         bpy.types, "ALPHA_MATERIAL_SEPARATOR_PT_main"
     ), "Panel leaked after unregister"
+    assert not hasattr(
+        bpy.types.Material, "alpha_material_separator_source"
+    ), "Material source-pointer property leaked after unregister"
 
 
 def run() -> None:
-    for _ in range(2):
+    for iteration in range(2):
         addon.register()
         assert hasattr(bpy.types.WindowManager, "alpha_material_separator_api")
+        assert hasattr(bpy.types.WindowManager, "alpha_material_separator_settings")
+        assert hasattr(bpy.types.Material, "alpha_material_separator_source")
         assert_operator_registered()
+        if iteration == 0:
+            run_analysis_preview_tests()
+            run_assignment_tests()
+            run_assignment_policy_tests()
+            run_identity_transition_tests()
+            run_fbx_export_tests()
+            run_preservation_tests()
 
         clear_result = bpy.ops.alpha_material_separator.clear_results(api_major=1)
         assert clear_result == {"FINISHED"}, clear_result
