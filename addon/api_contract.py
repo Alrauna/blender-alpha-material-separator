@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-API_VERSION = (1, 0)
+API_VERSION = (1, 1)
 EXTENSION_VERSION = (0, 1, 0)
 
 PUBLIC_OPERATOR_IDS = (
@@ -58,6 +58,7 @@ def capability_payload() -> dict[str, Any]:
             "explicit_channel_override": True,
             "face_selection_preview": True,
             "material_assignment": True,
+            "per_material_overrides": True,
             "material_support_matrix_ready": True,
             "query_capabilities": True,
         },

@@ -27,6 +27,7 @@ from tests.blender.test_identity_transitions import (  # noqa: E402
 )
 from tests.blender.test_fbx_export import run as run_fbx_export_tests  # noqa: E402
 from tests.blender.test_preservation import run as run_preservation_tests  # noqa: E402
+from tests.blender.test_ux_overrides import run as run_ux_override_tests  # noqa: E402
 
 
 def assert_operator_registered() -> None:
@@ -37,10 +38,11 @@ def assert_operator_registered() -> None:
     state = bpy.context.window_manager.alpha_material_separator_api
     capabilities = json.loads(state.capabilities_json)
     status = json.loads(state.last_status_json)
-    assert capabilities["api_version"] == "1.0", capabilities
+    assert capabilities["api_version"] == "1.1", capabilities
     assert capabilities["capabilities"]["query_capabilities"] is True
     assert capabilities["capabilities"]["analysis"] is True
     assert capabilities["capabilities"]["face_selection_preview"] is True
+    assert capabilities["capabilities"]["per_material_overrides"] is True
     assert status["code"] == "OK", status
 
 
@@ -51,6 +53,9 @@ def assert_unregistered() -> None:
     assert not hasattr(
         bpy.types.WindowManager, "alpha_material_separator_settings"
     ), "WindowManager settings leaked after unregister"
+    assert not hasattr(
+        bpy.types.WindowManager, "alpha_material_separator_ui"
+    ), "WindowManager UI state leaked after unregister"
     assert not hasattr(
         bpy.types, "ALPHA_MATERIAL_SEPARATOR_PT_main"
     ), "Panel leaked after unregister"
@@ -64,6 +69,7 @@ def run() -> None:
         addon.register()
         assert hasattr(bpy.types.WindowManager, "alpha_material_separator_api")
         assert hasattr(bpy.types.WindowManager, "alpha_material_separator_settings")
+        assert hasattr(bpy.types.WindowManager, "alpha_material_separator_ui")
         assert hasattr(bpy.types.Material, "alpha_material_separator_source")
         assert_operator_registered()
         if iteration == 0:
@@ -73,6 +79,7 @@ def run() -> None:
             run_identity_transition_tests()
             run_fbx_export_tests()
             run_preservation_tests()
+            run_ux_override_tests()
 
         clear_result = bpy.ops.alpha_material_separator.clear_results(api_major=1)
         assert clear_result == {"FINISHED"}, clear_result

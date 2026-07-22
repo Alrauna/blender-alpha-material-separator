@@ -11,6 +11,7 @@ from bpy.props import EnumProperty, FloatProperty, IntProperty, StringProperty
 from .. import api_contract, runtime
 from ..adapters.analysis import AnalysisConfig, AnalysisEngine
 from ..core import AnalysisSettings
+from ..overrides import OverrideConfigError, parse_material_overrides_json
 
 
 def _mesh_objects(context: bpy.types.Context) -> tuple[bpy.types.Object, ...]:
@@ -27,6 +28,12 @@ class ALPHA_MATERIAL_SEPARATOR_OT_analyze(bpy.types.Operator):
 
     api_major: IntProperty(name="API Major", default=1, min=1)
     image_name: StringProperty(name="Image Override", default="")
+    material_overrides_json: StringProperty(
+        name="Per-Material Overrides",
+        description="JSON list of material-specific image, channel, UV, and addressing overrides",
+        default="[]",
+        options={"HIDDEN"},
+    )
     uv_map_name: StringProperty(name="UV Map Override", default="")
     image_channel: EnumProperty(
         name="Image Channel",
@@ -75,11 +82,20 @@ class ALPHA_MATERIAL_SEPARATOR_OT_analyze(bpy.types.Operator):
         state.last_status_json = api_contract.dumps(payload)
 
     def _config(self) -> AnalysisConfig:
+        material_overrides = parse_material_overrides_json(
+            self.material_overrides_json
+        )
+        if material_overrides and self.image_name:
+            raise OverrideConfigError(
+                "OVERRIDE_CONFLICT",
+                "Selection-wide image override cannot be combined with per-material overrides",
+            )
         return AnalysisConfig(
             image_name=self.image_name,
             uv_map_name=self.uv_map_name,
             image_channel=self.image_channel,
             address_mode=self.address_mode,
+            material_overrides=material_overrides,
             settings=AnalysisSettings(
                 alpha_threshold=self.alpha_threshold,
                 min_affected_texels=self.min_affected_texels,
@@ -104,14 +120,32 @@ class ALPHA_MATERIAL_SEPARATOR_OT_analyze(bpy.types.Operator):
         if not objects:
             self._status(context, "NO_ELIGIBLE_OBJECTS", "Select at least one mesh object")
             return False
+        if not runtime.begin_analysis(context.window_manager):
+            self._status(
+                context,
+                "ANALYSIS_ALREADY_RUNNING",
+                "An analysis is already running; cancel it or wait for it to finish",
+            )
+            return False
         try:
             self._engine = AnalysisEngine(
                 objects, self._config(), defer_images=defer_images
             )
+        except OverrideConfigError as error:
+            runtime.finish_analysis(context.window_manager)
+            self._status(context, error.code, str(error))
+            return False
         except Exception as error:
+            runtime.finish_analysis(context.window_manager)
             self._status(context, "ANALYSIS_PREPARE_FAILED", str(error))
             return False
         context.window_manager.progress_begin(0, max(1, self._engine.total))
+        runtime.update_analysis(
+            context.window_manager,
+            0,
+            self._engine.total,
+            "Analyzing faces",
+        )
         return True
 
     def _publish(self, context) -> set[str]:
@@ -127,6 +161,12 @@ class ALPHA_MATERIAL_SEPARATOR_OT_analyze(bpy.types.Operator):
             "Analysis completed; review the report before preview or assignment",
             report=payload,
         )
+        runtime.update_analysis(
+            context.window_manager,
+            self._engine.total,
+            self._engine.total,
+            "Analysis complete",
+        )
         return {"FINISHED"}
 
     def execute(self, context: bpy.types.Context) -> set[str]:
@@ -135,10 +175,20 @@ class ALPHA_MATERIAL_SEPARATOR_OT_analyze(bpy.types.Operator):
         try:
             while not self._engine.step(256):
                 context.window_manager.progress_update(self._engine.completed)
+                runtime.update_analysis(
+                    context.window_manager,
+                    self._engine.completed,
+                    self._engine.total,
+                    "Analyzing faces",
+                )
             context.window_manager.progress_update(self._engine.total)
             return self._publish(context)
+        except Exception as error:
+            self._status(context, "ANALYSIS_FAILED", str(error))
+            return {"CANCELLED"}
         finally:
             context.window_manager.progress_end()
+            runtime.finish_analysis(context.window_manager)
             self._engine = None
 
     def invoke(self, context: bpy.types.Context, _event) -> set[str]:
@@ -149,7 +199,9 @@ class ALPHA_MATERIAL_SEPARATOR_OT_analyze(bpy.types.Operator):
         return {"RUNNING_MODAL"}
 
     def modal(self, context: bpy.types.Context, event) -> set[str]:
-        if event.type == "ESC":
+        if event.type == "ESC" or runtime.cancellation_requested(
+            context.window_manager
+        ):
             self._engine.cancel()
             self._finish_modal(context)
             self._status(
@@ -163,6 +215,12 @@ class ALPHA_MATERIAL_SEPARATOR_OT_analyze(bpy.types.Operator):
         try:
             complete = self._engine.step(64)
             context.window_manager.progress_update(self._engine.completed)
+            runtime.update_analysis(
+                context.window_manager,
+                self._engine.completed,
+                self._engine.total,
+                "Analyzing faces",
+            )
             if not complete:
                 return {"RUNNING_MODAL"}
             result = self._publish(context)
@@ -178,3 +236,4 @@ class ALPHA_MATERIAL_SEPARATOR_OT_analyze(bpy.types.Operator):
             context.window_manager.event_timer_remove(self._timer)
         self._timer = None
         self._engine = None
+        runtime.finish_analysis(context.window_manager)

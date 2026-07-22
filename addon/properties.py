@@ -6,6 +6,7 @@ from __future__ import annotations
 import bpy
 from bpy.props import (
     BoolProperty,
+    CollectionProperty,
     EnumProperty,
     FloatProperty,
     IntProperty,
@@ -14,10 +15,34 @@ from bpy.props import (
 )
 
 
-def _settings_changed(_self, _context) -> None:
+def _settings_changed(_self, context) -> None:
     from . import runtime
 
     runtime.mark_dirty("SETTINGS_CHANGED")
+    runtime.clear_review(context.window_manager if context else None)
+
+
+def _policy_changed(_self, context) -> None:
+    from . import runtime
+
+    runtime.clear_review(context.window_manager if context else None)
+
+
+_CHANNEL_ITEMS = (
+    ("ALPHA", "Alpha", "Use the image's stored alpha channel"),
+    ("RED", "Red", "Use red as the alpha mask"),
+    ("GREEN", "Green", "Use green as the alpha mask"),
+    ("BLUE", "Blue", "Use blue as the alpha mask"),
+    ("LUMINANCE", "Luminance", "Use linear RGB luminance as the alpha mask"),
+)
+
+_ADDRESS_ITEMS = (
+    ("AUTO", "Automatic", "Use the resolved Image Texture addressing"),
+    ("REPEAT", "Repeat", "Repeat the image outside its base UV tile"),
+    ("EXTEND", "Extend", "Extend edge pixels outside the base UV tile"),
+    ("CLIP", "Clip", "Treat cells outside the image as transparent"),
+    ("MIRROR", "Mirror", "Repeat with alternating mirrored tiles"),
+)
 
 
 class ALPHA_MATERIAL_SEPARATOR_PG_api_state(bpy.types.PropertyGroup):
@@ -32,9 +57,69 @@ class ALPHA_MATERIAL_SEPARATOR_PG_api_state(bpy.types.PropertyGroup):
     report_json: StringProperty(name="Analysis Report", default="{}")
 
 
+class ALPHA_MATERIAL_SEPARATOR_PG_material_override(bpy.types.PropertyGroup):
+    """One transient manual alpha source targeted at a Blender material."""
+
+    material: PointerProperty(
+        name="Target Material",
+        description="Only this material uses the manual settings below",
+        type=bpy.types.Material,
+        update=_settings_changed,
+    )
+    image: PointerProperty(
+        name="Alpha Image",
+        description="Optional image containing the alpha or mask channel",
+        type=bpy.types.Image,
+        update=_settings_changed,
+    )
+    image_channel: EnumProperty(
+        name="Image Channel",
+        description="Channel to classify; available only with an explicit image",
+        items=_CHANNEL_ITEMS,
+        default="ALPHA",
+        update=_settings_changed,
+    )
+    uv_map_name: StringProperty(
+        name="UV Map",
+        description="Optional exact UV map name; blank uses the resolved active render UV",
+        default="",
+        update=_settings_changed,
+    )
+    address_mode: EnumProperty(
+        name="Addressing",
+        description="How UVs outside the image tile are interpreted",
+        items=_ADDRESS_ITEMS,
+        default="AUTO",
+        update=_settings_changed,
+    )
+
+
+class ALPHA_MATERIAL_SEPARATOR_PG_ui_state(bpy.types.PropertyGroup):
+    """Private transient state for the guided panel."""
+
+    mode: EnumProperty(
+        name="Interface",
+        description="Simple shows the guided workflow; Expert adds manual controls",
+        items=(
+            ("SIMPLE", "Simple", "Guided Analyze, Review, and Apply workflow"),
+            ("EXPERT", "Expert", "Show advanced settings and diagnostics"),
+        ),
+        default="SIMPLE",
+    )
+    is_analyzing: BoolProperty(default=False, options={"SKIP_SAVE"})
+    analysis_progress: FloatProperty(default=0.0, min=0.0, max=1.0, options={"SKIP_SAVE"})
+    analysis_stage: StringProperty(default="", options={"SKIP_SAVE"})
+    cancel_requested: BoolProperty(default=False, options={"SKIP_SAVE"})
+    reviewed_analysis_id: StringProperty(default="", options={"SKIP_SAVE"})
+    reviewed_policy_signature: StringProperty(default="", options={"SKIP_SAVE"})
+    last_completion_json: StringProperty(default="{}", options={"SKIP_SAVE"})
+    override_index: IntProperty(default=0, min=0, options={"SKIP_SAVE"})
+
+
 class ALPHA_MATERIAL_SEPARATOR_PG_settings(bpy.types.PropertyGroup):
     alpha_threshold: FloatProperty(
         name="Alpha Threshold",
+        description="Pixels below this value count as alpha-affected",
         default=0.999,
         min=0.0,
         max=1.0,
@@ -42,10 +127,15 @@ class ALPHA_MATERIAL_SEPARATOR_PG_settings(bpy.types.PropertyGroup):
         update=_settings_changed,
     )
     min_affected_texels: IntProperty(
-        name="Minimum Affected Texels", default=1, min=0, update=_settings_changed
+        name="Minimum Affected Pixels",
+        description="Minimum affected covered pixels needed for a significant result",
+        default=1,
+        min=0,
+        update=_settings_changed,
     )
     min_affected_fraction: FloatProperty(
         name="Minimum Affected Fraction",
+        description="Minimum affected share needed for a significant result",
         default=0.0,
         min=0.0,
         max=1.0,
@@ -53,92 +143,107 @@ class ALPHA_MATERIAL_SEPARATOR_PG_settings(bpy.types.PropertyGroup):
         update=_settings_changed,
     )
     margin_texels: IntProperty(
-        name="Texel Margin", default=0, min=0, update=_settings_changed
+        name="Pixel Margin",
+        description="Expand UV coverage by this many image pixels after face coverage is combined",
+        default=0,
+        min=0,
+        update=_settings_changed,
     )
     max_scanlines: IntProperty(
-        name="Maximum Scanlines", default=1_000_000, min=1, update=_settings_changed
+        name="Maximum Scanlines",
+        description="Deterministic safety limit per polygon",
+        default=1_000_000,
+        min=1,
+        update=_settings_changed,
     )
     max_run_emissions: IntProperty(
-        name="Maximum Run Emissions",
+        name="Maximum Pixel Runs",
+        description="Deterministic raster-run safety limit per polygon",
         default=2_000_000,
         min=1,
         update=_settings_changed,
     )
+
+    # Legacy selection-wide properties remain for API compatibility but are no
+    # longer shown in the end-user UI.
     image_override: PointerProperty(
-        name="Analysis Image", type=bpy.types.Image, update=_settings_changed
+        name="Legacy Analysis Image", type=bpy.types.Image, update=_settings_changed
     )
     uv_map_name: StringProperty(
-        name="UV Map Override", default="", update=_settings_changed
+        name="Legacy UV Map Override", default="", update=_settings_changed
     )
     image_channel: EnumProperty(
-        name="Image Channel",
-        items=(
-            ("ALPHA", "Alpha", "Use stored image alpha"),
-            ("RED", "Red", "Use red as the analysis mask"),
-            ("GREEN", "Green", "Use green as the analysis mask"),
-            ("BLUE", "Blue", "Use blue as the analysis mask"),
-            ("LUMINANCE", "Luminance", "Use linear RGB luminance as the mask"),
-        ),
+        name="Legacy Image Channel",
+        items=_CHANNEL_ITEMS,
         default="ALPHA",
         update=_settings_changed,
     )
     address_mode: EnumProperty(
-        name="Address Mode",
-        items=(
-            ("AUTO", "Automatic", "Use the resolved Image Texture setting"),
-            ("REPEAT", "Repeat", "Repeat the image"),
-            ("EXTEND", "Extend", "Extend edge texels"),
-            ("CLIP", "Clip", "Treat outside-image cells as transparent"),
-            ("MIRROR", "Mirror", "Repeat with mirrored tiles"),
-        ),
+        name="Default Addressing",
+        description="Addressing used by automatic sources unless a material override replaces it",
+        items=_ADDRESS_ITEMS,
         default="AUTO",
         update=_settings_changed,
     )
+    material_overrides: CollectionProperty(
+        name="Manual Alpha Sources",
+        type=ALPHA_MATERIAL_SEPARATOR_PG_material_override,
+    )
+
     preview_classes: EnumProperty(
-        name="Preview Classes",
+        name="Inspect Classes",
+        description="Expert-only selection of result classes to inspect",
         items=(
-            ("OPAQUE", "Opaque", "No below-threshold texels", 1),
-            ("ALPHA_AFFECTED", "Alpha-affected", "All covered texels are affected", 2),
-            ("MIXED", "Mixed", "Affected and opaque texels coexist", 4),
-            ("SUPPRESSED", "Suppressed", "Evidence is below significance gates", 8),
-            ("UNSUPPORTED", "Unsupported", "No trustworthy result", 16),
+            ("OPAQUE", "Stay opaque", "No below-threshold covered pixels", 1),
+            ("ALPHA_AFFECTED", "Move to alpha", "Every covered pixel is affected", 2),
+            ("MIXED", "Mixed", "Affected and opaque pixels coexist", 4),
+            ("SUPPRESSED", "Below significance", "Alpha evidence is below the minimum", 8),
+            ("UNSUPPORTED", "Could not analyze", "No trustworthy result", 16),
         ),
         options={"ENUM_FLAG"},
         default={"ALPHA_AFFECTED", "MIXED"},
     )
-    enter_edit_mode: BoolProperty(name="Enter Edit Mode", default=True)
+    enter_edit_mode: BoolProperty(
+        name="Enter Edit Mode",
+        description="Enter multi-object Edit Mode so the preview selection is visible",
+        default=True,
+    )
     mixed_policy: EnumProperty(
         name="Mixed Faces",
         items=(
-            ("TO_ALPHA", "Move to Alpha", "Conservative transparent result"),
-            ("KEEP_SOURCE", "Keep Source", "Leave mixed faces opaque"),
-            ("CANCEL_SOURCE_MATERIAL", "Block Source", "Skip this material group"),
+            ("TO_ALPHA", "Move to alpha", "Conservative transparent result"),
+            ("KEEP_SOURCE", "Keep on source", "Leave mixed faces on the opaque candidate"),
+            ("CANCEL_SOURCE_MATERIAL", "Skip entire material group", "Do not change this material group"),
         ),
         default="TO_ALPHA",
+        update=_policy_changed,
     )
     suppressed_policy: EnumProperty(
-        name="Suppressed Evidence",
+        name="Below-Significance Evidence",
         items=(
-            ("CANCEL_SOURCE_MATERIAL", "Block Source", "Conservative default"),
-            ("TO_ALPHA", "Move to Alpha", "Move after review"),
-            ("KEEP_SOURCE", "Keep Source", "Leave after review"),
+            ("CANCEL_SOURCE_MATERIAL", "Skip entire material group", "Conservative default"),
+            ("TO_ALPHA", "Move to alpha", "Move after informed review"),
+            ("KEEP_SOURCE", "Keep on source", "Leave after informed review"),
         ),
         default="CANCEL_SOURCE_MATERIAL",
+        update=_policy_changed,
     )
     unsupported_policy: EnumProperty(
-        name="Unsupported Faces",
+        name="Could Not Analyze",
         items=(
-            ("CANCEL_SOURCE_MATERIAL", "Block Source", "Conservative default"),
-            ("KEEP_SOURCE", "Keep Source", "Leave unsupported faces unchanged"),
+            ("CANCEL_SOURCE_MATERIAL", "Skip entire material group", "Conservative default"),
+            ("KEEP_SOURCE", "Keep on source", "Leave unsupported faces unchanged"),
         ),
         default="CANCEL_SOURCE_MATERIAL",
+        update=_policy_changed,
     )
     derived_conflict_policy: EnumProperty(
-        name="Derived Conflicts",
+        name="Alpha-Material Conflicts",
         items=(
-            ("CANCEL_SOURCE_MATERIAL", "Block Source", "Preserve conflicting data"),
-            ("REUSE_EXISTING", "Reuse Existing", "Explicitly reuse the old variant"),
-            ("CREATE_NEW_VARIANT", "Create New", "Preserve the old variant"),
+            ("CANCEL_SOURCE_MATERIAL", "Skip entire material group", "Preserve conflicting data"),
+            ("REUSE_EXISTING", "Reuse existing", "Explicitly retain the existing variant"),
+            ("CREATE_NEW_VARIANT", "Create a new variant", "Preserve the old variant"),
         ),
         default="CANCEL_SOURCE_MATERIAL",
+        update=_policy_changed,
     )

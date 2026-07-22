@@ -13,8 +13,8 @@ class ALPHA_MATERIAL_SEPARATOR_OT_clear_results(bpy.types.Operator):
     """Clear extension reports and caches without touching Blender data."""
 
     bl_idname = "alpha_material_separator.clear_results"
-    bl_label = "Clear Alpha Material Separator Results"
-    bl_description = "Clear transient Alpha Material Separator results"
+    bl_label = "Reset Alpha Material Separator Results"
+    bl_description = "Reset transient Alpha Material Separator results"
     bl_options = {"INTERNAL"}
 
     api_major: IntProperty(name="API Major", default=1, min=1)

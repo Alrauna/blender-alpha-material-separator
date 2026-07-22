@@ -25,6 +25,7 @@ from ..core import (
     rasterize_polygon,
     uv_to_texel_edge,
 )
+from ..overrides import MaterialOverride, OverrideConfigError
 from .fingerprints import material_fingerprint, source_fingerprint
 from .image_data import (
     AnalysisImageCache,
@@ -42,12 +43,14 @@ class AnalysisConfig:
     image_channel: str = "ALPHA"
     address_mode: str = "AUTO"
     settings: AnalysisSettings = AnalysisSettings()
+    material_overrides: tuple[MaterialOverride, ...] = ()
 
     def payload(self) -> dict[str, Any]:
         return {
             "address_mode": self.address_mode,
             "image_channel": self.image_channel,
             "image_name": self.image_name,
+            "material_overrides": [item.payload() for item in self.material_overrides],
             "settings": asdict(self.settings),
             "uv_map_name": self.uv_map_name,
         }
@@ -100,6 +103,8 @@ class AnalysisReport:
         object_payload = []
         planned_materials: set[int] = set()
         estimated_slots = 0
+        analyzed_objects = 0
+        analyzed_polygons = 0
         for result in self.object_results.values():
             if result.skipped_reason:
                 object_payload.append(
@@ -109,25 +114,67 @@ class AnalysisReport:
                     }
                 )
                 continue
+            analyzed_objects += 1
+            analyzed_polygons += len(result.faces)
             groups = []
-            for group in result.groups.values():
+            for material_pointer, group in result.groups.items():
                 move_count = len(group.face_indices[FaceClass.ALPHA_AFFECTED]) + len(
                     group.face_indices[FaceClass.MIXED]
                 )
                 if move_count:
                     planned_materials.add(group.material.as_pointer())
                     estimated_slots += 1
+                group_faces = tuple(
+                    face
+                    for face in result.faces.values()
+                    if face.material_pointer == material_pointer
+                )
+                unsupported_reasons = Counter(
+                    face.result.unsupported_reason
+                    for face in group_faces
+                    if face.result.unsupported_reason
+                )
+                suppressed_failed_gates = Counter(
+                    gate
+                    for face in group_faces
+                    if face.result.classification == FaceClass.SUPPRESSED
+                    for gate in face.result.failed_gates
+                )
+                suppressed_shapes = Counter(
+                    face.result.unsuppressed_shape.value
+                    for face in group_faces
+                    if face.result.classification == FaceClass.SUPPRESSED
+                    and face.result.unsuppressed_shape is not None
+                )
+                resolution = group.resolution
                 groups.append(
                     {
                         "affected_texels": group.affected_texels,
+                        "address_mode": resolution.address_mode.value,
+                        "alpha_material": f"{group.material.name}__AMS_ALPHA",
+                        "channel": resolution.channel,
                         "counts": {
                             face_class.value: int(group.counts[face_class])
                             for face_class in FaceClass
                         },
+                        "covered_texels": group.covered_texels,
+                        "image": resolution.image.name_full if resolution.image else "",
                         "material": group.material.name,
-                        "resolution": group.resolution.source_kind
-                        if group.resolution.supported
-                        else group.resolution.reason,
+                        "resolution": resolution.source_kind
+                        if resolution.supported
+                        else resolution.reason,
+                        "source_kind": resolution.source_kind,
+                        "supported": resolution.supported,
+                        "suppressed_failed_gates": dict(
+                            sorted(suppressed_failed_gates.items())
+                        ),
+                        "suppressed_unsuppressed_shapes": dict(
+                            sorted(suppressed_shapes.items())
+                        ),
+                        "unsupported_reasons": dict(
+                            sorted(unsupported_reasons.items())
+                        ),
+                        "uv_map": resolution.uv_map_name,
                     }
                 )
             object_payload.append(
@@ -139,6 +186,8 @@ class AnalysisReport:
             )
         return {
             "analysis_id": self.analysis_id,
+            "analyzed_object_count": analyzed_objects,
+            "analyzed_polygon_count": analyzed_polygons,
             "counts": {
                 face_class.value: int(self.counts[face_class])
                 for face_class in FaceClass
@@ -148,6 +197,7 @@ class AnalysisReport:
             "materials_to_create_or_reuse": len(planned_materials),
             "metrics": dict(sorted(self.metrics.items())),
             "objects": object_payload,
+            "selected_object_count": len(self.objects),
             "skip_counts": dict(sorted(self.skip_counts.items())),
         }
 
@@ -220,9 +270,18 @@ def _prepare(
     load_images: bool = True,
 ) -> tuple[list[_PreparedObject], AnalysisImageCache, str]:
     image_cache = image_cache or AnalysisImageCache()
+    if config.material_overrides and config.image_name:
+        raise OverrideConfigError(
+            "OVERRIDE_CONFLICT",
+            "Legacy selection-wide image override cannot be combined with per-material overrides",
+        )
     signature = _Signature()
     signature.add(config.payload())
     explicit_image = _explicit_image(config)
+    override_by_material = {
+        item.material_name: item for item in config.material_overrides
+    }
+    encountered_materials: set[str] = set()
     signature.add(
         {
             "explicit_image_requested": config.image_name,
@@ -300,8 +359,31 @@ def _prepare(
             )
             if material is None:
                 continue
+            encountered_materials.add(material.name_full)
             signature.add(material_fingerprint(material))
-            if config.image_name and explicit_image is None:
+            material_override = override_by_material.get(material.name_full)
+            if material_override is not None:
+                override_image = (
+                    bpy.data.images.get(material_override.image_name)
+                    if material_override.image_name
+                    else None
+                )
+                if material_override.image_name and override_image is None:
+                    resolution = MaterialResolution(
+                        material=material,
+                        supported=False,
+                        reason="IMAGE_OVERRIDE_NOT_FOUND",
+                    )
+                else:
+                    resolution = resolve_material(
+                        material,
+                        mesh,
+                        explicit_image=override_image,
+                        explicit_uv=material_override.uv_map_name,
+                        explicit_channel=material_override.image_channel,
+                        requested_address_mode=material_override.address_mode,
+                    )
+            elif config.image_name and explicit_image is None:
                 resolution = MaterialResolution(
                     material=material,
                     supported=False,
@@ -380,6 +462,13 @@ def _prepare(
                 snapshots=snapshots,
                 triangle_loops=triangle_loops,
             )
+        )
+    unused_overrides = sorted(set(override_by_material) - encountered_materials)
+    if unused_overrides:
+        raise OverrideConfigError(
+            "OVERRIDE_TARGET_NOT_SELECTED",
+            "Override target material is not used by the selected meshes: "
+            + ", ".join(unused_overrides),
         )
     return prepared, image_cache, signature.hexdigest()
 

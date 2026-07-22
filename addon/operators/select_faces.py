@@ -8,6 +8,7 @@ from bpy.props import BoolProperty, EnumProperty, IntProperty, StringProperty
 
 from .. import api_contract, runtime
 from ..adapters.analysis import validate_report
+from ..presentation import classes_to_move, review_signature
 
 
 class ALPHA_MATERIAL_SEPARATOR_OT_select_faces(bpy.types.Operator):
@@ -44,6 +45,7 @@ class ALPHA_MATERIAL_SEPARATOR_OT_select_faces(bpy.types.Operator):
     enter_edit_mode: BoolProperty(name="Enter Edit Mode", default=True)
 
     def _fail(self, context, code: str, message: str) -> set[str]:
+        runtime.clear_review(context.window_manager)
         state = context.window_manager.alpha_material_separator_api
         state.last_status_code = code
         state.last_status_json = api_contract.dumps(api_contract.status_payload(code, message))
@@ -111,6 +113,12 @@ class ALPHA_MATERIAL_SEPARATOR_OT_select_faces(bpy.types.Operator):
             context.tool_settings.mesh_select_mode = (False, False, True)
             bpy.ops.object.mode_set(mode="EDIT")
 
+        # Face selection itself can emit a generic Mesh depsgraph hint even
+        # though selection is not part of the authoritative analysis signature.
+        # Flush that hint before recording the reviewed-preview token.
+        context.view_layer.update()
+        runtime.clear_dirty()
+
         state = context.window_manager.alpha_material_separator_api
         status = api_contract.status_payload(
             "PREVIEW_COMPLETE",
@@ -121,4 +129,22 @@ class ALPHA_MATERIAL_SEPARATOR_OT_select_faces(bpy.types.Operator):
         )
         state.last_status_code = status["code"]
         state.last_status_json = api_contract.dumps(status)
+        settings = context.window_manager.alpha_material_separator_settings
+        expected_classes = set(
+            classes_to_move(settings.mixed_policy, settings.suppressed_policy)
+        )
+        if self.selection_mode == "REPLACE" and set(self.classes) == expected_classes:
+            signature = review_signature(
+                report.analysis_id,
+                settings.mixed_policy,
+                settings.suppressed_policy,
+                settings.unsupported_policy,
+                settings.derived_conflict_policy,
+            )
+            runtime.set_review(
+                context.window_manager, report.analysis_id, signature
+            )
+        else:
+            runtime.clear_review(context.window_manager)
+        runtime.tag_redraw()
         return {"FINISHED"}

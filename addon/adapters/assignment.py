@@ -41,6 +41,16 @@ class AssignmentPlan:
             "blocked": list(self.blocked),
             "faces_to_reassign": sum(len(item.face_indices) for item in self.mutations),
             "planned_additional_slots": self.planned_slots,
+            "destinations": {
+                source.name: (
+                    self.decisions[pointer].material.name
+                    if self.decisions[pointer].material is not None
+                    else f"{source.name}__AMS_ALPHA"
+                )
+                for pointer, source in self.sources.items()
+                if pointer in self.decisions
+                and self.decisions[pointer].action in {"CREATE", "REUSE"}
+            },
             "source_decisions": {
                 source.name: self.decisions[pointer].action
                 for pointer, source in self.sources.items()
@@ -219,4 +229,15 @@ def execute_assignment_plan(plan: AssignmentPlan) -> dict:
         "reused_materials": sum(
             decision.action == "REUSE" for decision in plan.decisions.values()
         ),
+        "materials": [
+            {
+                "action": plan.decisions[pointer].action,
+                "derived": material.name,
+                "source": plan.sources[pointer].name,
+            }
+            for pointer, material in sorted(
+                created.items(), key=lambda item: plan.sources[item[0]].name
+            )
+        ],
+        "skipped_material_groups": len(plan.blocked),
     }

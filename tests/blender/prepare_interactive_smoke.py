@@ -17,7 +17,9 @@ import addon  # noqa: E402
 
 
 def _alpha_image(size: int = 1024) -> bpy.types.Image:
-    image = bpy.data.images.new("AMS_UI_ALPHA", width=size, height=size, alpha=True)
+    image = bpy.data.images.new(
+        "AMS_UI_ALPHA_GENERATED", width=size, height=size, alpha=True
+    )
     row = array("f")
     for x in range(size):
         alpha = 0.25 if x < size // 2 else 1.0
@@ -25,7 +27,16 @@ def _alpha_image(size: int = 1024) -> bpy.types.Image:
     pixels = row * size
     image.pixels.foreach_set(pixels)
     image.update()
-    return image
+    output = REPOSITORY_ROOT / ".test-output" / "ams-ui-alpha.png"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    image.filepath_raw = str(output)
+    image.file_format = "PNG"
+    image.save()
+    bpy.data.images.remove(image)
+    packed = bpy.data.images.load(str(output), check_existing=False)
+    packed.name = "AMS_UI_ALPHA"
+    packed.pack()
+    return packed
 
 
 def _material(image: bpy.types.Image) -> bpy.types.Material:
@@ -92,11 +103,21 @@ def main() -> None:
         "ALPHA_AFFECTED",
         "MIXED",
     }
-    for area in bpy.context.screen.areas:
-        if area.type == "VIEW_3D":
-            with bpy.context.temp_override(area=area):
-                bpy.ops.view3d.view_selected(use_all_regions=False)
-            break
+    if not bpy.app.background:
+        for area in bpy.context.screen.areas:
+            if area.type == "VIEW_3D":
+                region = next(
+                    (item for item in area.regions if item.type == "WINDOW"), None
+                )
+                if region is not None:
+                    with bpy.context.temp_override(area=area, region=region):
+                        bpy.ops.view3d.view_selected(use_all_regions=False)
+                break
+    if bpy.app.background:
+        output = REPOSITORY_ROOT / ".test-output" / "interactive-smoke.blend"
+        output.parent.mkdir(parents=True, exist_ok=True)
+        bpy.ops.wm.save_as_mainfile(filepath=str(output))
+        print(f"ALPHA_MATERIAL_SEPARATOR_INTERACTIVE_FIXTURE={output}", flush=True)
     print("ALPHA_MATERIAL_SEPARATOR_INTERACTIVE_SCENE_READY", flush=True)
 
 
