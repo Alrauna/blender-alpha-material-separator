@@ -40,6 +40,19 @@ class ReadmeContractTests(unittest.TestCase):
         ):
             self.assertIn(text, self.text)
 
+    def test_partial_apply_and_mode_revalidation_are_documented(self) -> None:
+        for text in (
+            "face-local uncertainty to alpha",
+            "stays completely unchanged",
+            "does not require another analysis",
+            "final synchronous check",
+        ):
+            self.assertIn(text, self.text)
+        self.assertNotIn(
+            "One uncertain face can conservatively skip its entire source-material group",
+            self.text,
+        )
+
     def test_required_end_user_sections_exist_in_order(self) -> None:
         headings = (
             "What it does",

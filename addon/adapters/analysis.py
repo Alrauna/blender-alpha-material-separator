@@ -26,6 +26,7 @@ from ..core import (
     uv_to_texel_edge,
 )
 from ..overrides import MaterialOverride, OverrideConfigError
+from ..unsupported import unsupported_scope
 from .fingerprints import material_fingerprint, source_fingerprint
 from .image_data import (
     AnalysisImageCache,
@@ -90,6 +91,7 @@ class ObjectAnalysis:
 class AnalysisReport:
     analysis_id: str
     input_signature: str
+    structural_signature: str
     config: AnalysisConfig
     objects: tuple[bpy.types.Object, ...]
     object_results: dict[int, ObjectAnalysis]
@@ -111,6 +113,7 @@ class AnalysisReport:
                     {
                         "name": result.object.name,
                         "skip_reason": result.skipped_reason,
+                        "unsupported_scope": "DATA_SAFETY",
                     }
                 )
                 continue
@@ -118,12 +121,6 @@ class AnalysisReport:
             analyzed_polygons += len(result.faces)
             groups = []
             for material_pointer, group in result.groups.items():
-                move_count = len(group.face_indices[FaceClass.ALPHA_AFFECTED]) + len(
-                    group.face_indices[FaceClass.MIXED]
-                )
-                if move_count:
-                    planned_materials.add(group.material.as_pointer())
-                    estimated_slots += 1
                 group_faces = tuple(
                     face
                     for face in result.faces.values()
@@ -134,6 +131,38 @@ class AnalysisReport:
                     for face in group_faces
                     if face.result.unsupported_reason
                 )
+                unsupported_scopes = Counter(
+                    unsupported_scope(
+                        face.result.unsupported_reason,
+                        material_supported=group.resolution.supported,
+                    )
+                    for face in group_faces
+                    if face.result.classification == FaceClass.UNSUPPORTED
+                )
+                move_count = (
+                    len(group.face_indices[FaceClass.ALPHA_AFFECTED])
+                    + len(group.face_indices[FaceClass.MIXED])
+                    + int(unsupported_scopes["FACE_LOCAL"])
+                )
+                if group.resolution.supported and move_count:
+                    planned_materials.add(group.material.as_pointer())
+                    estimated_slots += 1
+                if not group.resolution.supported:
+                    default_disposition = "LEAVE_UNCHANGED"
+                    default_planned_action = "LEAVE_UNCHANGED_NO_ALPHA_SOURCE"
+                elif group.counts[FaceClass.SUPPRESSED]:
+                    default_disposition = "REVIEW_REQUIRED"
+                    default_planned_action = "SKIP_GROUP"
+                elif move_count:
+                    default_disposition = "SPLIT"
+                    default_planned_action = (
+                        "MOVE_UNCERTAIN_TO_ALPHA"
+                        if unsupported_scopes["FACE_LOCAL"]
+                        else "MOVE_TO_ALPHA"
+                    )
+                else:
+                    default_disposition = "NO_CHANGES"
+                    default_planned_action = "NO_CHANGES_NEEDED"
                 suppressed_failed_gates = Counter(
                     gate
                     for face in group_faces
@@ -158,6 +187,8 @@ class AnalysisReport:
                             for face_class in FaceClass
                         },
                         "covered_texels": group.covered_texels,
+                        "default_disposition": default_disposition,
+                        "default_planned_action": default_planned_action,
                         "image": resolution.image.name_full if resolution.image else "",
                         "material": group.material.name,
                         "resolution": resolution.source_kind
@@ -173,6 +204,9 @@ class AnalysisReport:
                         ),
                         "unsupported_reasons": dict(
                             sorted(unsupported_reasons.items())
+                        ),
+                        "unsupported_scopes": dict(
+                            sorted(unsupported_scopes.items())
                         ),
                         "uv_map": resolution.uv_map_name,
                     }
@@ -199,6 +233,21 @@ class AnalysisReport:
             "objects": object_payload,
             "selected_object_count": len(self.objects),
             "skip_counts": dict(sorted(self.skip_counts.items())),
+            "validation_state": (
+                runtime.validation_state()
+                if runtime.report(self.analysis_id) is self
+                else runtime.VALIDATION_CLEAN
+            ),
+            "pending_scopes": (
+                sorted(runtime.pending_scopes())
+                if runtime.report(self.analysis_id) is self
+                else []
+            ),
+            "dirty_reason": (
+                runtime.dirty_reason()
+                if runtime.report(self.analysis_id) is self
+                else ""
+            ),
         }
 
 
@@ -256,6 +305,144 @@ def _mesh_is_safe(object_: bpy.types.Object) -> str:
     if object_.override_library is not None and not getattr(mesh, "is_editable", True):
         return "OVERRIDE_RESTRICTED_MESH"
     return ""
+
+
+def _material_image_states(material: bpy.types.Material) -> list[dict[str, Any]]:
+    """Return cheap image binding/state inputs without reading pixel buffers."""
+
+    states: list[dict[str, Any]] = []
+    visited: set[int] = set()
+
+    def visit(tree) -> None:
+        if tree is None:
+            return
+        pointer = tree.as_pointer()
+        if pointer in visited:
+            return
+        visited.add(pointer)
+        for node in sorted(tree.nodes, key=lambda item: (item.name, item.bl_idname)):
+            image = getattr(node, "image", None)
+            if image is not None:
+                states.append(
+                    {
+                        "alpha_mode": image.alpha_mode,
+                        "channels": image.channels,
+                        "dimensions": [int(image.size[0]), int(image.size[1])],
+                        "filepath": image.filepath,
+                        "image_name": image.name_full,
+                        "image_pointer": image.as_pointer(),
+                        "is_dirty": bool(image.is_dirty),
+                        "node": node.name,
+                        "packed": bool(image.packed_file),
+                        "source": image.source,
+                    }
+                )
+            child = getattr(node, "node_tree", None)
+            if child is not None:
+                visit(child)
+
+    visit(material.node_tree)
+    return states
+
+
+def _structural_signature(objects: Iterable[bpy.types.Object]) -> str:
+    """Hash every mesh-side analysis input without reading image pixels.
+
+    Face selection, active selection, object transforms, and Object/Edit Mode
+    are intentionally absent: none changes which base-mesh UV texels a polygon
+    covers.  Material graph and image content remain in the authoritative full
+    signature and are rechecked whenever their datablocks emit a hint.
+    """
+
+    signature = _Signature()
+    signature.add("ALPHA_MATERIAL_SEPARATOR_STRUCTURAL_V1")
+    for object_ in sorted(objects, key=lambda item: (item.name_full, item.as_pointer())):
+        if object_.type != "MESH":
+            signature.add(
+                {
+                    "object_name": object_.name_full,
+                    "object_pointer": object_.as_pointer(),
+                    "object_type": object_.type,
+                }
+            )
+            continue
+        mesh = object_.data
+        unsafe = _mesh_is_safe(object_)
+        signature.add(
+            {
+                "mesh_editable": getattr(mesh, "is_editable", True),
+                "mesh_library": mesh.library.filepath if mesh.library else "",
+                "mesh_name": mesh.name_full,
+                "mesh_pointer": mesh.as_pointer(),
+                "mesh_users": mesh.users,
+                "object_name": object_.name_full,
+                "object_pointer": object_.as_pointer(),
+                "object_type": object_.type,
+                "skip": unsafe,
+            }
+        )
+        for vertex in mesh.vertices:
+            signature.add_bytes(struct.pack("<3d", *vertex.co))
+        for edge in mesh.edges:
+            signature.add_bytes(struct.pack("<2I", *edge.vertices))
+        for loop in mesh.loops:
+            signature.add_bytes(struct.pack("<I", loop.vertex_index))
+        for polygon in mesh.polygons:
+            signature.add_bytes(
+                struct.pack(
+                    "<3I",
+                    polygon.loop_start,
+                    polygon.loop_total,
+                    polygon.material_index,
+                )
+            )
+        active_uv = mesh.uv_layers.active
+        signature.add(
+            {
+                "active_uv": active_uv.name if active_uv else "",
+                "uv_layers": [
+                    {
+                        "active_render": bool(getattr(layer, "active_render", False)),
+                        "name": layer.name,
+                    }
+                    for layer in mesh.uv_layers
+                ],
+            }
+        )
+        for layer in mesh.uv_layers:
+            for uv in _uv_values(layer):
+                signature.add_bytes(struct.pack("<2d", *uv))
+        signature.add({"slot_count": len(object_.material_slots)})
+        for slot_index, slot in enumerate(object_.material_slots):
+            material = slot.material
+            signature.add(
+                {
+                    "link": slot.link,
+                    "material_fingerprint": (
+                        material_fingerprint(material) if material else ""
+                    ),
+                    "material_images": (
+                        _material_image_states(material) if material else []
+                    ),
+                    "material_name": material.name_full if material else "",
+                    "material_pointer": material.as_pointer() if material else 0,
+                    "slot_index": slot_index,
+                }
+            )
+    return signature.hexdigest()
+
+
+def _requires_conservative_image_recheck(report: AnalysisReport) -> bool:
+    """Generated or already-dirty images cannot rely on update hints alone."""
+
+    for object_result in report.object_results.values():
+        for group in object_result.groups.values():
+            image = group.resolution.image
+            if image is None:
+                continue
+            if image.source == "GENERATED" or bool(image.is_dirty):
+                return True
+    return False
 
 
 def _explicit_image(config: AnalysisConfig):
@@ -474,14 +661,65 @@ def _prepare(
 
 
 def validate_report(report: AnalysisReport) -> tuple[bool, str]:
+    validation_started = time.perf_counter()
+    current_report = runtime.report(report.analysis_id) is report
+
+    def record(
+        mode: str,
+        valid: bool,
+        reason: str,
+        *,
+        image_digest_rows: int = 0,
+    ) -> None:
+        if not current_report:
+            return
+        runtime.record_validation(
+            mode,
+            valid,
+            reason,
+            component_hash_calls=1,
+            image_digest_rows=image_digest_rows,
+            rasterized_polygons=0,
+            coverage_hits=0,
+            coverage_misses=0,
+            elapsed_seconds=time.perf_counter() - validation_started,
+        )
+
+    if current_report and runtime.validation_state() == runtime.VALIDATION_STALE:
+        return False, runtime.dirty_reason() or "INPUTS_CHANGED"
+
+    pending = runtime.pending_scopes() if current_report else frozenset()
+    structural_only = bool(pending) and pending <= {"MESH", "OBJECT"}
     try:
         for object_ in report.objects:
             if object_.name_full not in bpy.data.objects or bpy.data.objects.get(object_.name_full) != object_:
-                return False, "OBJECT_DELETED_OR_REPLACED"
+                reason = "OBJECT_DELETED_OR_REPLACED"
+                record("STRUCTURAL", False, reason)
+                return False, reason
+        structural_signature = _structural_signature(report.objects)
+        structural_valid = structural_signature == report.structural_signature
+        if not structural_valid:
+            record("STRUCTURAL", False, "INPUTS_CHANGED")
+            return False, "INPUTS_CHANGED"
+        conservative_image_recheck = _requires_conservative_image_recheck(report)
+        can_reuse_images = (
+            current_report
+            and runtime.validation_is_current(report.analysis_id)
+            and not conservative_image_recheck
+        )
+        if (structural_only and not conservative_image_recheck) or can_reuse_images:
+            record("STRUCTURAL", True, "OK")
+            return True, "OK"
         _prepared, _cache, signature = _prepare(report.objects, report.config)
-    except (ReferenceError, RuntimeError, ValueError):
-        return False, "INPUT_DATABLOCK_UNAVAILABLE"
-    return (signature == report.input_signature, "OK" if signature == report.input_signature else "INPUTS_CHANGED")
+    except (OverrideConfigError, ReferenceError, RuntimeError, ValueError):
+        reason = "INPUT_DATABLOCK_UNAVAILABLE"
+        record("STRUCTURAL" if structural_only else "FULL", False, reason)
+        return False, reason
+    valid = signature == report.input_signature
+    reason = "OK" if valid else "INPUTS_CHANGED"
+    digest_rows = sum(snapshot.height for snapshot in _cache.values())
+    record("FULL", valid, reason, image_digest_rows=digest_rows)
+    return valid, reason
 
 
 class AnalysisEngine:
@@ -497,6 +735,7 @@ class AnalysisEngine:
         self.objects = tuple(objects)
         self.config = config
         self.started = time.perf_counter()
+        self.structural_signature = _structural_signature(self.objects)
         self.image_cache = AnalysisImageCache()
         self._deferred_images = defer_images
         self._image_builders: list[ImageSnapshotBuilder] = []
@@ -797,6 +1036,7 @@ class AnalysisEngine:
         return AnalysisReport(
             analysis_id=analysis_id,
             input_signature=self.signature,
+            structural_signature=self.structural_signature,
             config=self.config,
             objects=self.objects,
             object_results={

@@ -33,10 +33,12 @@ Blender Undo, but a saved file is still the safest starting point.
    path; no settings are required for supported materials.
 4. Click **Preview Faces to Move**. Blender enters multi-object Edit Mode and
    selects the faces that would use alpha. Inspect the orange selection. Press
-   `Tab` when you want to leave Edit Mode.
+   `Tab` when you want to leave Edit Mode. Tabbing out, changing face selection,
+   or changing the active object does not require another analysis when the
+   mesh, UVs, materials, images, and settings are unchanged.
 5. Click **Apply Material Separation**. Clean results apply immediately. A
-   warning dialog appears only for mixed, suppressed, unsupported, skipped, or
-   conflicting input.
+   warning dialog appears for mixed or uncertain faces, unchanged/skipped
+   material groups, suppressed evidence, or conflicts.
 6. Check the object's material slots. The original material remains the opaque
    candidate and `<source>__AMS_ALPHA` is the alpha candidate.
 
@@ -54,12 +56,13 @@ Blender Undo, but a saved file is still the safest starting point.
 | **Move to alpha material** | Every covered image pixel is alpha-affected. | Move the face to `__AMS_ALPHA`. |
 | **Mixed—must use alpha without cutting geometry** | One polygon covers both opaque and alpha-affected pixels. | Move it to alpha. Making only part opaque would require topology cutting, which 0.1 does not do. |
 | **Below significance—needs review** | Alpha evidence exists but is below an Expert minimum. | Skip that entire source-material group by default. |
-| **Could not analyze** | The material, image, UVs, or safety conditions do not support a trustworthy result. | Skip that entire source-material group by default. |
+| **Could not analyze** | The extension could not prove a face result or resolve that material's alpha source. | If the material source was resolved, uncertain faces move to alpha by the Simple default. A material with no traceable alpha source stays completely unchanged. |
 
 The Apply preflight lists faces to move, source and destination materials,
-additional slots, and anything that will be skipped. One uncertain face can
-conservatively skip its entire source-material group; other safe groups may
-still be applied after warning confirmation.
+additional slots, uncertain faces moving to alpha, materials deliberately left
+unchanged, and anything blocked for safety. Each material is planned
+independently, so an unrelated material with no traceable alpha source does not
+prevent a supported material from being separated.
 
 ## Simple and Expert interfaces
 
@@ -70,9 +73,13 @@ only Analyze, Review, and Apply.
 sources, alternate classification inspection, exception policies, and technical
 diagnostics.
 
+For face-local uncertainty, Expert mode can keep those faces on the source or
+skip that resolved material group instead of using the Simple alpha fallback.
+
 The defaults normally stay unchanged: threshold `0.999`, minimum affected
 pixels `1`, minimum fraction `0`, margin `0`, automatic addressing, mixed faces
-to alpha, and conservative skips for below-significance or unsupported faces.
+to alpha, face-local uncertainty to alpha, and conservative handling of
+below-significance evidence or unresolved material sources.
 Switching Simple/Expert does not invalidate a result; changing an analysis
 setting or manual source does.
 
@@ -108,6 +115,10 @@ Typical recipes:
 Every override participates in stale-result detection. Analyze again after
 editing an image, material graph, UV, threshold, or override.
 
+A material without an automatic or manual alpha source is left exactly as it
+was. Set a manual source only when that material also needs to be split; it does
+not have to be resolved merely to let another material proceed.
+
 ## What each step changes
 
 - **Analyze** reads selected base meshes, materials, UVs, and image pixels. It
@@ -127,6 +138,12 @@ Press `Ctrl+Z` to undo assignment and `Ctrl+Shift+Z` to redo it. Assignment
 clears the active report, so analyze again before another preview or apply.
 Repeated runs are idempotent: a valid existing alpha material and slot are
 reused, and the UI reports **Already separated—no additional changes**.
+
+Blender may report mesh updates when you only enter or leave Edit Mode or alter
+face selection. The extension rechecks the relevant structural inputs and keeps
+the same completed report and preview when they are equal. It requests another
+analysis only after a confirmed classification-input change. Apply always
+performs a final synchronous check before mutating material assignments.
 
 Shared multi-user meshes, linked/read-only data, and restricted library
 overrides are skipped instead of being made local or single-user automatically.
@@ -161,7 +178,10 @@ mipmaps, compression, clipping, or shader-specific behavior. See the detailed
 | **Image type/projection is not supported** | Use a static flat-UV image or bake the intended mask. |
 | **Mesh data is shared/read-only/linked** | Make a deliberate editable copy. The extension never does this automatically. |
 | **Below significance—needs review** | Inspect the faces and deliberately choose an Expert policy if the default skip is not appropriate. |
+| **Uncertain faces will use alpha** | The alpha source is valid, but some faces have collapsed UVs or exceeded a deterministic coverage budget. Preview them; the Simple default keeps possible transparency by routing them to alpha. |
+| **Left unchanged—no alpha source selected** | This material does not block supported materials. Use **Set Manual Alpha Source** only if this material also needs separation. |
 | **Inputs Changed—Analyze Again** | A setting, material, image, UV, slot, or object changed after analysis. Reanalyze. |
+| The message appears after pressing `Tab` without editing inputs | This is a defect; mode and selection changes alone should be revalidated and reused. Include the Technical Details state in a bug report. |
 | **Source or alpha material changed** | Preserve the edited material and explicitly choose reuse or a new variant in Expert mode. |
 | Everything stays opaque | Confirm the intended image/channel and that affected pixels are below `0.999`. |
 | Analysis is slow | Full 4K/8K image verification is intentionally conservative. Wait, press Esc, or use **Cancel Analysis** safely. |

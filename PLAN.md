@@ -1,10 +1,11 @@
 # Blender Alpha Material Separator 0.1 implementation plan
 
 Status: milestones 0-4 are implemented locally on
-`feat/alpha-material-separator-0.1`. Milestone 5 automated validation, the
-first performance baseline, and the interactive Blender smoke test are
-complete. Manual Unity material/submesh validation remains the release gate;
-VRChat validation remains optional stack-specific reference evidence.
+`feat/alpha-material-separator-0.1`. Pre-release workflow-friction hardening is
+in progress after real-file testing exposed group-wide assignment blocking and
+a false stale result after leaving face preview. Earlier smoke results do not
+close the new gates below. Manual Unity material/submesh validation remains a
+release gate; VRChat validation remains optional stack-specific evidence.
 
 ## Product outcome
 
@@ -66,8 +67,16 @@ escape hatch for other alpha sources.
 - Hash every classification input with versioned BLAKE2b signatures: base mesh
   geometry/topology, slots, UVs, settings, resolved node path, image identity,
   dimensions, state, and participating pixel channels.
-- Treat Blender notifications as eviction hints. Revalidate authoritative
-  content before preview or assignment and refuse stale reports.
+- Treat Blender notifications as revalidation hints. Track `CLEAN`,
+  `RECHECK_PENDING`, and confirmed `STALE` separately; a hint alone must not
+  clear the report, review token, or content-addressed coverage cache.
+- Store component fingerprints for mesh identity/safety, geometry/topology,
+  material indices and slots, UVs, material/resolver graphs, image state and
+  participating pixels, and configuration. Recheck only relevant hinted
+  components where correctness can be proven.
+- Preserve the analysis ID and reviewed preview across selection and
+  Object/Edit Mode changes whose fingerprints remain equal. Final Preview and
+  Apply preflight still synchronously drain pending validation.
 - Benchmark full alpha hashing separately from proven digest reuse, threshold
   prefix reuse, and UV-coverage reuse. Recompute when invalidation reliability
   is uncertain.
@@ -80,8 +89,14 @@ escape hatch for other alpha sources.
 
 - Require the reviewed analysis ID and revalidate before mutation.
 - Route alpha-affected and mixed faces to the derived material.
-- Block source-material groups containing suppressed, unsupported, unsafe, or
-  ambiguous faces by default.
+- Apply independently safe material groups even when another group remains
+  unchanged or is skipped; one group must not veto unrelated useful work.
+- Keep `UNSUPPORTED` as a public face classification while reporting whether it
+  is face-local, material-source-wide, or data-safety related.
+- In Simple mode, route face-local uncertainty inside an otherwise resolved
+  material to alpha after preview and warning confirmation. Leave a
+  material-wide unresolved source unchanged and offer a manual alpha-source
+  override. Keep suppressed evidence and unsafe/ambiguous data conservative.
 - Store namespaced metadata and a source-material pointer only on the local
   derived material; never tag the source merely for identity.
 - Refuse multi-user, linked, read-only, or override-restricted mesh mutation.
@@ -103,6 +118,29 @@ Required identity behavior:
 | Source deleted | Mark the variant orphaned; never chain another variant from it. |
 | Save/reopen | Restore the source pointer and verify fingerprints before reuse. |
 
+## Milestone 4A: workflow-friction hardening
+
+- Add synthetic regressions for a resolved material with face-local UV
+  uncertainty alongside an unrelated unresolved material, and for Analyze →
+  Preview → Tab to Object Mode → Apply.
+- Replace global assignment vetoes with per-material dispositions: split,
+  leave unchanged, or blocked for safety. Preview the exact planned move set.
+- Route resolved face-local uncertainty to alpha by the Simple default; Expert
+  policy may keep it on the source or skip that material group.
+- Replace generic dependency-graph dirtiness with relevant, coalesced recheck
+  scopes. Do not rehash participating image pixels or rerasterize geometry for
+  selection/mode-only transitions.
+- Treat the lawful private before/after pair only as an ignored local structural
+  example. Require an opaque/alpha section, an untouched unrelated material,
+  and preservation invariants; do not require identical face indices.
+- Update panel messages, confirmation/completion summaries, README, integration
+  API, test guide, and contributor rules to describe the implemented behavior.
+
+Gate: unit and headless Blender tests cover harmless versus real input changes,
+preview/plan equivalence, partial success, undo/redo, idempotence, save/reopen,
+and registration cleanup. Installed-ZIP Blender 5.2 acceptance must complete
+the reported workflow without redundant analysis.
+
 ## Milestone 5: release validation
 
 - Record small, typical-avatar, high-complexity, repeated-UV, and pathological
@@ -113,13 +151,22 @@ Required identity behavior:
   idempotence, save/reopen metadata, and FBX material partitioning.
 - Require ordinary Unity material/submesh validation. Record VRChat SDK/shader
   validation only as a reference for the exact tested versions.
+- Benchmark cold analysis, preview validation, mode-exit component recheck,
+  final Apply preflight, and genuine image validation separately. Mode-only
+  rechecks must rasterize zero polygons and digest zero image rows. On the
+  approved same-machine example, target a median under one second and under 15
+  percent of cold analysis time.
 
 ## Public integration boundary
 
 Stable operators use `bpy.ops.alpha_material_separator.*`: capability query,
-analyze, select faces, assign materials, and clear results. A versioned
-WindowManager status record exposes JSON-compatible capabilities, stable status
-codes, counts, planned changes, skips, and the analysis ID.
+analyze, select faces, assign materials, and clear results. API 1.2 additively
+reports validation state, pending scopes, unsupported scope, material-group
+disposition, and planned action. `unsupported_policy="TO_ALPHA"` applies only
+to face-local uncertainty in a resolved group; earlier values and scripted
+defaults remain compatible. A versioned WindowManager status record exposes
+JSON-compatible capabilities, stable status codes, counts, planned changes,
+skips, and the analysis ID.
 
 Future CATS code must feature-detect the capability operator, tolerate absence
 or incompatible API majors, and use only documented operators/status. This
@@ -146,5 +193,10 @@ extension never imports or depends on CATS.
 5. `feat: add safe material assignment`
 6. `test: add packaging performance and export validation`
 7. `docs: document Unity VRChat workflow and integration API`
+8. `test: reproduce preview and partial assignment friction`
+9. `fix: preserve reviewed analysis across mode changes`
+10. `fix: apply safe material groups independently`
+11. `test: harden workflow and cache regression coverage`
+12. `docs: document revalidation and partial assignment behavior`
 
 Commits remain local. No push or release occurs without separate approval.

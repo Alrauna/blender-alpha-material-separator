@@ -192,6 +192,8 @@ def run() -> None:
     assert result == {"FINISHED"}, result
     state = bpy.context.window_manager.alpha_material_separator_api
     payload = json.loads(state.report_json)
+    assert payload["validation_state"] == "CLEAN", payload
+    assert payload["pending_scopes"] == [], payload
     assert payload["counts"]["MIXED"] == 2, payload
     assert payload["counts"]["OPAQUE"] == 0, payload
     assert before == (_mesh_snapshot(first), _mesh_snapshot(second))
@@ -225,6 +227,7 @@ def run() -> None:
         modern[0].vector.x += 0.125
     else:
         uv_layer.data[0].uv.x += 0.125
+    runtime.mark_recheck("MESH_UPDATED", "MESH")
     stale = bpy.ops.alpha_material_separator.select_faces(
         api_major=1,
         expected_analysis_id=state.analysis_id,
@@ -233,6 +236,9 @@ def run() -> None:
     )
     assert stale == {"CANCELLED"}, stale
     assert state.last_status_code == "STALE_ANALYSIS", state.last_status_json
+    assert runtime.validation_state() == runtime.VALIDATION_STALE
+    assert runtime.dirty_reason() == "INPUTS_CHANGED"
+    assert runtime.snapshot()["last_validation_mode"] == "STRUCTURAL"
 
     shared = bpy.data.objects.new("AMS_ANALYSIS_SHARED", first.data)
     bpy.context.collection.objects.link(shared)

@@ -111,13 +111,13 @@ def _draw_completion(layout, ui, state) -> None:
     heading = {
         "ASSIGNMENT_COMPLETE": "Material separation complete",
         "ASSIGNMENT_COMPLETE_WITH_SKIPS": "Completed with skipped groups",
-        "ASSIGNMENT_NO_CHANGES": "Already separated",
+        "ASSIGNMENT_NO_CHANGES": payload.get("message", "No changes needed"),
         "ASSIGNMENT_BLOCKED": "Nothing was changed",
     }.get(code, payload.get("message", "Material assignment finished"))
     box.label(text=heading, icon=icon)
     changes = payload.get("changes", {})
     if code == "ASSIGNMENT_NO_CHANGES":
-        box.label(text="Already separated - no additional changes")
+        _label_lines(box, payload.get("message", "No additional changes"))
     else:
         box.label(text=f"Faces moved: {changes.get('changed_faces', 0)}")
         box.label(
@@ -131,6 +131,12 @@ def _draw_completion(layout, ui, state) -> None:
         skipped_groups = changes.get("skipped_material_groups", 0)
         if skipped_groups:
             box.label(text=f"Material groups skipped: {skipped_groups}", icon="ERROR")
+        unchanged_groups = changes.get("unchanged_material_groups", 0)
+        if unchanged_groups:
+            box.label(
+                text=f"Unresolved material groups left unchanged: {unchanged_groups}",
+                icon="INFO",
+            )
         for item in changes.get("materials", ()):
             box.label(text=f"{item.get('source', '')} -> {item.get('derived', '')}")
     box.label(text="Ctrl+Z to undo.", icon="INFO")
@@ -199,16 +205,7 @@ class ALPHA_MATERIAL_SEPARATOR_PT_main(bpy.types.Panel):
         reviewed = runtime.review_matches(
             window_manager, state.analysis_id, _policy_signature(state, settings)
         )
-        actionable = bool(
-            current_plan
-            and (
-                current_plan.mutations
-                or any(
-                    decision.action in {"CREATE", "REUSE"}
-                    for decision in current_plan.decisions.values()
-                )
-            )
-        )
+        actionable = bool(current_plan and current_plan.actionable)
         view = workflow_view(
             eligible_objects=len(eligible),
             running=ui.is_analyzing,
@@ -310,6 +307,11 @@ class ALPHA_MATERIAL_SEPARATOR_PT_main(bpy.types.Panel):
                 )
                 preview.selection_mode = "REPLACE"
                 preview.enter_edit_mode = True
+                preview.preview_assignment_plan = True
+                preview.mixed_policy = settings.mixed_policy
+                preview.suppressed_policy = settings.suppressed_policy
+                preview.unsupported_policy = settings.unsupported_policy
+                preview.derived_conflict_policy = settings.derived_conflict_policy
                 if reviewed:
                     review.label(text="Preview complete: selected faces use alpha.", icon="CHECKMARK")
                     review.label(text="Press Tab when finished inspecting.")
@@ -349,10 +351,31 @@ class ALPHA_MATERIAL_SEPARATOR_PT_main(bpy.types.Panel):
                                 )
                             )
                             detail.label(text=f"To: {group.get('alpha_material', '')}")
+                            face_local = group.get("unsupported_scopes", {}).get(
+                                "FACE_LOCAL", 0
+                            )
+                            if face_local:
+                                if settings.unsupported_policy == "TO_ALPHA":
+                                    uncertain_action = "will use alpha"
+                                elif settings.unsupported_policy == "KEEP_SOURCE":
+                                    uncertain_action = "will stay on the source"
+                                else:
+                                    uncertain_action = "will skip this material group"
+                                detail.label(
+                                    text=(
+                                        f"{face_local} uncertain face"
+                                        f"{'s' if face_local != 1 else ''} "
+                                        f"{uncertain_action}"
+                                    ),
+                                    icon="INFO",
+                                )
                         else:
                             title, remedy = guidance_for(group.get("resolution"))
-                            detail.alert = True
-                            detail.label(text=title, icon="ERROR")
+                            detail.label(
+                                text="Left unchanged - no alpha source selected",
+                                icon="INFO",
+                            )
+                            _label_lines(detail, title)
                             _label_lines(detail, remedy)
                             fix = detail.operator(
                                 "alpha_material_separator.add_material_override",
@@ -369,6 +392,24 @@ class ALPHA_MATERIAL_SEPARATOR_PT_main(bpy.types.Panel):
             destinations = plan_payload.get("destinations", {})
             for source, derived in sorted(destinations.items()):
                 assignment.label(text=f"{source} -> {derived}")
+            uncertain_to_alpha = plan_payload.get(
+                "face_local_unsupported_to_alpha", 0
+            )
+            if uncertain_to_alpha:
+                assignment.label(
+                    text=f"Uncertain faces moving to alpha: {uncertain_to_alpha}",
+                    icon="INFO",
+                )
+            unchanged_groups = plan_payload.get(
+                "material_source_groups_left_unchanged", 0
+            )
+            if unchanged_groups:
+                assignment.label(
+                    text=(
+                        f"Unresolved material groups left unchanged: {unchanged_groups}"
+                    ),
+                    icon="INFO",
+                )
             if current_plan and current_plan.blocked:
                 assignment.alert = True
                 assignment.label(
@@ -384,6 +425,10 @@ class ALPHA_MATERIAL_SEPARATOR_PT_main(bpy.types.Panel):
                 assignment.label(text="Already separated - no additional changes", icon="CHECKMARK")
             elif not actionable and current_plan and current_plan.blocked:
                 assignment.label(text="Resolve the skipped groups before applying.")
+            elif not actionable and unchanged_groups:
+                assignment.label(
+                    text="Nothing can be separated until an alpha source is selected."
+                )
             row = assignment.row()
             row.enabled = bool(view["can_apply"])
             assign = row.operator(
@@ -519,14 +564,24 @@ class ALPHA_MATERIAL_SEPARATOR_PT_policies(_ExpertPanel, bpy.types.Panel):
         if counts.get("SUPPRESSED", 0):
             layout.prop(settings, "suppressed_policy")
             shown = True
-        if counts.get("UNSUPPORTED", 0):
+        has_face_local_unsupported = any(
+            group.get("unsupported_scopes", {}).get("FACE_LOCAL", 0)
+            for object_result in report.get("objects", ())
+            for group in object_result.get("groups", ())
+        )
+        if has_face_local_unsupported:
             layout.prop(settings, "unsupported_policy")
             shown = True
         current_plan = _plan(runtime.report(state.analysis_id), settings)
         conflict_reasons = {
             item.get("reason")
             for item in (current_plan.blocked if current_plan else ())
-        } - {"MIXED_FACES", "SUPPRESSED_FACES", "UNSUPPORTED_FACES"}
+        } - {
+            "FACE_LOCAL_UNSUPPORTED_FACES",
+            "MIXED_FACES",
+            "SUPPRESSED_FACES",
+            "UNSUPPORTED_FACES",
+        }
         if conflict_reasons:
             layout.prop(settings, "derived_conflict_policy")
             shown = True
@@ -543,8 +598,12 @@ class ALPHA_MATERIAL_SEPARATOR_PT_technical(_ExpertPanel, bpy.types.Panel):
         state = context.window_manager.alpha_material_separator_api
         layout.label(text=f"Status code: {state.last_status_code}")
         layout.label(text=f"Analysis ID: {state.analysis_id or 'none'}")
+        layout.label(text=f"Validation: {runtime.validation_state()}")
+        pending = sorted(runtime.pending_scopes())
+        if pending:
+            layout.label(text=f"Pending scopes: {', '.join(pending)}")
         if runtime.dirty_reason():
-            layout.label(text=f"Dirty hint: {runtime.dirty_reason()}")
+            layout.label(text=f"Confirmed stale: {runtime.dirty_reason()}")
         layout.operator(
             "alpha_material_separator.query_capabilities",
             text="Refresh Capability JSON",

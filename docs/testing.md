@@ -11,12 +11,42 @@ python -m unittest discover -s tests/unit -t . -v
 ```
 
 The checkpoint tests verify ordinary-Python import without `bpy`, deterministic
-coverage/classification and API 1.1 capability JSON, registration/unregistration,
+coverage/classification and API 1.2 capability JSON, registration/unregistration,
 Simple and Expert workflow state, per-material overrides, analysis progress and
 cancellation, review-token invalidation, warning confirmation, preview,
 stale-result refusal, safe assignment, every documented material-identity
 transition, completion summaries, preservation, save/reopen, FBX
 export/reimport, README contracts, and anonymized synthetic characterization.
+
+## Required test layers
+
+Every behavior defect first receives a generated or synthetic failing
+regression. Verification then proceeds through pure-Python tests, headless
+Blender state-transition and mutation tests, semantic preservation checks,
+installed-ZIP interaction, and instrumented performance measurements.
+
+Private before/after files are local structural references only. No identifying
+name, path, asset, raw graph dump, raw measurement, or screenshot enters a
+committed test or report. Committed regressions reproduce the relevant shape
+with generated materials, textures, meshes, and collapsed UVs.
+
+For invalidation behavior, every harmless event has a paired real-change test:
+
+| Event | Expected result |
+| --- | --- |
+| Face selection, active face/object, or Object/Edit Mode toggle | Same analysis ID and review token; zero rasterization and image-digest rows. |
+| Unrelated mesh, material, or image update | No report or review change. |
+| Relevant topology, UV, material index/slot, or shader change | Confirmed stale; review cleared; assignment performs zero mutation. |
+| Relevant image pixel/reload/pack/replace change | Conservative participating-channel validation, then confirmed stale if content/state differs. |
+| Assignment-policy change | Analysis retained; another exact-plan preview required. |
+| Analysis setting or manual-source change | Confirmed stale; another analysis required. |
+| Apply before a deferred recheck runs | Synchronous preflight drains the recheck and blocks any real change atomically. |
+
+Assignment tests combine a resolved source containing opaque,
+alpha-affected, mixed, and face-local uncertain faces with an unresolved source
+that remains unchanged. They assert exact Preview/Apply plan equivalence,
+partial success, confirmation cancellation, undo/redo, idempotence,
+save/reopen, and preservation of every non-allowlisted datablock property.
 
 ## Interactive Blender smoke checklist
 
@@ -45,14 +75,22 @@ checked by the corresponding headless regression test.
 - [x] Confirm shared, linked, read-only, and multi-user meshes are skipped by
   preflight. Exact non-mutation is asserted by the preservation and assignment
   policy tests.
-- [x] Change reviewed inputs and confirm stale-result refusal. This exercise
-  exposed an Edit Mode validation problem; the fix and regression tests now
-  validate from Object Mode and restore the requested preview state.
+- [x] Change a real reviewed input and confirm stale-result refusal.
+- [ ] In the rebuilt ZIP, complete Analyze → Preview → `Tab` to Object Mode
+  → Apply without another analysis. Confirm the analysis ID and preview token
+  survive, no image digest or rasterization runs, and the intended split is
+  applied. The earlier checklist did not cover this exact transition.
+- [ ] Repeat Object/Edit toggles, face selection changes, active-object changes,
+  and multi-object Edit Mode transitions without a false stale message.
 - [x] Review analyzed objects, source material, resolved image/UV/channel,
   destination material, skips, faces to move, and estimated slot/section
   increase before assignment.
 - [x] Assign directly from the Edit Mode preview and verify the intended material
   partition.
+- [ ] Process a generated two-material case where one resolved source has
+  collapsed-UV faces and another material has no traceable alpha source. Confirm
+  uncertain faces move to alpha, the unresolved material stays unchanged, and
+  useful work is not globally blocked.
 - [x] Undo and redo assignment from the 3D View.
 - [x] Confirm the completion card reports moved faces, created/reused material,
   added slots, Ctrl+Z guidance, and the Unity handoff. Rerun and confirm
@@ -78,3 +116,13 @@ Headless tests permit changes only to reviewed material slots and polygon
 material indices. They compare topology, vertex groups, armatures, shape keys,
 UVs, normals, attributes, modifiers, parenting, images, source materials, and
 unselected objects before and after assignment and undo.
+
+## Cache and timing assertions
+
+Cache tests record component-fingerprint calls, participating image-digest rows,
+rasterized polygons, coverage hits/misses, validity transitions, and elapsed
+time. A mode-only recheck must record zero image-digest rows and zero rasterized
+polygons. Use one discarded warm-up and five measured runs. On the approved
+same-machine structural workflow, the new mode-exit recheck targets a median
+below one second and below 15 percent of cold analysis; established same-machine
+metrics retain the 25 percent unexplained-regression gate.

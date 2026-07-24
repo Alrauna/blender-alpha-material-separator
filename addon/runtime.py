@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING, Any
 
 import bpy
@@ -14,7 +15,44 @@ if TYPE_CHECKING:
 _STATE: dict[str, Any] = {}
 _REPORT: "AnalysisReport | None" = None
 _DIRTY_REASON = ""
+_VALIDATION_STATE = "CLEAN"
+_PENDING_SCOPES: set[str] = set()
 _COVERAGE_CACHE: dict[str, Any] = {}
+_HINT_GENERATION = 0
+_VALIDATED_GENERATION = 0
+_VALIDATED_ANALYSIS_ID = ""
+
+VALIDATION_CLEAN = "CLEAN"
+VALIDATION_RECHECK_PENDING = "RECHECK_PENDING"
+VALIDATION_STALE = "STALE"
+
+
+def _sync_public_validation_state() -> None:
+    """Mirror transient validity into the documented WindowManager surface."""
+
+    pending_json = json.dumps(sorted(_PENDING_SCOPES), separators=(",", ":"))
+    for window_manager in bpy.data.window_managers:
+        state = getattr(window_manager, "alpha_material_separator_api", None)
+        if state is None:
+            continue
+        if hasattr(state, "validation_state"):
+            state.validation_state = _VALIDATION_STATE
+        if hasattr(state, "pending_scopes_json"):
+            state.pending_scopes_json = pending_json
+        if not state.analysis_id or state.report_json in {"", "{}"}:
+            continue
+        try:
+            payload = json.loads(state.report_json)
+        except (TypeError, ValueError):
+            continue
+        if payload.get("analysis_id") != state.analysis_id:
+            continue
+        payload["validation_state"] = _VALIDATION_STATE
+        payload["pending_scopes"] = sorted(_PENDING_SCOPES)
+        payload["dirty_reason"] = _DIRTY_REASON
+        state.report_json = json.dumps(
+            payload, ensure_ascii=True, separators=(",", ":"), sort_keys=True
+        )
 
 
 def _ui(window_manager=None):
@@ -104,11 +142,18 @@ def finish_analysis(window_manager) -> None:
 
 def clear(*, preserve_completion: bool = False) -> None:
     """Drop every transient reference owned by the extension."""
-    global _REPORT, _DIRTY_REASON
+    global _REPORT, _DIRTY_REASON, _VALIDATION_STATE
+    global _HINT_GENERATION, _VALIDATED_GENERATION, _VALIDATED_ANALYSIS_ID
     _STATE.clear()
     _COVERAGE_CACHE.clear()
+    _PENDING_SCOPES.clear()
     _REPORT = None
     _DIRTY_REASON = ""
+    _VALIDATION_STATE = VALIDATION_CLEAN
+    _HINT_GENERATION = 0
+    _VALIDATED_GENERATION = 0
+    _VALIDATED_ANALYSIS_ID = ""
+    _sync_public_validation_state()
     for window_manager in bpy.data.window_managers:
         ui = _ui(window_manager)
         if ui is not None:
@@ -122,10 +167,17 @@ def clear(*, preserve_completion: bool = False) -> None:
 
 
 def set_report(report: "AnalysisReport") -> None:
-    global _REPORT, _DIRTY_REASON
+    global _REPORT, _DIRTY_REASON, _VALIDATION_STATE
+    global _HINT_GENERATION, _VALIDATED_GENERATION, _VALIDATED_ANALYSIS_ID
     _REPORT = report
     _DIRTY_REASON = ""
+    _VALIDATION_STATE = VALIDATION_CLEAN
+    _PENDING_SCOPES.clear()
     _STATE["analysis_id"] = report.analysis_id
+    _HINT_GENERATION += 1
+    _VALIDATED_GENERATION = _HINT_GENERATION
+    _VALIDATED_ANALYSIS_ID = report.analysis_id
+    _sync_public_validation_state()
     for window_manager in bpy.data.window_managers:
         clear_review(window_manager)
         ui = _ui(window_manager)
@@ -142,21 +194,123 @@ def report(expected_analysis_id: str = "") -> "AnalysisReport | None":
 
 
 def mark_dirty(reason: str) -> None:
-    global _DIRTY_REASON
+    """Mark the active report authoritatively stale.
+
+    Settings callbacks use this path because the changed property is itself an
+    analysis input.  Dependency-graph notifications must use ``mark_recheck``:
+    Blender also emits those notifications for harmless selection and mode
+    transitions, so a notification alone is not proof that a report is stale.
+    """
+
+    global _DIRTY_REASON, _VALIDATION_STATE, _VALIDATED_ANALYSIS_ID
     if _REPORT is not None:
         _DIRTY_REASON = reason
+        _VALIDATION_STATE = VALIDATION_STALE
+        _PENDING_SCOPES.clear()
+        _VALIDATED_ANALYSIS_ID = ""
+        _sync_public_validation_state()
         for window_manager in bpy.data.window_managers:
             clear_review(window_manager)
         tag_redraw()
 
 
+def mark_recheck(reason: str, scope: str) -> None:
+    """Record a relevant Blender update hint without invalidating review."""
+
+    mark_recheck_scopes(reason, (scope,))
+
+
+def mark_recheck_scopes(reason: str, scopes) -> None:
+    """Coalesce one dependency-graph update burst into one pending state."""
+
+    global _VALIDATION_STATE, _HINT_GENERATION
+    if _REPORT is None or _VALIDATION_STATE == VALIDATION_STALE:
+        return
+    for scope in scopes:
+        normalized_scope = str(scope).strip().upper() or "UNKNOWN"
+        _PENDING_SCOPES.add(normalized_scope)
+    if not _PENDING_SCOPES:
+        return
+    _HINT_GENERATION += 1
+    _STATE["last_recheck_hint"] = reason
+    _VALIDATION_STATE = VALIDATION_RECHECK_PENDING
+    _sync_public_validation_state()
+    tag_redraw()
+
+
 def dirty_reason() -> str:
+    """Return only a confirmed stale reason, never a depsgraph hint."""
+
     return _DIRTY_REASON
 
 
+def validation_state() -> str:
+    return _VALIDATION_STATE
+
+
+def pending_scopes() -> frozenset[str]:
+    return frozenset(_PENDING_SCOPES)
+
+
+def validation_is_current(analysis_id: str) -> bool:
+    return bool(
+        _VALIDATION_STATE == VALIDATION_CLEAN
+        and _VALIDATED_ANALYSIS_ID == analysis_id
+        and _VALIDATED_GENERATION == _HINT_GENERATION
+    )
+
+
+def record_validation(
+    mode: str,
+    valid: bool,
+    reason: str,
+    *,
+    component_hash_calls: int = 0,
+    image_digest_rows: int = 0,
+    rasterized_polygons: int = 0,
+    coverage_hits: int = 0,
+    coverage_misses: int = 0,
+    elapsed_seconds: float = 0.0,
+) -> None:
+    """Publish a synchronous validation result and update report validity."""
+
+    global _DIRTY_REASON, _VALIDATION_STATE
+    global _VALIDATED_GENERATION, _VALIDATED_ANALYSIS_ID
+    _STATE["last_validation_mode"] = mode
+    _STATE["last_validation_reason"] = reason
+    _STATE["last_validation_component_hash_calls"] = int(component_hash_calls)
+    _STATE["last_validation_image_digest_rows"] = int(image_digest_rows)
+    _STATE["last_validation_rasterized_polygons"] = int(rasterized_polygons)
+    _STATE["last_validation_coverage_hits"] = int(coverage_hits)
+    _STATE["last_validation_coverage_misses"] = int(coverage_misses)
+    _STATE["last_validation_elapsed_seconds"] = max(0.0, float(elapsed_seconds))
+    if valid:
+        _DIRTY_REASON = ""
+        _PENDING_SCOPES.clear()
+        _VALIDATION_STATE = VALIDATION_CLEAN
+        _VALIDATED_GENERATION = _HINT_GENERATION
+        _VALIDATED_ANALYSIS_ID = _REPORT.analysis_id if _REPORT is not None else ""
+        _sync_public_validation_state()
+        return
+    _DIRTY_REASON = reason
+    _PENDING_SCOPES.clear()
+    _VALIDATION_STATE = VALIDATION_STALE
+    _VALIDATED_ANALYSIS_ID = ""
+    _sync_public_validation_state()
+    for window_manager in bpy.data.window_managers:
+        clear_review(window_manager)
+    tag_redraw()
+
+
 def clear_dirty() -> None:
-    global _DIRTY_REASON
+    global _DIRTY_REASON, _VALIDATION_STATE
+    global _VALIDATED_GENERATION, _VALIDATED_ANALYSIS_ID
     _DIRTY_REASON = ""
+    _PENDING_SCOPES.clear()
+    _VALIDATION_STATE = VALIDATION_CLEAN
+    _VALIDATED_GENERATION = _HINT_GENERATION
+    _VALIDATED_ANALYSIS_ID = _REPORT.analysis_id if _REPORT is not None else ""
+    _sync_public_validation_state()
 
 
 def coverage_get(key: str):
@@ -175,6 +329,11 @@ def snapshot() -> dict[str, Any]:
     """Return a shallow copy for lifecycle tests."""
     result = dict(_STATE)
     result["dirty_reason"] = _DIRTY_REASON
+    result["validation_state"] = _VALIDATION_STATE
+    result["pending_scopes"] = sorted(_PENDING_SCOPES)
+    result["coverage_cache_entries"] = len(_COVERAGE_CACHE)
+    result["hint_generation"] = _HINT_GENERATION
+    result["validated_generation"] = _VALIDATED_GENERATION
     ui = _ui()
     if ui is not None:
         result["is_analyzing"] = ui.is_analyzing
@@ -195,14 +354,90 @@ def _clear_on_file_state_change(_unused=None) -> None:
 
 @persistent
 def _depsgraph_hint(_scene, depsgraph) -> None:
+    scopes: set[str] = set()
+    reasons: set[str] = set()
     for update in depsgraph.updates:
-        if isinstance(update.id, bpy.types.Mesh):
-            clear_coverage_cache()
-            mark_dirty("MESH_UPDATED")
-            return
-        if isinstance(update.id, (bpy.types.Image, bpy.types.Material)):
-            mark_dirty(f"{update.id.bl_rna.identifier.upper()}_UPDATED")
-            return
+        update_id = update.id
+        scope = _relevant_update_scope(update_id)
+        if scope:
+            identifier = update_id.bl_rna.identifier.upper()
+            scopes.add(scope)
+            reasons.add(f"{identifier}_UPDATED")
+    if scopes:
+        mark_recheck_scopes(",".join(sorted(reasons)), scopes)
+
+
+def _same_datablock(left, right) -> bool:
+    try:
+        return left == right or left.as_pointer() == right.as_pointer()
+    except (AttributeError, ReferenceError, RuntimeError):
+        return False
+
+
+def _node_tree_contains(root, target, visited: set[int] | None = None) -> bool:
+    if root is None:
+        return False
+    visited = visited or set()
+    try:
+        pointer = root.as_pointer()
+        if pointer in visited:
+            return False
+        visited.add(pointer)
+        if _same_datablock(root, target):
+            return True
+        return any(
+            _node_tree_contains(getattr(node, "node_tree", None), target, visited)
+            for node in root.nodes
+            if getattr(node, "node_tree", None) is not None
+        )
+    except (AttributeError, ReferenceError, RuntimeError):
+        return False
+
+
+def _relevant_update_scope(update_id) -> str:
+    """Return the validation scope when an updated ID participates in the report."""
+
+    report_ = _REPORT
+    if report_ is None:
+        return ""
+    try:
+        original = getattr(update_id, "original", None)
+        if original is not None:
+            update_id = original
+        if isinstance(update_id, bpy.types.Object):
+            return "OBJECT" if any(
+                _same_datablock(update_id, object_) for object_ in report_.objects
+            ) else ""
+        if isinstance(update_id, bpy.types.Mesh):
+            return "MESH" if any(
+                _same_datablock(update_id, object_.data)
+                for object_ in report_.objects
+                if object_.type == "MESH"
+            ) else ""
+        if isinstance(update_id, bpy.types.Material):
+            return "MATERIAL" if any(
+                _same_datablock(update_id, group.material)
+                for result in report_.object_results.values()
+                for group in result.groups.values()
+            ) else ""
+        if isinstance(update_id, bpy.types.Image):
+            return "IMAGE" if any(
+                group.resolution.image is not None
+                and _same_datablock(update_id, group.resolution.image)
+                for result in report_.object_results.values()
+                for group in result.groups.values()
+            ) else ""
+        if isinstance(update_id, bpy.types.NodeTree):
+            return "MATERIAL" if any(
+                _node_tree_contains(group.material.node_tree, update_id)
+                for result in report_.object_results.values()
+                for group in result.groups.values()
+            ) else ""
+    except (ReferenceError, RuntimeError):
+        # A participating datablock disappearing is authoritative only after
+        # synchronous validation; retain the conservative unknown hint here.
+        return "UNKNOWN"
+    return ""
 
 
 _CLEAR_HANDLERS = (

@@ -55,6 +55,12 @@ class ALPHA_MATERIAL_SEPARATOR_PG_api_state(bpy.types.PropertyGroup):
     last_status_json: StringProperty(name="Status", default="{}")
     analysis_id: StringProperty(name="Analysis ID", default="")
     report_json: StringProperty(name="Analysis Report", default="{}")
+    validation_state: StringProperty(
+        name="Validation State", default="CLEAN", options={"SKIP_SAVE"}
+    )
+    pending_scopes_json: StringProperty(
+        name="Pending Validation Scopes", default="[]", options={"SKIP_SAVE"}
+    )
 
 
 class ALPHA_MATERIAL_SEPARATOR_PG_material_override(bpy.types.PropertyGroup):
@@ -231,10 +237,15 @@ class ALPHA_MATERIAL_SEPARATOR_PG_settings(bpy.types.PropertyGroup):
     unsupported_policy: EnumProperty(
         name="Could Not Analyze",
         items=(
-            ("CANCEL_SOURCE_MATERIAL", "Skip entire material group", "Conservative default"),
+            (
+                "TO_ALPHA",
+                "Move uncertain faces to alpha",
+                "Conservatively preserve transparency for face-local UV or budget uncertainty",
+            ),
+            ("CANCEL_SOURCE_MATERIAL", "Skip entire material group", "Do not change a resolved material that contains uncertain faces"),
             ("KEEP_SOURCE", "Keep on source", "Leave unsupported faces unchanged"),
         ),
-        default="CANCEL_SOURCE_MATERIAL",
+        default="TO_ALPHA",
         update=_policy_changed,
     )
     derived_conflict_policy: EnumProperty(

@@ -21,7 +21,11 @@ if str(REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(REPOSITORY_ROOT))
 
 from addon import runtime  # noqa: E402
-from addon.adapters.analysis import AnalysisConfig, AnalysisEngine  # noqa: E402
+from addon.adapters.analysis import (  # noqa: E402
+    AnalysisConfig,
+    AnalysisEngine,
+    validate_report,
+)
 from addon.adapters.image_data import read_image_snapshot  # noqa: E402
 from addon.core import AddressMode, RasterBudgetExceeded, rasterize_polygon  # noqa: E402
 
@@ -141,7 +145,7 @@ def _run_analysis(object_, *, clear_coverage):
         pass
     report = engine.finish()
     elapsed = time.perf_counter() - started
-    return elapsed, dict(report.metrics)
+    return elapsed, dict(report.metrics), report
 
 
 def _digest_benchmark(size: int) -> dict:
@@ -189,13 +193,13 @@ def _analysis_benchmark(tier: dict) -> dict:
     cold_times = []
     cold_metrics = None
     for run in range(6):
-        elapsed, metrics = _run_analysis(object_, clear_coverage=True)
+        elapsed, metrics, _report = _run_analysis(object_, clear_coverage=True)
         if run:
             cold_times.append(elapsed)
         cold_metrics = metrics
-    reuse_time, reuse_metrics = _run_analysis(object_, clear_coverage=False)
+    reuse_time, reuse_metrics, _report = _run_analysis(object_, clear_coverage=False)
     images[0].pixels[3] = 0.5
-    changed_image_time, changed_metrics = _run_analysis(
+    changed_image_time, changed_metrics, _report = _run_analysis(
         object_, clear_coverage=False
     )
     result = {
@@ -223,6 +227,60 @@ def _analysis_benchmark(tier: dict) -> dict:
     runtime.clear_coverage_cache()
     gc.collect()
     print(f"ANALYSIS {tier['name']} complete", flush=True)
+    return result
+
+
+def _revalidation_benchmark() -> dict:
+    object_, images, materials = _grid_fixture(
+        "revalidation",
+        70,
+        [1024],
+        2,
+    )
+    cold_seconds, cold_metrics, report = _run_analysis(
+        object_, clear_coverage=True
+    )
+    runtime.set_report(report)
+    times = []
+    final_snapshot = {}
+    for run in range(6):
+        runtime.mark_recheck("MESH_UPDATED", "MESH")
+        started = time.perf_counter()
+        valid, reason = validate_report(report)
+        elapsed = time.perf_counter() - started
+        if not valid:
+            raise RuntimeError(f"structural revalidation failed: {reason}")
+        if run:
+            times.append(elapsed)
+        final_snapshot = runtime.snapshot()
+    median = statistics.median(times)
+    result = {
+        "cold_analysis_seconds": cold_seconds,
+        "cold_metrics": cold_metrics,
+        "mode_exit_recheck_seconds_median_5": median,
+        "mode_exit_recheck_seconds_runs": times,
+        "ratio_to_cold_analysis": median / max(cold_seconds, 1e-12),
+        "last_validation_image_digest_rows": final_snapshot.get(
+            "last_validation_image_digest_rows"
+        ),
+        "last_validation_rasterized_polygons": final_snapshot.get(
+            "last_validation_rasterized_polygons"
+        ),
+        "last_validation_mode": final_snapshot.get("last_validation_mode"),
+        "coverage_cache_entries": final_snapshot.get("coverage_cache_entries"),
+        "target_under_one_second": median < 1.0,
+        "target_under_fifteen_percent_cold": median < cold_seconds * 0.15,
+    }
+    runtime.clear()
+    mesh = object_.data
+    bpy.data.objects.remove(object_, do_unlink=True)
+    bpy.data.meshes.remove(mesh)
+    for material in materials:
+        bpy.data.materials.remove(material)
+    for image in images:
+        bpy.data.images.remove(image)
+    gc.collect()
+    print("REVALIDATION complete", flush=True)
     return result
 
 
@@ -279,7 +337,8 @@ def main(argv=None) -> int:
         },
         "method": "one discarded warm-up, median of five measured runs",
         "pathological": _pathological(),
-        "schema_version": 1,
+        "revalidation": _revalidation_benchmark(),
+        "schema_version": 2,
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")

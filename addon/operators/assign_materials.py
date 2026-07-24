@@ -59,6 +59,11 @@ class ALPHA_MATERIAL_SEPARATOR_OT_assign_materials(bpy.types.Operator):
                 "Conservative default",
             ),
             ("KEEP_SOURCE", "Keep Source", "Leave unsupported faces unchanged"),
+            (
+                "TO_ALPHA",
+                "Move Face-Local Uncertainty to Alpha",
+                "Move only uncertain faces whose material alpha source was resolved",
+            ),
         ),
         default="CANCEL_SOURCE_MATERIAL",
     )
@@ -90,6 +95,23 @@ class ALPHA_MATERIAL_SEPARATOR_OT_assign_materials(bpy.types.Operator):
         report = runtime.report(self.expected_analysis_id)
         if report is None or runtime.dirty_reason():
             return self.execute(context)
+        if runtime.validation_state() == runtime.VALIDATION_RECHECK_PENDING:
+            restore_edit_mode = (
+                context.object is not None and context.object.mode == "EDIT"
+            )
+            if restore_edit_mode:
+                bpy.ops.object.mode_set(mode="OBJECT")
+            valid, reason = validate_report(report)
+            if restore_edit_mode and context.object is not None:
+                bpy.ops.object.mode_set(mode="EDIT")
+            if not valid:
+                self._status(
+                    context,
+                    "STALE_ANALYSIS",
+                    "Analysis inputs changed; run analysis again",
+                    reason=reason,
+                )
+                return {"CANCELLED"}
         plan = build_assignment_plan(
             report,
             mixed_policy=self.mixed_policy,
@@ -98,10 +120,7 @@ class ALPHA_MATERIAL_SEPARATOR_OT_assign_materials(bpy.types.Operator):
             conflict_policy=self.derived_conflict_policy,
         )
         plan_payload = plan.public_payload()
-        actionable = bool(plan.mutations) or any(
-            decision.action in {"CREATE", "REUSE"}
-            for decision in plan.decisions.values()
-        )
+        actionable = plan.actionable
         if not actionable:
             return self.execute(context)
         report_payload = report.public_payload()
@@ -125,16 +144,28 @@ class ALPHA_MATERIAL_SEPARATOR_OT_assign_materials(bpy.types.Operator):
             layout.label(text=f"Below-significance faces: {counts['SUPPRESSED']}")
         if counts.get("UNSUPPORTED", 0):
             layout.label(text=f"Faces that could not be analyzed: {counts['UNSUPPORTED']}")
+        uncertain_to_alpha = plan.get("face_local_unsupported_to_alpha", 0)
+        if uncertain_to_alpha:
+            layout.label(
+                text=f"Uncertain faces moving conservatively to alpha: {uncertain_to_alpha}",
+                icon="INFO",
+            )
         skipped = sum(report.get("skip_counts", {}).values())
         blocked = len(plan.get("blocked", []))
-        if skipped or blocked:
-            layout.label(text=f"Skipped objects: {skipped}; skipped material groups: {blocked}")
+        unchanged = plan.get("material_source_groups_left_unchanged", 0)
+        if skipped or blocked or unchanged:
+            layout.label(
+                text=(
+                    f"Skipped objects: {skipped}; blocked material groups: {blocked}; "
+                    f"unresolved groups left unchanged: {unchanged}"
+                )
+            )
         for object_result in report.get("objects", ()):
             if object_result.get("skip_reason"):
                 title, _remedy = guidance_for(object_result["skip_reason"])
                 layout.label(
                     text=(
-                        f"Skip object {object_result.get('object', 'unknown')}: "
+                        f"Skip object {object_result.get('name', 'unknown')}: "
                         f"{title}"
                     ),
                     icon="ERROR",
@@ -147,6 +178,16 @@ class ALPHA_MATERIAL_SEPARATOR_OT_assign_materials(bpy.types.Operator):
                     f"{title}"
                 ),
                 icon="ERROR",
+            )
+        for disposition in plan.get("dispositions", ()):
+            if disposition.get("action") != "LEAVE_UNCHANGED_NO_ALPHA_SOURCE":
+                continue
+            layout.label(
+                text=(
+                    f"Leave {disposition.get('material', 'unknown')} unchanged: "
+                    "no alpha source was selected"
+                ),
+                icon="INFO",
             )
         destinations = plan.get("destinations", {})
         for source, derived in sorted(destinations.items()):
@@ -197,16 +238,23 @@ class ALPHA_MATERIAL_SEPARATOR_OT_assign_materials(bpy.types.Operator):
             conflict_policy=self.derived_conflict_policy,
         )
         plan_payload = plan.public_payload()
-        actionable = bool(plan.mutations) or any(
-            decision.action in {"CREATE", "REUSE"}
-            for decision in plan.decisions.values()
-        )
+        actionable = plan.actionable
         if not actionable:
-            message = (
-                "No safe material assignment is available"
-                if plan.blocked
-                else "Already separated - no additional changes"
+            unresolved_groups = sum(
+                item.action == "LEAVE_UNCHANGED_NO_ALPHA_SOURCE"
+                for item in plan.dispositions
             )
+            if plan.blocked:
+                message = "No safe material assignment is available"
+            elif plan.already_derived:
+                message = "Already separated - no additional changes"
+            elif unresolved_groups:
+                message = (
+                    "No resolved alpha material needs separation; "
+                    "unresolved materials were left unchanged"
+                )
+            else:
+                message = "No alpha-affected faces need material separation"
             self._status(
                 context,
                 "ASSIGNMENT_BLOCKED" if plan.blocked else "ASSIGNMENT_NO_CHANGES",
@@ -223,7 +271,9 @@ class ALPHA_MATERIAL_SEPARATOR_OT_assign_materials(bpy.types.Operator):
                         "changed_faces": 0,
                         "created_materials": 0,
                         "reused_materials": 0,
-                        "skipped_material_groups": len(plan.blocked),
+                        "blocked_material_groups": len(plan.blocked),
+                        "skipped_material_groups": plan.skipped_group_count,
+                        "unchanged_material_groups": unresolved_groups,
                     },
                     plan=plan_payload,
                 )
@@ -245,7 +295,7 @@ class ALPHA_MATERIAL_SEPARATOR_OT_assign_materials(bpy.types.Operator):
         state = context.window_manager.alpha_material_separator_api
         state.analysis_id = ""
         state.report_json = "{}"
-        code = "ASSIGNMENT_COMPLETE_WITH_SKIPS" if plan.blocked else "ASSIGNMENT_COMPLETE"
+        code = "ASSIGNMENT_COMPLETE_WITH_SKIPS" if plan.has_skips else "ASSIGNMENT_COMPLETE"
         self._status(
             context,
             code,

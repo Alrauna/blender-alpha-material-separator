@@ -8,6 +8,7 @@ from bpy.props import BoolProperty, EnumProperty, IntProperty, StringProperty
 
 from .. import api_contract, runtime
 from ..adapters.analysis import validate_report
+from ..adapters.assignment import build_assignment_plan, preview_face_indices
 from ..presentation import classes_to_move, review_signature
 
 
@@ -43,6 +44,52 @@ class ALPHA_MATERIAL_SEPARATOR_OT_select_faces(bpy.types.Operator):
         default="REPLACE",
     )
     enter_edit_mode: BoolProperty(name="Enter Edit Mode", default=True)
+    preview_assignment_plan: BoolProperty(
+        name="Preview Assignment Plan",
+        description="Select the exact faces the current assignment policies would move",
+        default=False,
+        options={"HIDDEN", "SKIP_SAVE"},
+    )
+    mixed_policy: EnumProperty(
+        name="Mixed Faces",
+        items=(
+            ("TO_ALPHA", "Move to Alpha", "Move mixed faces to alpha"),
+            ("KEEP_SOURCE", "Keep Source", "Leave mixed faces on the source"),
+            ("CANCEL_SOURCE_MATERIAL", "Skip Group", "Skip the material group"),
+        ),
+        default="TO_ALPHA",
+        options={"HIDDEN", "SKIP_SAVE"},
+    )
+    suppressed_policy: EnumProperty(
+        name="Suppressed Evidence",
+        items=(
+            ("CANCEL_SOURCE_MATERIAL", "Skip Group", "Skip the material group"),
+            ("TO_ALPHA", "Move to Alpha", "Move suppressed faces to alpha"),
+            ("KEEP_SOURCE", "Keep Source", "Leave suppressed faces on the source"),
+        ),
+        default="CANCEL_SOURCE_MATERIAL",
+        options={"HIDDEN", "SKIP_SAVE"},
+    )
+    unsupported_policy: EnumProperty(
+        name="Unsupported Faces",
+        items=(
+            ("CANCEL_SOURCE_MATERIAL", "Skip Group", "Skip a resolved group with uncertain faces"),
+            ("KEEP_SOURCE", "Keep Source", "Leave face-local uncertainty on the source"),
+            ("TO_ALPHA", "Move to Alpha", "Move face-local uncertainty to alpha"),
+        ),
+        default="CANCEL_SOURCE_MATERIAL",
+        options={"HIDDEN", "SKIP_SAVE"},
+    )
+    derived_conflict_policy: EnumProperty(
+        name="Derived Conflict",
+        items=(
+            ("CANCEL_SOURCE_MATERIAL", "Skip Group", "Preserve conflicting data"),
+            ("REUSE_EXISTING", "Reuse Existing", "Reuse the existing alpha material"),
+            ("CREATE_NEW_VARIANT", "Create New", "Create a fresh alpha material"),
+        ),
+        default="CANCEL_SOURCE_MATERIAL",
+        options={"HIDDEN", "SKIP_SAVE"},
+    )
 
     def _fail(self, context, code: str, message: str) -> set[str]:
         runtime.clear_review(context.window_manager)
@@ -82,10 +129,25 @@ class ALPHA_MATERIAL_SEPARATOR_OT_select_faces(bpy.types.Operator):
             )
         runtime.clear_dirty()
 
+        plan_targets = None
+        if self.preview_assignment_plan:
+            plan = build_assignment_plan(
+                report,
+                mixed_policy=self.mixed_policy,
+                suppressed_policy=self.suppressed_policy,
+                unsupported_policy=self.unsupported_policy,
+                conflict_policy=self.derived_conflict_policy,
+            )
+            plan_targets = preview_face_indices(plan)
+
         objects = [
             result.object
             for result in report.object_results.values()
             if not result.skipped_reason
+            and (
+                plan_targets is None
+                or result.object.as_pointer() in plan_targets
+            )
         ]
         if not objects:
             return self._fail(context, "NO_PREVIEW_OBJECTS", "No safe analyzed object")
@@ -94,9 +156,20 @@ class ALPHA_MATERIAL_SEPARATOR_OT_select_faces(bpy.types.Operator):
             if result.skipped_reason:
                 continue
             mesh = result.object.data
+            object_targets = (
+                plan_targets.get(result.object.as_pointer(), frozenset())
+                if plan_targets is not None
+                else None
+            )
             for polygon in mesh.polygons:
                 face = result.faces.get(polygon.index)
-                target = face is not None and face.result.classification.value in self.classes
+                if object_targets is not None:
+                    target = polygon.index in object_targets
+                else:
+                    target = (
+                        face is not None
+                        and face.result.classification.value in self.classes
+                    )
                 if self.selection_mode == "REPLACE":
                     polygon.select = target
                 elif self.selection_mode == "ADD" and target:
@@ -106,7 +179,10 @@ class ALPHA_MATERIAL_SEPARATOR_OT_select_faces(bpy.types.Operator):
                 if target:
                     selected_count += 1
             mesh.update()
-            result.object.select_set(True)
+            if plan_targets is None or result.object.as_pointer() in plan_targets:
+                result.object.select_set(True)
+            else:
+                result.object.select_set(False)
 
         context.view_layer.objects.active = objects[0]
         if self.enter_edit_mode:
@@ -125,6 +201,9 @@ class ALPHA_MATERIAL_SEPARATOR_OT_select_faces(bpy.types.Operator):
             "Face-selection preview completed",
             analysis_id=report.analysis_id,
             classes=sorted(self.classes),
+            preview_kind=(
+                "ASSIGNMENT_PLAN" if self.preview_assignment_plan else "CLASSIFICATIONS"
+            ),
             selected_face_count=selected_count,
         )
         state.last_status_code = status["code"]
@@ -133,13 +212,32 @@ class ALPHA_MATERIAL_SEPARATOR_OT_select_faces(bpy.types.Operator):
         expected_classes = set(
             classes_to_move(settings.mixed_policy, settings.suppressed_policy)
         )
-        if self.selection_mode == "REPLACE" and set(self.classes) == expected_classes:
+        exact_plan_preview = self.preview_assignment_plan and self.selection_mode == "REPLACE"
+        legacy_exact_preview = (
+            not self.preview_assignment_plan
+            and self.selection_mode == "REPLACE"
+            and settings.unsupported_policy != "TO_ALPHA"
+            and set(self.classes) == expected_classes
+        )
+        if exact_plan_preview or legacy_exact_preview:
+            mixed_policy = self.mixed_policy if exact_plan_preview else settings.mixed_policy
+            suppressed_policy = (
+                self.suppressed_policy if exact_plan_preview else settings.suppressed_policy
+            )
+            unsupported_policy = (
+                self.unsupported_policy if exact_plan_preview else settings.unsupported_policy
+            )
+            conflict_policy = (
+                self.derived_conflict_policy
+                if exact_plan_preview
+                else settings.derived_conflict_policy
+            )
             signature = review_signature(
                 report.analysis_id,
-                settings.mixed_policy,
-                settings.suppressed_policy,
-                settings.unsupported_policy,
-                settings.derived_conflict_policy,
+                mixed_policy,
+                suppressed_policy,
+                unsupported_policy,
+                conflict_policy,
             )
             runtime.set_review(
                 context.window_manager, report.analysis_id, signature

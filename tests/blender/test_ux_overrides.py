@@ -4,10 +4,13 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
+import tempfile
 
 import bpy
 
 from addon import runtime
+from addon.adapters import analysis as analysis_adapter
 from addon.presentation import review_signature
 from tests.blender.test_analysis_preview import _clear_scene, _image, _material, _quad
 
@@ -21,10 +24,31 @@ def _select_only(*objects) -> None:
     bpy.context.view_layer.objects.active = objects[0]
 
 
+def _file_backed_image(name: str, directory: str):
+    """Create a lawful tiny FILE image whose pixels are clean after loading."""
+
+    generated = _image(f"{name}_GENERATED_SOURCE")
+    path = Path(directory) / f"{name}.png"
+    generated.filepath_raw = str(path)
+    generated.file_format = "PNG"
+    generated.save()
+    bpy.data.images.remove(generated)
+    image = bpy.data.images.load(str(path), check_existing=False)
+    image.name = name
+    assert image.source == "FILE" and not image.is_dirty, (
+        image.source,
+        image.is_dirty,
+    )
+    return image
+
+
 def run() -> None:
     _clear_scene()
-    auto_image = _image("AMS_UX_AUTO_IMAGE")
-    override_image = _image("AMS_UX_OVERRIDE_IMAGE")
+    temporary_images = tempfile.TemporaryDirectory(prefix="ams-ux-images-")
+    auto_image = _file_backed_image("AMS_UX_AUTO_IMAGE", temporary_images.name)
+    override_image = _file_backed_image(
+        "AMS_UX_OVERRIDE_IMAGE", temporary_images.name
+    )
     auto_material, _tree, _principled, _texture = _material(
         "AMS_UX_AUTO_MATERIAL", auto_image
     )
@@ -64,6 +88,14 @@ def run() -> None:
     assert groups[manual_material.name]["uv_map"] == "UVMap"
     assert payload["counts"]["MIXED"] == 1, payload
     assert payload["counts"]["OPAQUE"] == 1, payload
+    unrelated_image = bpy.data.images.new(
+        "AMS_UX_UNRELATED_IMAGE", width=1, height=1, alpha=True
+    )
+    assert runtime._relevant_update_scope(automatic_object) == "OBJECT"
+    assert runtime._relevant_update_scope(automatic_object.data) == "MESH"
+    assert runtime._relevant_update_scope(auto_material) == "MATERIAL"
+    assert runtime._relevant_update_scope(auto_image) == "IMAGE"
+    assert runtime._relevant_update_scope(unrelated_image) == ""
 
     settings = bpy.context.window_manager.alpha_material_separator_settings
     ui = bpy.context.window_manager.alpha_material_separator_ui
@@ -71,9 +103,15 @@ def run() -> None:
         expected_analysis_id=state.analysis_id,
         classes={"ALPHA_AFFECTED", "MIXED"},
         selection_mode="REPLACE",
-        enter_edit_mode=False,
+        enter_edit_mode=True,
+        preview_assignment_plan=True,
+        mixed_policy=settings.mixed_policy,
+        suppressed_policy=settings.suppressed_policy,
+        unsupported_policy=settings.unsupported_policy,
+        derived_conflict_policy=settings.derived_conflict_policy,
     )
     assert preview == {"FINISHED"}, preview
+    assert automatic_object.mode == "EDIT" and manual_object.mode == "EDIT"
     signature = review_signature(
         state.analysis_id,
         settings.mixed_policy,
@@ -90,6 +128,48 @@ def run() -> None:
         signature,
         runtime.dirty_reason(),
     )
+
+    # Leaving the multi-object preview can emit a generic Mesh update even
+    # though only mode and face-selection state changed.  Keep the reviewed
+    # report and prove validity with the structural fingerprint: this path must
+    # not read image pixels through the full preparation routine or evict UV
+    # coverage cached by the completed analysis.
+    bpy.ops.object.mode_set(mode="OBJECT")
+    sentinel_coverage = object()
+    runtime.coverage_set("AMS_REVALIDATION_SENTINEL", sentinel_coverage)
+    runtime.mark_recheck("MESH_UPDATED", "MESH")
+    assert runtime.validation_state() == runtime.VALIDATION_RECHECK_PENDING
+    assert state.validation_state == runtime.VALIDATION_RECHECK_PENDING
+    assert json.loads(state.pending_scopes_json) == ["MESH"]
+    assert not runtime.dirty_reason()
+    assert runtime.review_matches(
+        bpy.context.window_manager, state.analysis_id, signature
+    )
+    report = runtime.report(state.analysis_id)
+    assert report is not None
+    original_prepare = analysis_adapter._prepare
+
+    def unexpected_full_validation(*_args, **_kwargs):
+        raise AssertionError("mesh-only revalidation read image inputs")
+
+    analysis_adapter._prepare = unexpected_full_validation
+    try:
+        valid, reason = analysis_adapter.validate_report(report)
+    finally:
+        analysis_adapter._prepare = original_prepare
+    assert valid and reason == "OK", reason
+    validation = runtime.snapshot()
+    assert validation["validation_state"] == runtime.VALIDATION_CLEAN, validation
+    assert validation["last_validation_image_digest_rows"] == 0, validation
+    assert validation["last_validation_rasterized_polygons"] == 0, validation
+    assert state.validation_state == runtime.VALIDATION_CLEAN
+    assert json.loads(state.pending_scopes_json) == []
+    assert validation["last_validation_mode"] == "STRUCTURAL", validation
+    assert runtime.coverage_get("AMS_REVALIDATION_SENTINEL") is sentinel_coverage
+    assert runtime.review_matches(
+        bpy.context.window_manager, state.analysis_id, signature
+    )
+
     settings.mixed_policy = "KEEP_SOURCE"
     assert not ui.reviewed_analysis_id, ui.reviewed_analysis_id
     settings.mixed_policy = "TO_ALPHA"
@@ -136,4 +216,5 @@ def run() -> None:
     runtime.finish_analysis(bpy.context.window_manager)
     assert not ui.is_analyzing and ui.analysis_progress == 0.0
     assert runtime.report() is prior_report
+    temporary_images.cleanup()
     print("ALPHA_MATERIAL_SEPARATOR_UX_OVERRIDE_TESTS_OK")

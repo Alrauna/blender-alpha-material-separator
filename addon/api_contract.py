@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-API_VERSION = (1, 1)
+API_VERSION = (1, 2)
 EXTENSION_VERSION = (0, 1, 0)
 
 PUBLIC_OPERATOR_IDS = (
@@ -26,6 +26,9 @@ CLASSIFICATIONS = (
 )
 
 ADDRESS_MODES = ("REPEAT", "EXTEND", "CLIP", "MIRROR")
+UNSUPPORTED_SCOPES = ("FACE_LOCAL", "MATERIAL_SOURCE", "DATA_SAFETY")
+UNSUPPORTED_POLICIES = ("CANCEL_SOURCE_MATERIAL", "KEEP_SOURCE", "TO_ALPHA")
+VALIDATION_STATES = ("CLEAN", "RECHECK_PENDING", "STALE")
 
 GUARANTEED_MATERIAL_PATTERNS = (
     "DIRECT_IMAGE_ALPHA_TO_ACTIVE_PRINCIPLED_ALPHA",
@@ -55,12 +58,16 @@ def capability_payload() -> dict[str, Any]:
         "api_version": dotted(API_VERSION),
         "capabilities": {
             "analysis": True,
+            "component_revalidation": True,
             "explicit_channel_override": True,
             "face_selection_preview": True,
             "material_assignment": True,
             "per_material_overrides": True,
+            "partial_material_assignment": True,
+            "plan_derived_preview": True,
             "material_support_matrix_ready": True,
             "query_capabilities": True,
+            "reason_scoped_unsupported": True,
         },
         "classifications": list(CLASSIFICATIONS),
         "extension_version": dotted(EXTENSION_VERSION),
@@ -68,6 +75,9 @@ def capability_payload() -> dict[str, Any]:
         "operator_ids": list(PUBLIC_OPERATOR_IDS),
         "supported_material_patterns": list(GUARANTEED_MATERIAL_PATTERNS),
         "supported_blender": {"minimum": "5.2.0"},
+        "unsupported_policies": list(UNSUPPORTED_POLICIES),
+        "unsupported_scopes": list(UNSUPPORTED_SCOPES),
+        "validation_states": list(VALIDATION_STATES),
     }
 
 

@@ -24,6 +24,12 @@ Measure full alpha digest, proven digest reuse, threshold-prefix rebuild,
 coverage reuse with changed images, and total cold analysis separately at 1K,
 2K, 4K, and 8K.
 
+Also measure preview validation, Object/Edit Mode exit rechecks, final Apply
+preflight, and genuine image-change validation separately. Instrument each run
+with component-fingerprint calls, participating image-digest rows, rasterized
+polygons, and coverage-cache hits/misses. A selection/mode-only recheck must
+digest zero image rows and rasterize zero polygons.
+
 Full pixel digests remain authoritative when Blender invalidation is uncertain.
 Cross-operation reuse is allowed only for mutation paths shown by Blender 5.2
 tests to emit reliable invalidation. `Image.is_dirty` or file timestamps alone
@@ -78,3 +84,7 @@ the 1,000,000-scanline budget in under 0.1 ms.
 - The provisional 25% regression rule applies to the matching same-machine
   tier and metric. A fixture, Blender build, or hardware change establishes a
   new reviewed baseline instead of being compared blindly.
+- The component-revalidation implementation adds a separate acceptance target:
+  on the approved same-machine structural workflow, leaving preview must recheck
+  in a median below one second and below 15 percent of cold analysis. Record the
+  first post-fix result before marking the workflow-friction milestone complete.

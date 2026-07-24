@@ -19,14 +19,26 @@ class ApiContractTests(unittest.TestCase):
         self.assertEqual(first, second)
 
         payload = json.loads(first)
-        self.assertEqual(payload["api_version"], "1.1")
+        self.assertEqual(payload["api_version"], "1.2")
         self.assertEqual(payload["extension_version"], "0.1.0")
         self.assertTrue(payload["capabilities"]["query_capabilities"])
         self.assertTrue(payload["capabilities"]["material_support_matrix_ready"])
         self.assertTrue(payload["capabilities"]["analysis"])
+        self.assertTrue(payload["capabilities"]["component_revalidation"])
         self.assertTrue(payload["capabilities"]["face_selection_preview"])
         self.assertTrue(payload["capabilities"]["material_assignment"])
         self.assertTrue(payload["capabilities"]["per_material_overrides"])
+        self.assertTrue(payload["capabilities"]["partial_material_assignment"])
+        self.assertTrue(payload["capabilities"]["plan_derived_preview"])
+        self.assertTrue(payload["capabilities"]["reason_scoped_unsupported"])
+        self.assertEqual(
+            payload["unsupported_scopes"],
+            ["FACE_LOCAL", "MATERIAL_SOURCE", "DATA_SAFETY"],
+        )
+        self.assertIn("TO_ALPHA", payload["unsupported_policies"])
+        self.assertEqual(
+            payload["validation_states"], ["CLEAN", "RECHECK_PENDING", "STALE"]
+        )
         self.assertIn("SUPPRESSED", payload["classifications"])
         self.assertIn(
             "SIMPLE_REROUTE_IN_ALPHA_PATH",
@@ -43,7 +55,7 @@ class ApiContractTests(unittest.TestCase):
         )
         self.assertEqual(
             encoded,
-            '{"a_value":2,"api_version":"1.1","code":"OK","message":"done","z_value":1}',
+            '{"a_value":2,"api_version":"1.2","code":"OK","message":"done","z_value":1}',
         )
 
 
