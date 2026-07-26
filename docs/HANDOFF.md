@@ -50,6 +50,8 @@ zero, or adding private-example heuristics.
 - Created the implementation commits covered by this handoff:
   - `0527dc1 test: cover UV coordinates outside the base tile`
   - `f9d15f2 fix: resolve base color alpha with ancillary textures`
+  - `b7f74f7 docs:design-already-separated-button-tooltips`
+  - `8f2dd87 fix:explain-already-separated-workflow-actions`
 - Nothing was pushed.
 
 ## Important decisions and constraints
