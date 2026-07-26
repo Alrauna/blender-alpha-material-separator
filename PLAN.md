@@ -141,6 +141,25 @@ preview/plan equivalence, partial success, undo/redo, idempotence, save/reopen,
 and registration cleanup. Installed-ZIP Blender 5.2 acceptance must complete
 the reported workflow without redundant analysis.
 
+The authoritative hardening matrix includes:
+
+- Real dependency-graph events for repeated mode/selection/active-face/
+  active-object/multi-object transitions plus unrelated datablock updates.
+- Paired topology, vertex, UV, material-index, slot order/content, mesh
+  replacement/deletion, shader link/setting, image pixel/reload/pack/replace,
+  analysis-setting, undo, redo, and file-load changes.
+- Apply-before-deferred-recheck and mutation-during-modal-analysis races with
+  zero assignment/publication on mismatch.
+- Exact plan-review and confirmation fingerprints, including off-slot derived
+  edit/duplicate/delete and create-versus-reuse transitions.
+- A generated combined fixture with opaque, alpha-affected, mixed, collapsed
+  UV, unresolved, suppressed, unsafe, and metadata-conflict states; test
+  partial application, cancellation, rollback, undo/redo, idempotence, and
+  save/reopen semantically.
+- Clean installed-ZIP Analyze → Preview → Tab → Apply acceptance and separate
+  cold-analysis, structural-recheck, Apply-preflight, and full-image-digest
+  measurements with recorded instrumentation counters.
+
 ## Milestone 5: release validation
 
 - Record small, typical-avatar, high-complexity, repeated-UV, and pathological

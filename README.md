@@ -137,7 +137,7 @@ not have to be resolved merely to let another material proceed.
 Press `Ctrl+Z` to undo assignment and `Ctrl+Shift+Z` to redo it. Assignment
 clears the active report, so analyze again before another preview or apply.
 Repeated runs are idempotent: a valid existing alpha material and slot are
-reused, and the UI reports **Already separated—no additional changes**.
+reused, and the UI reports **Already separated — no additional changes**.
 
 Blender may report mesh updates when you only enter or leave Edit Mode or alter
 face selection. The extension rechecks the relevant structural inputs and keeps
@@ -179,8 +179,8 @@ mipmaps, compression, clipping, or shader-specific behavior. See the detailed
 | **Mesh data is shared/read-only/linked** | Make a deliberate editable copy. The extension never does this automatically. |
 | **Below significance—needs review** | Inspect the faces and deliberately choose an Expert policy if the default skip is not appropriate. |
 | **Uncertain faces will use alpha** | The alpha source is valid, but some faces have collapsed UVs or exceeded a deterministic coverage budget. Preview them; the Simple default keeps possible transparency by routing them to alpha. |
-| **Left unchanged—no alpha source selected** | This material does not block supported materials. Use **Set Manual Alpha Source** only if this material also needs separation. |
-| **Inputs Changed—Analyze Again** | A setting, material, image, UV, slot, or object changed after analysis. Reanalyze. |
+| **Left unchanged — no alpha source selected** | This material does not block supported materials. Use **Set Manual Alpha Source** only if this material also needs separation. |
+| **Inputs Changed — Analyze Again** | A setting, material, image, UV, slot, or object changed after analysis. Reanalyze. |
 | The message appears after pressing `Tab` without editing inputs | This is a defect; mode and selection changes alone should be revalidated and reused. Include the Technical Details state in a bug report. |
 | **Source or alpha material changed** | Preserve the edited material and explicitly choose reuse or a new variant in Expert mode. |
 | Everything stays opaque | Confirm the intended image/channel and that affected pixels are below `0.999`. |

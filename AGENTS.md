@@ -77,12 +77,24 @@ Use all applicable layers of this test pyramid:
    component rechecks, and coverage/prefix reuse.
 
 For every state-invalidation fix, test paired harmless and real-change event
-sequences. At minimum cover selection and mode changes, unrelated datablock
-updates, topology and UV edits, material slot and shader changes, image changes,
-settings changes, and an Apply-before-deferred-recheck race. A harmless
-selection or mode transition must retain the analysis ID and review token and
-must perform zero rasterization and zero participating-image digest work. A
-real input change must confirm `STALE`, clear review, and allow no mutation.
+sequences through both the real dependency-graph handler and direct
+authoritative validation. Harmless cases must include repeated Object/Edit Mode
+toggles, face selection, active face, active object, multi-object Edit Mode,
+and unrelated Object/Mesh/Material/Image/NodeTree updates. Real-change cases
+must include topology, vertex positions, UV values and active/render UV,
+polygon material indices, slot order/content, mesh replacement/deletion,
+shader links/settings, image pixels/reload/pack/replacement, settings, undo,
+redo, and file load. Include an Apply-before-deferred-recheck race. A harmless
+transition must retain the analysis ID and exact plan-review token and perform
+zero rasterization and zero participating-image digest work. A real input
+change must confirm `STALE`, clear review, and allow no mutation.
+
+Preview tests must prove that only plan-target objects enter multi-object Edit
+Mode; skipped, unsafe, unrelated, or newly selected meshes must be deselected.
+Only the plan-derived Preview action may create the guided review token. Bind
+that token and any warning confirmation to a deterministic full assignment-plan
+fingerprint so derived-material edits, duplication, deletion, or reuse changes
+cannot silently alter the reviewed operation.
 
 Assignment tests must combine material support and safety states instead of
 testing only isolated happy paths. Include a resolved source with opaque,
@@ -100,6 +112,13 @@ Cache and performance tests must record component-hash calls, image-digest
 rows, rasterized polygons, coverage cache hits/misses, validity transitions,
 and elapsed time. Use one discarded warm-up followed by five measured runs.
 Block unexplained established same-machine regressions over 25 percent.
+
+Modal-analysis tests must mutate participating inputs between work chunks and
+prove that no hybrid report is published. Cancellation or failed replacement
+analysis must preserve both the previous complete report and its review token.
+Transaction-fault tests must reconcile every changed face, appended slot,
+created material, and metadata write after rollback; an incomplete rollback is
+itself a test failure, not a swallowed exception.
 
 Documentation checkboxes may be marked complete only after that exact command
 or installed-ZIP interaction has been executed. Private before/after files may

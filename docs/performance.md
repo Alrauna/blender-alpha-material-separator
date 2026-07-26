@@ -86,5 +86,24 @@ the 1,000,000-scanline budget in under 0.1 ms.
   new reviewed baseline instead of being compared blindly.
 - The component-revalidation implementation adds a separate acceptance target:
   on the approved same-machine structural workflow, leaving preview must recheck
-  in a median below one second and below 15 percent of cold analysis. Record the
-  first post-fix result before marking the workflow-friction milestone complete.
+  in a median below one second and below 15 percent of cold analysis.
+
+## Structural revalidation baseline
+
+Measured 2026-07-25 on the same Blender, OS, Python, and processor family as the
+first baseline. The generated 4,900-polygon/9,800-triangle mesh used one clean
+file-backed 1K image. One warm-up was discarded and five mode-exit structural
+rechecks were measured.
+
+| Metric | Result |
+| --- | ---: |
+| Cold analysis | 0.836 s |
+| Structural recheck median | 0.0345 s |
+| Recheck / cold ratio | 4.13% |
+| Component hashes | 1 |
+| Participating image-digest rows | 0 |
+| Rasterized polygons | 0 |
+| Coverage cache entries retained | 4,900 |
+
+The recheck passes both provisional targets. Raw per-run machine output remains
+ignored in `.test-output/benchmarks/revalidation-current.json`.

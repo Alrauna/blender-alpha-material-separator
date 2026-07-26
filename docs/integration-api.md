@@ -4,8 +4,10 @@
 - Extension version: `0.1.0`
 
 API 1.2 is additive over 1.1. Existing API 1.0/1.1 callers keep the same
-operator IDs, existing arguments, scripted defaults, classifications, and
-status behavior. The current build implements:
+operator IDs, existing arguments, scripted defaults, and classifications.
+One intentional status correction is documented below: an unresolved-only
+selection is now a successful no-change result instead of a global assignment
+failure. The current build implements:
 
 - `bpy.ops.alpha_material_separator.query_capabilities`
 - `bpy.ops.alpha_material_separator.analyze`
@@ -59,6 +61,21 @@ API 1.1 reports add resolved image, UV, channel, addressing, source method,
 per-material counts, unsupported reasons, suppressed-gate details, and planned
 assignment actions. Existing report fields remain unchanged.
 
+Each `objects[].groups[]` record uses these concrete fields:
+
+| Field | Values/meaning |
+| --- | --- |
+| `material` | Current Blender material name for diagnostics. |
+| `supported` | Whether an authoritative alpha source was resolved. |
+| `image`, `uv_map`, `channel`, `address_mode` | Resolved participating inputs. |
+| `source_kind` | Stable resolver method code. |
+| `source_method` | Compatibility alias of `source_kind`. |
+| `counts` | Face counts keyed by the five public classifications. |
+| `unsupported_reasons` | Internal reason-code counts. |
+| `unsupported_scopes` | Counts keyed by `FACE_LOCAL`, `MATERIAL_SOURCE`, or `DATA_SAFETY`. |
+| `default_disposition` | `SPLIT`, `LEAVE_UNCHANGED`, `REVIEW_REQUIRED`, or `NO_CHANGES`. |
+| `default_planned_action` | Default Simple-mode group action. |
+
 API 1.2 additionally exposes:
 
 - Report validation state: `CLEAN`, `RECHECK_PENDING`, or confirmed `STALE`.
@@ -68,6 +85,27 @@ API 1.2 additionally exposes:
   will remain unchanged rather than veto independent safe groups.
 - Capability flags for component revalidation and reason-scoped unsupported
   assignment.
+
+Assignment preflight data contains `dispositions[]`. Each entry identifies the
+`object`, `material`, `action`, `reason`, `total_faces`, `faces_to_alpha`,
+`faces_left_source`, `face_local_unsupported`,
+`material_source_unsupported`, `uncertain_to_alpha`, and
+`retained_by_policy`. Current `action` values are:
+
+- `MOVE_TO_ALPHA`
+- `MOVE_UNCERTAIN_TO_ALPHA`
+- `PARTIAL_MOVE_KEEP_POLICY`
+- `LEAVE_UNCHANGED_NO_ALPHA_SOURCE`
+- `LEAVE_UNCHANGED_BY_POLICY`
+- `SKIP_GROUP`
+- `NO_CHANGES_NEEDED`
+- `ALREADY_SEPARATED`
+- `REASSIGN_DERIVED_VARIANT`
+
+Top-level preflight totals include `faces_to_reassign`,
+`planned_additional_slots`, `skipped_object_count`,
+`skipped_material_groups`, `unchanged_material_groups`,
+`partial_material_groups`, and `retained_faces_by_policy`.
 
 `assign_materials.unsupported_policy` additively accepts `TO_ALPHA`. It routes
 only face-local uncertainty inside an otherwise resolved material to the alpha
@@ -87,6 +125,24 @@ than an exception crossing the operator boundary. The UI's mandatory preview
 review token intentionally does not change direct scripted assignment behavior:
 scripts must still supply the reviewed `expected_analysis_id`, and assignment
 performs its authoritative stale-input validation.
+
+## Assignment return and status behavior
+
+| Situation | Operator return | `last_status_code` |
+| --- | --- | --- |
+| Reviewed actionable groups changed | `FINISHED` | `ASSIGNMENT_COMPLETE` or `ASSIGNMENT_COMPLETE_WITH_SKIPS` |
+| Everything is already separated | `FINISHED` | `ASSIGNMENT_NO_CHANGES` |
+| Only material-wide unresolved groups exist | `FINISHED` | `ASSIGNMENT_NO_CHANGES`; those groups remain untouched |
+| No actionable group and a safety/metadata policy blocks it | `CANCELLED` | `ASSIGNMENT_BLOCKED` |
+| Report inputs changed | `CANCELLED` | `STALE_ANALYSIS` |
+| Guided-UI plan changed after Preview | `CANCELLED` | `REVIEW_CHANGED` |
+| Warning preflight changed while its dialog was open | `CANCELLED` | `PREFLIGHT_CHANGED` |
+| Unexpected execution error | `CANCELLED` | `ASSIGNMENT_FAILED`; transactional rollback is attempted and failures are reported |
+
+The unresolved-only `ASSIGNMENT_NO_CHANGES` result is the API 1.2 semantic
+correction. API 1.0/1.1 integrations that treated any non-actionable unresolved
+material as a hard error should use capability
+`partial_material_assignment` and inspect the disposition totals.
 
 Future CATS integration must feature-detect the capability operator. If it is
 absent or incompatible, integration is a harmless no-op. This extension never

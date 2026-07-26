@@ -8,15 +8,32 @@ $Blender52 = 'C:\Program Files\Blender Foundation\Blender 5.2\blender.exe'
 python -m unittest discover -s tests/unit -t . -v
 & $Blender52 --factory-startup --background --python-exit-code 1 --python tests/blender/run_all.py
 & $Blender52 --factory-startup --command extension validate addon
+.\scripts\build_extension.ps1 -Blender $Blender52
+
+$Archive = (Resolve-Path .\.packaged-releases\alpha_material_separator-0.1.0.zip).Path
+& $Blender52 --factory-startup --command extension validate $Archive
+
+$IsolatedRoot = Join-Path (Resolve-Path .\.test-output).Path "isolated-install-$PID"
+$env:BLENDER_USER_CONFIG = Join-Path $IsolatedRoot 'config'
+$env:BLENDER_USER_SCRIPTS = Join-Path $IsolatedRoot 'scripts'
+$env:BLENDER_USER_DATAFILES = Join-Path $IsolatedRoot 'datafiles'
+New-Item -ItemType Directory -Force -Path $env:BLENDER_USER_CONFIG | Out-Null
+New-Item -ItemType Directory -Force -Path $env:BLENDER_USER_SCRIPTS | Out-Null
+New-Item -ItemType Directory -Force -Path $env:BLENDER_USER_DATAFILES | Out-Null
+& $Blender52 --command extension install-file -r user_default -e $Archive
+& $Blender52 --background --python-exit-code 1 --python tests/blender/verify_installed_zip.py
 ```
 
-The checkpoint tests verify ordinary-Python import without `bpy`, deterministic
+When all commands above pass, the checkpoint verifies ordinary-Python import
+without `bpy`, deterministic
 coverage/classification and API 1.2 capability JSON, registration/unregistration,
 Simple and Expert workflow state, per-material overrides, analysis progress and
 cancellation, review-token invalidation, warning confirmation, preview,
 stale-result refusal, safe assignment, every documented material-identity
 transition, completion summaries, preservation, save/reopen, FBX
 export/reimport, README contracts, and anonymized synthetic characterization.
+Do not mark the installed-ZIP or exact interaction checkboxes complete merely
+because the source-tree headless suite passed.
 
 ## Required test layers
 
@@ -50,10 +67,11 @@ save/reopen, and preservation of every non-allowlisted datablock property.
 
 ## Interactive Blender smoke checklist
 
-Executed on 2026-07-22 with Blender 5.2.0 LTS. The UI observations used a
-generated two-object grid and generated image; no private reference asset was
-used. Machine-state assertions that are difficult to prove visually were also
-checked by the corresponding headless regression test.
+Executed on 2026-07-22 and repeated for the preview/revalidation changes on
+2026-07-25 with Blender 5.2.0 LTS. The UI observations used a generated
+two-object grid and generated image; no private reference asset was used.
+Machine-state assertions that are difficult to prove visually were also checked
+by the corresponding headless regression test.
 
 - [x] Install/development-load the extension and confirm the panel appears in
   the 3D View sidebar. The built ZIP was also installed into an isolated Blender
@@ -76,12 +94,16 @@ checked by the corresponding headless regression test.
   preflight. Exact non-mutation is asserted by the preservation and assignment
   policy tests.
 - [x] Change a real reviewed input and confirm stale-result refusal.
-- [ ] In the rebuilt ZIP, complete Analyze → Preview → `Tab` to Object Mode
+- [x] In the rebuilt ZIP, complete Analyze → Preview → `Tab` to Object Mode
   → Apply without another analysis. Confirm the analysis ID and preview token
   survive, no image digest or rasterization runs, and the intended split is
-  applied. The earlier checklist did not cover this exact transition.
-- [ ] Repeat Object/Edit toggles, face selection changes, active-object changes,
+  applied. The installed-ZIP walkthrough kept Apply enabled after a face
+  selection change and the Object Mode transition; the instrumented headless
+  matrix confirmed zero digest and rasterization work.
+- [x] Repeat Object/Edit toggles, face selection changes, active-object changes,
   and multi-object Edit Mode transitions without a false stale message.
+  Selection and mode changes were repeated in the installed ZIP; active-object
+  and transition permutations are covered by the instrumented headless matrix.
 - [x] Review analyzed objects, source material, resolved image/UV/channel,
   destination material, skips, faces to move, and estimated slot/section
   increase before assignment.
@@ -94,7 +116,7 @@ checked by the corresponding headless regression test.
 - [x] Undo and redo assignment from the 3D View.
 - [x] Confirm the completion card reports moved faces, created/reused material,
   added slots, Ctrl+Z guidance, and the Unity handoff. Rerun and confirm
-  “Already separated—no additional changes”; regression tests also assert no
+  “Already separated — no additional changes”; regression tests also assert no
   duplicate datablocks or slots.
 - [x] Disable, re-enable, and confirm clean panel/operator lifecycle through the
   isolated ZIP installation and registration lifecycle tests.
