@@ -12,9 +12,12 @@ groups are already recognized as AMS-derived, both disabled buttons show:
 
 > All faces on the selected meshes are optimally assigned. No faces need to be moved.
 
-The message is state-aware. It must not appear when the buttons are disabled
-because analysis inputs are stale, analysis is running, no report exists, a
-review is still required, or material groups are blocked or unresolved.
+The message is state-aware. It appears when the plan contains already-derived
+AMS groups and has no actionable moves, including a partial-apply rerun where
+other unresolved groups remain safely unchanged. It must not appear when
+analysis inputs are stale, analysis is running, no report exists, a review is
+still required, actionable moves remain, or a plan is purely blocked or
+unresolved without any already-separated group.
 
 All other tooltip text and all analysis, preview, assignment, operator, and API
 behavior remain unchanged.
@@ -35,6 +38,7 @@ Add a focused Blender regression proving:
 
 - both buttons receive the exact message in the already-separated state;
 - both operators retain their normal description without a contextual tooltip;
-- other disabled states do not receive the already-separated message.
+- actionable and purely unresolved disabled states do not receive the
+  already-separated message.
 
 Then run the ordinary unit and headless Blender suites.

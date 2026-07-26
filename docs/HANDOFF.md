@@ -42,6 +42,10 @@ zero, or adding private-example heuristics.
   selected meshes are already separated: “All faces on the selected meshes are
   optimally assigned. No faces need to be moved.” Other disabled states retain
   the normal operator descriptions.
+- Corrected the rerun predicate after reproducing the user's real partial-apply
+  workflow: already-separated groups now receive the contextual tooltip when
+  no actionable moves remain, even if unresolved groups were safely left
+  unchanged. A purely unresolved plan still retains its normal tooltip.
 - Rebuilt and validated the ignored local extension ZIP with this UI change.
 - Upgraded the ignored private helper to validate every mesh, semantic
   before/after roles, multi-image Base Color resolution, out-of-range UVs,
@@ -253,6 +257,24 @@ All commands used Blender 5.2.0 LTS from
    final ignored archive is 63,770 bytes with SHA-256
    `1174AF14BC4FAB9017DAC4ACAFF48819DAC9E27C69BF78662E4E5631A65BC778`.
 
+11. Partial-apply rerun tooltip diagnosis:
+
+   ```powershell
+   & $Blender52 --factory-startup --background --disable-autoexec `
+     --python-exit-code 1 `
+     --python .local-references\default-example\_diagnose_rerun_tooltip.py -- `
+     .local-references\default-example\before.blend APPLY_FIRST
+   ```
+
+   Result before the correction: the second analysis had no actionable moves
+   and contained both already-separated and unresolved groups, but the
+   contextual tooltip was absent because `has_skips` suppressed it. The same
+   complete Analyze → Preview → Apply → Analyze diagnostic passed after the
+   correction with the contextual tooltip present. Only anonymized aggregate
+   state was emitted; the ignored helper and private files remain uncommitted.
+   The corrected ignored archive is 63,751 bytes with SHA-256
+   `743AC91A8377DCC34ED024E3A0686D34BB50A5C088D2615F80209D43E754C466`.
+
 ## Known failures, warnings, and unverified assumptions
 
 - Release acceptance remains open because the private semantic lower-bound has
@@ -269,9 +291,10 @@ All commands used Blender 5.2.0 LTS from
 - Git reports the configured branch upstream as `[gone]`. No remote change or
   push was attempted.
 - Preview and Apply are intentionally disabled after rerunning a genuinely
-  already-separated selection. Both now explain this on hover. If either is
-  disabled while new eligible source faces remain, capture the panel state and
-  treat it as a separate plan-construction defect.
+  already-separated or safely partial-applied selection with no remaining
+  actionable moves. Both now explain this on hover. If either is disabled while
+  new eligible source faces remain, capture the panel state and treat it as a
+  separate plan-construction defect.
 - The 150% UI-scale pass, generated two-material interactive partial-apply
   checklist item, and ordinary Unity material/submesh validation remain
   unverified release gates.

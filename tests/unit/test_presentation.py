@@ -20,7 +20,7 @@ class PresentationTests(unittest.TestCase):
     def test_already_separated_tooltip_is_state_specific(self) -> None:
         self.assertEqual(
             already_separated_tooltip(
-                already_derived=True, actionable=False, has_skips=False
+                already_derived=True, actionable=False
             ),
             (
                 "All faces on the selected meshes are optimally assigned. "
@@ -29,19 +29,13 @@ class PresentationTests(unittest.TestCase):
         )
         self.assertEqual(
             already_separated_tooltip(
-                already_derived=True, actionable=False, has_skips=True
+                already_derived=True, actionable=True
             ),
             "",
         )
         self.assertEqual(
             already_separated_tooltip(
-                already_derived=True, actionable=True, has_skips=False
-            ),
-            "",
-        )
-        self.assertEqual(
-            already_separated_tooltip(
-                already_derived=False, actionable=False, has_skips=False
+                already_derived=False, actionable=False
             ),
             "",
         )

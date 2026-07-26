@@ -13,6 +13,7 @@ from addon.adapters.assignment import (
     build_assignment_plan,
     execute_assignment_plan,
 )
+from addon.presentation import already_separated_tooltip
 from tests.blender.test_analysis_preview import _clear_scene, _image, _material, _quad
 from tests.blender.test_assignment import _analyze, _assign
 
@@ -237,6 +238,22 @@ def run() -> None:
     assert completion["changes"]["unchanged_material_groups"] == 1, completion
     slot_count = len(partial.material_slots)
     analysis_id = _analyze(partial)
+    rerun_plan = build_assignment_plan(
+        runtime.report(analysis_id),
+        mixed_policy="TO_ALPHA",
+        suppressed_policy="CANCEL_SOURCE_MATERIAL",
+        unsupported_policy="TO_ALPHA",
+        conflict_policy="CANCEL_SOURCE_MATERIAL",
+    )
+    assert (
+        rerun_plan.already_derived
+        and rerun_plan.has_skips
+        and not rerun_plan.actionable
+    )
+    assert already_separated_tooltip(
+        already_derived=bool(rerun_plan.already_derived),
+        actionable=rerun_plan.actionable,
+    )
     repeated, repeated_state = _assign(
         analysis_id, unsupported_policy="TO_ALPHA"
     )

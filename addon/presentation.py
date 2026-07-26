@@ -132,9 +132,9 @@ def guidance_for(reason: str | None) -> tuple[str, str]:
 
 
 def already_separated_tooltip(
-    *, already_derived: bool, actionable: bool, has_skips: bool
+    *, already_derived: bool, actionable: bool
 ) -> str:
-    if not already_derived or actionable or has_skips:
+    if not already_derived or actionable:
         return ""
     return (
         "All faces on the selected meshes are optimally assigned. "

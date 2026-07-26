@@ -236,7 +236,6 @@ class ALPHA_MATERIAL_SEPARATOR_PT_main(bpy.types.Panel):
         no_change_tooltip = already_separated_tooltip(
             already_derived=bool(current_plan and current_plan.already_derived),
             actionable=actionable,
-            has_skips=bool(current_plan and current_plan.has_skips),
         )
         already_separated = bool(no_change_tooltip)
         view = workflow_view(

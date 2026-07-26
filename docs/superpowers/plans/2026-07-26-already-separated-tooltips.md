@@ -11,7 +11,9 @@
 ## Global Constraints
 
 - Use exactly: `All faces on the selected meshes are optimally assigned. No faces need to be moved.`
-- Show that text only when the current plan is non-actionable because it contains already-derived AMS material groups.
+- Show that text when the current plan contains already-derived AMS material
+  groups and has no actionable moves, even if unresolved groups remain safely
+  unchanged after partial assignment.
 - Do not change analysis, preview, assignment, persistent state, public operator IDs, API version, or classifications.
 - Add no dependency, operator, panel, or property group.
 
@@ -29,14 +31,14 @@
 - Modify: `docs/HANDOFF.md`
 
 **Interfaces:**
-- Produces: `already_separated_tooltip(*, already_derived: bool, actionable: bool, has_skips: bool) -> str`
+- Produces: `already_separated_tooltip(*, already_derived: bool, actionable: bool) -> str`
 - Consumes: hidden operator property `ui_description: str`
 
 - [x] **Step 1: Add the failing presentation test**
 
-Add assertions that only a non-actionable, already-derived plan without skips
-returns the exact approved message. Missing derived groups, actionable changes,
-or skips return an empty string.
+Add assertions that any non-actionable, already-derived plan returns the exact
+approved message. Missing derived groups or actionable changes return an empty
+string.
 
 - [x] **Step 2: Run the focused unit test and verify RED**
 
