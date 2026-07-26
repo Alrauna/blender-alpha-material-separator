@@ -11,6 +11,7 @@ from addon.core import (
     AnalysisSettings,
     FaceClass,
     classify_polygon,
+    uv_to_texel_edge,
 )
 
 SQUARE = (
@@ -42,6 +43,32 @@ class AlphaAddressingTests(unittest.TestCase):
 
 
 class ClassificationTests(unittest.TestCase):
+    def test_uvs_outside_zero_one_sample_with_image_addressing(self):
+        grid = AlphaGrid(2, 1, (False, True))
+
+        def square(u0, u1, v0, v1):
+            uv_triangles = (
+                ((u0, v0), (u1, v0), (u1, v1)),
+                ((u0, v0), (u1, v1), (u0, v1)),
+            )
+            return tuple(
+                tuple(uv_to_texel_edge(point, grid.width, grid.height) for point in triangle)
+                for triangle in uv_triangles
+            )
+
+        cases = (
+            (AddressMode.REPEAT, square(2.0, 2.5, -1.0, 0.0), FaceClass.OPAQUE),
+            (AddressMode.REPEAT, square(-1.5, -1.0, 2.0, 3.0), FaceClass.ALPHA_AFFECTED),
+            (AddressMode.EXTEND, square(2.0, 2.5, 2.0, 3.0), FaceClass.ALPHA_AFFECTED),
+            (AddressMode.CLIP, square(-1.5, -1.0, -2.0, -1.0), FaceClass.ALPHA_AFFECTED),
+            (AddressMode.MIRROR, square(1.0, 1.5, 2.0, 3.0), FaceClass.ALPHA_AFFECTED),
+        )
+        for mode, triangles, expected in cases:
+            with self.subTest(mode=mode, expected=expected):
+                result = classify_polygon(triangles, grid, address_mode=mode)
+                self.assertEqual(result.classification, expected)
+                self.assertNotEqual(result.classification, FaceClass.UNSUPPORTED)
+
     def test_opaque(self):
         result = classify_polygon(SQUARE, AlphaGrid(2, 2, (False,) * 4))
         self.assertEqual(result.classification, FaceClass.OPAQUE)

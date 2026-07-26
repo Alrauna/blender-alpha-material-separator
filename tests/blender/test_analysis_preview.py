@@ -11,6 +11,7 @@ from addon import runtime
 from addon.adapters.analysis import AnalysisConfig, AnalysisEngine
 from addon.adapters.assignment import build_assignment_plan
 from addon.adapters.material_resolver import resolve_material
+from addon.core import FaceClass
 
 
 def _clear_scene() -> None:
@@ -102,6 +103,51 @@ def _mesh_snapshot(object_):
     }
 
 
+def _out_of_range_uv_test() -> None:
+    image = bpy.data.images.new("AMS_TILED_UV_IMAGE", width=2, height=1, alpha=True)
+    image.pixels.foreach_set((1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0))
+    material, _tree, _principled, texture = _material("AMS_TILED_UV_MATERIAL", image)
+    texture.extension = "REPEAT"
+    mesh = bpy.data.meshes.new("AMS_TILED_UV_MESH")
+    mesh.from_pydata(
+        (
+            (0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (1.0, 1.0, 0.0), (0.0, 1.0, 0.0),
+            (2.0, 0.0, 0.0), (3.0, 0.0, 0.0), (3.0, 1.0, 0.0), (2.0, 1.0, 0.0),
+        ),
+        (),
+        ((0, 1, 2, 3), (4, 5, 6, 7)),
+    )
+    mesh.materials.append(material)
+    uv_layer = mesh.uv_layers.new(name="UVMap", do_init=False)
+    uv_layer.active_render = True
+    coordinates = (
+        (2.0, -1.0), (2.5, -1.0), (2.5, 0.0), (2.0, 0.0),
+        (-1.5, 2.0), (-1.0, 2.0), (-1.0, 3.0), (-1.5, 3.0),
+    )
+    modern = getattr(uv_layer, "uv", None)
+    for loop in mesh.loops:
+        if modern is not None:
+            modern[loop.index].vector = coordinates[loop.vertex_index]
+        else:
+            uv_layer.data[loop.index].uv = coordinates[loop.vertex_index]
+    object_ = bpy.data.objects.new("AMS_TILED_UV_OBJECT", mesh)
+    bpy.context.collection.objects.link(object_)
+    object_.select_set(True)
+    bpy.context.view_layer.objects.active = object_
+
+    assert bpy.ops.alpha_material_separator.analyze() == {"FINISHED"}
+    report = runtime.report()
+    object_result = next(
+        item for item in report.object_results.values() if item.object == object_
+    )
+    results = [object_result.faces[index].result for index in range(2)]
+    assert [item.classification for item in results] == [
+        FaceClass.OPAQUE,
+        FaceClass.ALPHA_AFFECTED,
+    ], results
+    assert all(not item.unsupported_reason for item in results), results
+
+
 def _resolver_tests(material, mesh, image, tree, principled, texture):
     resolution = resolve_material(material, mesh)
     assert resolution.supported, resolution
@@ -152,6 +198,8 @@ def _resolver_tests(material, mesh, image, tree, principled, texture):
 
 
 def run() -> None:
+    _clear_scene()
+    _out_of_range_uv_test()
     _clear_scene()
     image = _image("AMS_ANALYSIS_IMAGE")
     material, tree, principled, texture = _material("AMS_ANALYSIS_MATERIAL", image)
