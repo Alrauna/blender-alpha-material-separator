@@ -9,7 +9,7 @@ from bpy.props import BoolProperty, EnumProperty, IntProperty, StringProperty
 from .. import api_contract, runtime
 from ..adapters.analysis import validate_report
 from ..adapters.assignment import build_assignment_plan, preview_face_indices
-from ..presentation import classes_to_move, review_signature
+from ..presentation import review_signature
 
 
 class ALPHA_MATERIAL_SEPARATOR_OT_select_faces(bpy.types.Operator):
@@ -127,9 +127,8 @@ class ALPHA_MATERIAL_SEPARATOR_OT_select_faces(bpy.types.Operator):
                 "STALE_ANALYSIS",
                 f"Analysis inputs changed ({reason}); run analysis again",
             )
-        runtime.clear_dirty()
-
         plan_targets = None
+        plan_payload = None
         if self.preview_assignment_plan:
             plan = build_assignment_plan(
                 report,
@@ -139,6 +138,7 @@ class ALPHA_MATERIAL_SEPARATOR_OT_select_faces(bpy.types.Operator):
                 conflict_policy=self.derived_conflict_policy,
             )
             plan_targets = preview_face_indices(plan)
+            plan_payload = plan.public_payload()
 
         objects = [
             result.object
@@ -150,7 +150,16 @@ class ALPHA_MATERIAL_SEPARATOR_OT_select_faces(bpy.types.Operator):
             )
         ]
         if not objects:
+            if restore_edit_mode and context.object is not None:
+                bpy.ops.object.mode_set(mode="EDIT")
             return self._fail(context, "NO_PREVIEW_OBJECTS", "No safe analyzed object")
+        target_pointers = {object_.as_pointer() for object_ in objects}
+        for selected_object in tuple(context.selected_objects):
+            if (
+                selected_object.type == "MESH"
+                and selected_object.as_pointer() not in target_pointers
+            ):
+                selected_object.select_set(False)
         selected_count = 0
         for result in report.object_results.values():
             if result.skipped_reason:
@@ -193,7 +202,26 @@ class ALPHA_MATERIAL_SEPARATOR_OT_select_faces(bpy.types.Operator):
         # though selection is not part of the authoritative analysis signature.
         # Flush that hint before recording the reviewed-preview token.
         context.view_layer.update()
-        runtime.clear_dirty()
+        pending = runtime.pending_scopes()
+        if pending:
+            if pending <= {"MESH", "OBJECT"}:
+                runtime.record_validation(
+                    "PREVIEW_SELECTION_ONLY",
+                    True,
+                    "SELECTION_ONLY",
+                    component_hash_calls=0,
+                    image_digest_rows=0,
+                    rasterized_polygons=0,
+                    coverage_hits=0,
+                    coverage_misses=0,
+                    elapsed_seconds=0.0,
+                )
+            else:
+                return self._fail(
+                    context,
+                    "STALE_ANALYSIS",
+                    "An analyzed material or image changed during preview; verify inputs again",
+                )
 
         state = context.window_manager.alpha_material_separator_api
         status = api_contract.status_payload(
@@ -208,36 +236,15 @@ class ALPHA_MATERIAL_SEPARATOR_OT_select_faces(bpy.types.Operator):
         )
         state.last_status_code = status["code"]
         state.last_status_json = api_contract.dumps(status)
-        settings = context.window_manager.alpha_material_separator_settings
-        expected_classes = set(
-            classes_to_move(settings.mixed_policy, settings.suppressed_policy)
-        )
         exact_plan_preview = self.preview_assignment_plan and self.selection_mode == "REPLACE"
-        legacy_exact_preview = (
-            not self.preview_assignment_plan
-            and self.selection_mode == "REPLACE"
-            and settings.unsupported_policy != "TO_ALPHA"
-            and set(self.classes) == expected_classes
-        )
-        if exact_plan_preview or legacy_exact_preview:
-            mixed_policy = self.mixed_policy if exact_plan_preview else settings.mixed_policy
-            suppressed_policy = (
-                self.suppressed_policy if exact_plan_preview else settings.suppressed_policy
-            )
-            unsupported_policy = (
-                self.unsupported_policy if exact_plan_preview else settings.unsupported_policy
-            )
-            conflict_policy = (
-                self.derived_conflict_policy
-                if exact_plan_preview
-                else settings.derived_conflict_policy
-            )
+        if exact_plan_preview:
             signature = review_signature(
                 report.analysis_id,
-                mixed_policy,
-                suppressed_policy,
-                unsupported_policy,
-                conflict_policy,
+                self.mixed_policy,
+                self.suppressed_policy,
+                self.unsupported_policy,
+                self.derived_conflict_policy,
+                plan_payload,
             )
             runtime.set_review(
                 context.window_manager, report.analysis_id, signature

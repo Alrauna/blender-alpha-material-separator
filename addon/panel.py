@@ -77,13 +77,14 @@ def _set_analysis_properties(operator, settings, material_overrides_json: str) -
     operator.max_run_emissions = settings.max_run_emissions
 
 
-def _policy_signature(state, settings) -> str:
+def _policy_signature(state, settings, plan_payload=None) -> str:
     return review_signature(
         state.analysis_id,
         settings.mixed_policy,
         settings.suppressed_policy,
         settings.unsupported_policy,
         settings.derived_conflict_policy,
+        plan_payload,
     )
 
 
@@ -131,6 +132,21 @@ def _draw_completion(layout, ui, state) -> None:
         skipped_groups = changes.get("skipped_material_groups", 0)
         if skipped_groups:
             box.label(text=f"Material groups skipped: {skipped_groups}", icon="ERROR")
+        skipped_objects = changes.get("skipped_objects", 0)
+        if skipped_objects:
+            box.label(text=f"Objects skipped: {skipped_objects}", icon="ERROR")
+        partial_groups = changes.get("partial_material_groups", 0)
+        if partial_groups:
+            box.label(
+                text=f"Partially changed material groups: {partial_groups}",
+                icon="INFO",
+            )
+        retained_faces = changes.get("retained_faces_by_policy", 0)
+        if retained_faces:
+            box.label(
+                text=f"Faces kept by policy: {retained_faces}",
+                icon="INFO",
+            )
         unchanged_groups = changes.get("unchanged_material_groups", 0)
         if unchanged_groups:
             box.label(
@@ -199,11 +215,21 @@ class ALPHA_MATERIAL_SEPARATOR_PT_main(bpy.types.Panel):
         material_overrides_json, invalid_overrides = _override_payload(settings)
         current_report = runtime.report(state.analysis_id)
         report_payload = _json(state.report_json) if current_report else {}
-        current_plan = _plan(current_report, settings)
-        plan_payload = current_plan.public_payload() if current_plan else {}
         stale = bool(runtime.dirty_reason())
+        try:
+            current_plan = (
+                _plan(current_report, settings)
+                if current_report is not None and not stale
+                else None
+            )
+        except (AttributeError, KeyError, ReferenceError, RuntimeError):
+            current_plan = None
+            stale = True
+        plan_payload = current_plan.public_payload() if current_plan else {}
         reviewed = runtime.review_matches(
-            window_manager, state.analysis_id, _policy_signature(state, settings)
+            window_manager,
+            state.analysis_id,
+            _policy_signature(state, settings, plan_payload),
         )
         actionable = bool(current_plan and current_plan.actionable)
         view = workflow_view(
@@ -275,7 +301,7 @@ class ALPHA_MATERIAL_SEPARATOR_PT_main(bpy.types.Panel):
             review.label(text="2. Review", icon="FACESEL")
             if stale:
                 review.alert = True
-                review.label(text="Inputs Changed - Analyze Again", icon="ERROR")
+                review.label(text="Inputs Changed — Analyze Again", icon="ERROR")
             else:
                 review.label(
                     text=(
@@ -372,7 +398,7 @@ class ALPHA_MATERIAL_SEPARATOR_PT_main(bpy.types.Panel):
                         else:
                             title, remedy = guidance_for(group.get("resolution"))
                             detail.label(
-                                text="Left unchanged - no alpha source selected",
+                                text="Left unchanged — no alpha source selected",
                                 icon="INFO",
                             )
                             _label_lines(detail, title)
@@ -417,14 +443,15 @@ class ALPHA_MATERIAL_SEPARATOR_PT_main(bpy.types.Panel):
                     icon="ERROR",
                 )
                 for blocked in current_plan.blocked[:3]:
-                    title, _remedy = guidance_for(blocked.get("reason"))
+                    title, remedy = guidance_for(blocked.get("reason"))
                     assignment.label(text=f"{blocked.get('material', '')}: {title}")
+                    _label_lines(assignment, remedy)
             if not reviewed and actionable and not stale:
                 assignment.label(text="Preview the faces before applying.", icon="INFO")
             if not actionable and current_plan and current_plan.already_derived:
-                assignment.label(text="Already separated - no additional changes", icon="CHECKMARK")
+                assignment.label(text="Already separated — no additional changes", icon="CHECKMARK")
             elif not actionable and current_plan and current_plan.blocked:
-                assignment.label(text="Resolve the skipped groups before applying.")
+                assignment.label(text="No material group is safe to change.")
             elif not actionable and unchanged_groups:
                 assignment.label(
                     text="Nothing can be separated until an alpha source is selected."
@@ -441,6 +468,9 @@ class ALPHA_MATERIAL_SEPARATOR_PT_main(bpy.types.Panel):
             assign.suppressed_policy = settings.suppressed_policy
             assign.unsupported_policy = settings.unsupported_policy
             assign.derived_conflict_policy = settings.derived_conflict_policy
+            assign.expected_review_signature = _policy_signature(
+                state, settings, plan_payload
+            )
 
         footer = layout.row(align=True)
         footer.operator(

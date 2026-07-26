@@ -44,6 +44,7 @@ class GroupDisposition:
     face_local_unsupported: int = 0
     material_source_unsupported: int = 0
     uncertain_to_alpha: int = 0
+    retained_by_policy: int = 0
 
     def public_payload(self) -> dict[str, object]:
         return {
@@ -55,6 +56,7 @@ class GroupDisposition:
             "material_source_unsupported": self.material_source_unsupported,
             "object": self.object_name,
             "reason": self.reason,
+            "retained_by_policy": self.retained_by_policy,
             "total_faces": self.total_faces,
             "uncertain_to_alpha": self.uncertain_to_alpha,
         }
@@ -67,26 +69,47 @@ class AssignmentPlan:
     source_fingerprints: dict[int, str] = field(default_factory=dict)
     mutations: list[ObjectMutation] = field(default_factory=list)
     blocked: list[dict[str, str]] = field(default_factory=list)
+    skipped_objects: list[dict[str, str]] = field(default_factory=list)
     dispositions: list[GroupDisposition] = field(default_factory=list)
     already_derived: int = 0
+    metadata_refreshes: int = 0
     planned_slots: int = 0
 
     @property
     def actionable(self) -> bool:
-        return bool(self.mutations)
+        return bool(self.mutations or self.metadata_refreshes)
 
     @property
     def skipped_group_count(self) -> int:
-        skip_actions = {
-            "LEAVE_UNCHANGED_NO_ALPHA_SOURCE",
-            "PARTIAL_MOVE_KEEP_UNCERTAIN",
-            "SKIP_GROUP",
-        }
-        return sum(item.action in skip_actions for item in self.dispositions)
+        return sum(item.action == "SKIP_GROUP" for item in self.dispositions)
+
+    @property
+    def unchanged_group_count(self) -> int:
+        return sum(
+            item.action
+            in {
+                "LEAVE_UNCHANGED_NO_ALPHA_SOURCE",
+                "LEAVE_UNCHANGED_BY_POLICY",
+            }
+            for item in self.dispositions
+        )
+
+    @property
+    def partial_group_count(self) -> int:
+        return sum(
+            item.action == "PARTIAL_MOVE_KEEP_POLICY"
+            for item in self.dispositions
+        )
 
     @property
     def has_skips(self) -> bool:
-        return bool(self.blocked) or self.skipped_group_count > 0
+        return bool(
+            self.blocked
+            or self.skipped_objects
+            or self.skipped_group_count
+            or self.unchanged_group_count
+            or self.partial_group_count
+        )
 
     def public_payload(self) -> dict:
         return {
@@ -101,8 +124,16 @@ class AssignmentPlan:
                 item.action == "LEAVE_UNCHANGED_NO_ALPHA_SOURCE"
                 for item in self.dispositions
             ),
+            "metadata_refreshes": self.metadata_refreshes,
             "planned_additional_slots": self.planned_slots,
+            "partial_material_groups": self.partial_group_count,
+            "retained_faces_by_policy": sum(
+                item.retained_by_policy for item in self.dispositions
+            ),
+            "skipped_objects": list(self.skipped_objects),
+            "skipped_object_count": len(self.skipped_objects),
             "skipped_material_groups": self.skipped_group_count,
+            "unchanged_material_groups": self.unchanged_group_count,
             "destinations": {
                 source.name: (
                     self.decisions[pointer].material.name
@@ -177,6 +208,36 @@ def build_assignment_plan(
             if state.kind == "SOURCE":
                 current_fingerprints[pointer] = group.source_fingerprint
 
+    policy_blocks: dict[int, tuple[bpy.types.Material, str]] = {}
+    for object_result in report.object_results.values():
+        if object_result.skipped_reason:
+            continue
+        for pointer, group in object_result.groups.items():
+            if inspect_metadata(group.material).kind != "SOURCE":
+                continue
+            unsupported = _unsupported_indices(object_result, group)
+            if (
+                unsupported[UNSUPPORTED_SCOPE_FACE_LOCAL]
+                and unsupported_policy == "CANCEL_SOURCE_MATERIAL"
+            ):
+                policy_blocks.setdefault(
+                    pointer, (group.material, "FACE_LOCAL_UNSUPPORTED_FACES")
+                )
+            elif (
+                group.counts[FaceClass.SUPPRESSED]
+                and suppressed_policy == "CANCEL_SOURCE_MATERIAL"
+            ):
+                policy_blocks.setdefault(
+                    pointer, (group.material, "SUPPRESSED_FACES")
+                )
+            elif (
+                group.counts[FaceClass.MIXED]
+                and mixed_policy == "CANCEL_SOURCE_MATERIAL"
+            ):
+                policy_blocks.setdefault(pointer, (group.material, "MIXED_FACES"))
+    for material, reason in policy_blocks.values():
+        _block(plan, material, reason)
+
     required_sources: set[int] = set()
     pending: list[tuple[object, bpy.types.Material, tuple[int, ...]]] = []
     pending_derived: list[
@@ -184,7 +245,31 @@ def build_assignment_plan(
     ] = []
     for object_result in report.object_results.values():
         if object_result.skipped_reason:
+            plan.skipped_objects.append(
+                {
+                    "object": object_result.object.name,
+                    "reason": object_result.skipped_reason,
+                }
+            )
             continue
+        ungrouped_faces = [
+            face
+            for face in object_result.faces.values()
+            if not face.material_pointer
+        ]
+        if ungrouped_faces:
+            plan.dispositions.append(
+                GroupDisposition(
+                    object_result.object.name,
+                    "(empty material slot)",
+                    0,
+                    "LEAVE_UNCHANGED_NO_ALPHA_SOURCE",
+                    "MATERIAL_SLOT_EMPTY",
+                    len(ungrouped_faces),
+                    faces_left_source=len(ungrouped_faces),
+                    material_source_unsupported=len(ungrouped_faces),
+                )
+            )
         for group in object_result.groups.values():
             object_name = object_result.object.name
             total_faces = sum(int(group.counts[face_class]) for face_class in FaceClass)
@@ -261,52 +346,16 @@ def build_assignment_plan(
                 UNSUPPORTED_SCOPE_MATERIAL_SOURCE
             ]
 
-            if face_local_unsupported and unsupported_policy == "CANCEL_SOURCE_MATERIAL":
-                _block(
-                    plan,
-                    group.material,
-                    "FACE_LOCAL_UNSUPPORTED_FACES",
-                    object_name=object_name,
-                )
+            source_pointer = group.material.as_pointer()
+            if source_pointer in policy_blocks:
+                _material, reason = policy_blocks[source_pointer]
                 plan.dispositions.append(
                     GroupDisposition(
                         object_name,
                         group.material.name,
                         group.material.as_pointer(),
                         "SKIP_GROUP",
-                        "FACE_LOCAL_UNSUPPORTED_FACES",
-                        total_faces,
-                        faces_left_source=total_faces,
-                        face_local_unsupported=len(face_local_unsupported),
-                        material_source_unsupported=len(material_source_unsupported),
-                    )
-                )
-                continue
-            if group.counts[FaceClass.SUPPRESSED] and suppressed_policy == "CANCEL_SOURCE_MATERIAL":
-                _block(plan, group.material, "SUPPRESSED_FACES", object_name=object_name)
-                plan.dispositions.append(
-                    GroupDisposition(
-                        object_name,
-                        group.material.name,
-                        group.material.as_pointer(),
-                        "SKIP_GROUP",
-                        "SUPPRESSED_FACES",
-                        total_faces,
-                        faces_left_source=total_faces,
-                        face_local_unsupported=len(face_local_unsupported),
-                        material_source_unsupported=len(material_source_unsupported),
-                    )
-                )
-                continue
-            if group.counts[FaceClass.MIXED] and mixed_policy == "CANCEL_SOURCE_MATERIAL":
-                _block(plan, group.material, "MIXED_FACES", object_name=object_name)
-                plan.dispositions.append(
-                    GroupDisposition(
-                        object_name,
-                        group.material.name,
-                        group.material.as_pointer(),
-                        "SKIP_GROUP",
-                        "MIXED_FACES",
+                        reason,
                         total_faces,
                         faces_left_source=total_faces,
                         face_local_unsupported=len(face_local_unsupported),
@@ -316,19 +365,26 @@ def build_assignment_plan(
                 continue
 
             face_indices = list(group.face_indices[FaceClass.ALPHA_AFFECTED])
+            retained_by_policy = 0
             if mixed_policy == "TO_ALPHA":
                 face_indices.extend(group.face_indices[FaceClass.MIXED])
+            elif mixed_policy == "KEEP_SOURCE":
+                retained_by_policy += len(group.face_indices[FaceClass.MIXED])
             if suppressed_policy == "TO_ALPHA":
                 face_indices.extend(group.face_indices[FaceClass.SUPPRESSED])
+            elif suppressed_policy == "KEEP_SOURCE":
+                retained_by_policy += len(group.face_indices[FaceClass.SUPPRESSED])
             if unsupported_policy == "TO_ALPHA":
                 face_indices.extend(face_local_unsupported)
+            elif unsupported_policy == "KEEP_SOURCE":
+                retained_by_policy += len(face_local_unsupported)
             if not face_indices:
                 if material_source_unsupported:
                     action = "LEAVE_UNCHANGED_NO_ALPHA_SOURCE"
                     reason = group.resolution.reason or "MATERIAL_ALPHA_SOURCE_UNRESOLVED"
-                elif face_local_unsupported:
-                    action = "PARTIAL_MOVE_KEEP_UNCERTAIN"
-                    reason = "FACE_LOCAL_UNSUPPORTED_KEPT_SOURCE"
+                elif retained_by_policy:
+                    action = "LEAVE_UNCHANGED_BY_POLICY"
+                    reason = "FACES_RETAINED_BY_POLICY"
                 else:
                     action = "NO_CHANGES_NEEDED"
                     reason = "NO_ALPHA_FACES"
@@ -343,6 +399,7 @@ def build_assignment_plan(
                         faces_left_source=total_faces,
                         face_local_unsupported=len(face_local_unsupported),
                         material_source_unsupported=len(material_source_unsupported),
+                        retained_by_policy=retained_by_policy,
                     )
                 )
                 continue
@@ -350,9 +407,9 @@ def build_assignment_plan(
                 action = "MOVE_UNCERTAIN_TO_ALPHA"
                 reason = "FACE_LOCAL_UNSUPPORTED_TO_ALPHA"
                 uncertain_to_alpha = len(face_local_unsupported)
-            elif face_local_unsupported:
-                action = "PARTIAL_MOVE_KEEP_UNCERTAIN"
-                reason = "FACE_LOCAL_UNSUPPORTED_KEPT_SOURCE"
+            elif retained_by_policy:
+                action = "PARTIAL_MOVE_KEEP_POLICY"
+                reason = "FACES_RETAINED_BY_POLICY"
                 uncertain_to_alpha = 0
             else:
                 action = "MOVE_TO_ALPHA"
@@ -372,9 +429,9 @@ def build_assignment_plan(
                     face_local_unsupported=len(face_local_unsupported),
                     material_source_unsupported=len(material_source_unsupported),
                     uncertain_to_alpha=uncertain_to_alpha,
+                    retained_by_policy=retained_by_policy,
                 )
             )
-            source_pointer = group.material.as_pointer()
             required_sources.add(source_pointer)
             plan.sources[source_pointer] = group.material
             plan.source_fingerprints[source_pointer] = group.source_fingerprint
@@ -396,13 +453,21 @@ def build_assignment_plan(
                 if disposition.action in {
                     "MOVE_TO_ALPHA",
                     "MOVE_UNCERTAIN_TO_ALPHA",
-                    "PARTIAL_MOVE_KEEP_UNCERTAIN",
+                    "PARTIAL_MOVE_KEEP_POLICY",
                 }:
                     disposition.action = "SKIP_GROUP"
                     disposition.reason = decision.reason
                     disposition.faces_to_alpha = 0
                     disposition.uncertain_to_alpha = 0
                     disposition.faces_left_source = disposition.total_faces
+                    disposition.retained_by_policy = 0
+
+    plan.metadata_refreshes = sum(
+        decision.action == "REUSE"
+        and decision.material is not None
+        and decision.material.get(SOURCE_NAME) != plan.sources[pointer].name
+        for pointer, decision in plan.decisions.items()
+    )
 
     blocked_sources = {
         pointer
@@ -419,6 +484,15 @@ def build_assignment_plan(
             continue
         if decision.action == "CREATE" or decision.material != current_derived:
             plan.mutations.append(ObjectMutation(object_, source, face_indices))
+            for disposition in plan.dispositions:
+                if (
+                    disposition.object_name == object_.name
+                    and disposition.material_pointer == current_derived.as_pointer()
+                ):
+                    disposition.action = "REASSIGN_DERIVED_VARIANT"
+                    disposition.reason = decision.reason
+                    disposition.faces_to_alpha = len(face_indices)
+                    disposition.faces_left_source = 0
 
     planned_slot_pairs = set()
     for mutation in plan.mutations:
@@ -493,11 +567,13 @@ def _execute_assignment_plan_inner(
             )
         ],
         "blocked_material_groups": len(plan.blocked),
-        "skipped_material_groups": plan.skipped_group_count,
-        "unchanged_material_groups": sum(
-            item.action == "LEAVE_UNCHANGED_NO_ALPHA_SOURCE"
-            for item in plan.dispositions
+        "partial_material_groups": plan.partial_group_count,
+        "retained_faces_by_policy": sum(
+            item.retained_by_policy for item in plan.dispositions
         ),
+        "skipped_objects": len(plan.skipped_objects),
+        "skipped_material_groups": plan.skipped_group_count,
+        "unchanged_material_groups": plan.unchanged_group_count,
     }
 
 
@@ -529,7 +605,8 @@ def execute_assignment_plan(plan: AssignmentPlan) -> dict:
         )
     try:
         return _execute_assignment_plan_inner(plan, created)
-    except Exception:
+    except Exception as assignment_error:
+        rollback_errors: list[str] = []
         for object_, original_slot_count, face_states in object_snapshots.values():
             try:
                 for polygon_index, material_index in face_states.items():
@@ -537,23 +614,36 @@ def execute_assignment_plan(plan: AssignmentPlan) -> dict:
                 while len(object_.data.materials) > original_slot_count:
                     object_.data.materials.pop(index=len(object_.data.materials) - 1)
                 object_.data.update()
-            except (ReferenceError, RuntimeError, IndexError):
-                pass
+            except (ReferenceError, RuntimeError, IndexError) as rollback_error:
+                rollback_errors.append(
+                    f"mesh restoration failed for {getattr(object_, 'name', 'object')}: "
+                    f"{rollback_error}"
+                )
         for material, existed, value in reused_name_metadata:
             try:
                 if existed:
                     material[SOURCE_NAME] = value
                 elif SOURCE_NAME in material:
                     del material[SOURCE_NAME]
-            except (ReferenceError, RuntimeError):
-                pass
+            except (ReferenceError, RuntimeError) as rollback_error:
+                rollback_errors.append(
+                    f"metadata restoration failed for "
+                    f"{getattr(material, 'name', 'material')}: {rollback_error}"
+                )
         for pointer, material in tuple(created.items()):
             decision = plan.decisions.get(pointer)
             if decision is None or decision.action != "CREATE":
                 continue
             try:
-                if material.users == 0 and bpy.data.materials.get(material.name) == material:
-                    bpy.data.materials.remove(material)
-            except (ReferenceError, RuntimeError):
-                pass
+                if bpy.data.materials.get(material.name) == material:
+                    bpy.data.materials.remove(material, do_unlink=True)
+            except (ReferenceError, RuntimeError) as rollback_error:
+                rollback_errors.append(
+                    f"created material cleanup failed: {rollback_error}"
+                )
+        if rollback_errors:
+            raise RuntimeError(
+                "Assignment failed and rollback was incomplete: "
+                + "; ".join(rollback_errors)
+            ) from assignment_error
         raise

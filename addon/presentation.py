@@ -54,6 +54,10 @@ _GUIDANCE = {
     "FACE_LOCAL_UNSUPPORTED_FACES": ("Some faces have uncertain UV coverage", "Move those faces to alpha, keep them on the source, or skip this material group deliberately."),
     "FACE_LOCAL_UNSUPPORTED_TO_ALPHA": ("Uncertain faces will use the alpha material", "This preserves possible transparency at the cost of some additional transparent rendering."),
     "FACE_LOCAL_UNSUPPORTED_KEPT_SOURCE": ("Uncertain faces will stay on the source", "Confirm that these faces do not require transparency before applying."),
+    "FACES_RETAINED_BY_POLICY": (
+        "Some faces will stay on the source by policy",
+        "Preview the exact plan and confirm that the retained faces do not require alpha rendering.",
+    ),
     "MATERIAL_ALPHA_SOURCE_UNRESOLVED": ("No alpha source was selected", "This material stays unchanged; set a manual alpha source only if it should be separated."),
     "MIXED_FACES": ("Mixed faces are blocked by policy", "Move mixed faces to alpha or keep them on the source after review."),
     "SOURCE_CHANGED": ("Source material changed", "Analyze again and explicitly choose whether to reuse or create a new alpha variant."),
@@ -91,6 +95,18 @@ _GUIDANCE = {
     "NO_PREVIEW_OBJECTS": ("No safe objects are available to preview", "Resolve the skipped objects, then analyze again."),
     "ASSIGNMENT_BLOCKED": ("No safe material assignment is available", "Resolve the listed skipped material groups before applying."),
     "ASSIGNMENT_FAILED": ("Material separation did not complete", "Undo if needed, review Technical Details, and analyze again."),
+    "REVIEW_CHANGED": (
+        "The reviewed material plan changed",
+        "Preview the faces again before applying the updated material plan.",
+    ),
+    "PREFLIGHT_CHANGED": (
+        "The confirmed material plan changed",
+        "Review the updated destinations and warnings, then apply again.",
+    ),
+    "DERIVED_NOT_EDITABLE": (
+        "The existing alpha material is not editable",
+        "Use a local editable alpha material or choose a new local variant in Expert mode.",
+    ),
 }
 
 KNOWN_GUIDANCE_CODES = frozenset(_GUIDANCE)
@@ -127,11 +143,27 @@ def review_signature(
     suppressed_policy: str,
     unsupported_policy: str,
     conflict_policy: str,
+    plan_payload: dict | None = None,
 ) -> str:
     payload = json.dumps(
-        [analysis_id, mixed_policy, suppressed_policy, unsupported_policy, conflict_policy],
+        [
+            analysis_id,
+            mixed_policy,
+            suppressed_policy,
+            unsupported_policy,
+            conflict_policy,
+            plan_payload or {},
+        ],
         separators=(",", ":"),
+        sort_keys=True,
     )
+    return hashlib.blake2b(payload.encode("utf8"), digest_size=16).hexdigest()
+
+
+def assignment_plan_signature(plan_payload: dict) -> str:
+    """Fingerprint a complete preflight independently of operator UI state."""
+
+    payload = json.dumps(plan_payload, separators=(",", ":"), sort_keys=True)
     return hashlib.blake2b(payload.encode("utf8"), digest_size=16).hexdigest()
 
 
@@ -176,6 +208,6 @@ def workflow_view(
     return {
         "state": state,
         "can_analyze": not running and eligible_objects > 0,
-        "can_preview": has_report and not running and not stale,
+        "can_preview": has_report and actionable and not running and not stale,
         "can_apply": has_report and reviewed and actionable and not running and not stale,
     }

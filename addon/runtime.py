@@ -102,7 +102,6 @@ def begin_analysis(window_manager) -> bool:
     ui.analysis_progress = 0.0
     ui.analysis_stage = "Preparing inputs"
     ui.cancel_requested = False
-    clear_review(window_manager)
     tag_redraw()
     return True
 
@@ -360,7 +359,10 @@ def _depsgraph_hint(_scene, depsgraph) -> None:
         update_id = update.id
         scope = _relevant_update_scope(update_id)
         if scope:
-            identifier = update_id.bl_rna.identifier.upper()
+            try:
+                identifier = update_id.bl_rna.identifier.upper()
+            except (AttributeError, ReferenceError, RuntimeError):
+                identifier = "DATABLOCK"
             scopes.add(scope)
             reasons.add(f"{identifier}_UPDATED")
     if scopes:

@@ -160,6 +160,8 @@ def resolve_derived_material(
     exact = []
     changed = []
     for material, state in variants:
+        if material.library is not None or not getattr(material, "is_editable", True):
+            return DerivedDecision("BLOCK", "DERIVED_NOT_EDITABLE")
         source_matches = state.source_fingerprint == current_source_fingerprint
         derived_matches = material_fingerprint(material) == state.derived_fingerprint
         if source_matches and derived_matches:
@@ -203,18 +205,27 @@ def create_derived_material(
     *,
     source_uuid_ref: str = "",
 ) -> bpy.types.Material:
-    derived = source.copy()
-    derived.name = f"{source.name}__AMS_ALPHA"
-    setattr(derived, POINTER_PROPERTY, source)
-    derived[SCHEMA_VERSION] = CURRENT_SCHEMA
-    derived[ROLE] = ROLE_ALPHA_VARIANT
-    derived[VARIANT_UUID] = str(uuid.uuid4())
-    derived[SOURCE_UUID_REF] = source_uuid_ref or str(uuid.uuid4())
-    derived[SOURCE_FINGERPRINT] = source_fingerprint_value
-    derived[CREATED_BY_VERSION] = dotted(EXTENSION_VERSION)
-    derived[SOURCE_NAME] = source.name
-    derived[DERIVED_FINGERPRINT] = material_fingerprint(derived)
-    return derived
+    derived = None
+    try:
+        derived = source.copy()
+        derived.name = f"{source.name}__AMS_ALPHA"
+        setattr(derived, POINTER_PROPERTY, source)
+        derived[SCHEMA_VERSION] = CURRENT_SCHEMA
+        derived[ROLE] = ROLE_ALPHA_VARIANT
+        derived[VARIANT_UUID] = str(uuid.uuid4())
+        derived[SOURCE_UUID_REF] = source_uuid_ref or str(uuid.uuid4())
+        derived[SOURCE_FINGERPRINT] = source_fingerprint_value
+        derived[CREATED_BY_VERSION] = dotted(EXTENSION_VERSION)
+        derived[SOURCE_NAME] = source.name
+        derived[DERIVED_FINGERPRINT] = material_fingerprint(derived)
+        return derived
+    except Exception:
+        if derived is not None:
+            try:
+                bpy.data.materials.remove(derived, do_unlink=True)
+            except (ReferenceError, RuntimeError):
+                pass
+        raise
 
 
 def refresh_diagnostic_name(derived: bpy.types.Material, source: bpy.types.Material) -> None:

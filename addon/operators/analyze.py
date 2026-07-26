@@ -9,7 +9,11 @@ import bpy
 from bpy.props import EnumProperty, FloatProperty, IntProperty, StringProperty
 
 from .. import api_contract, runtime
-from ..adapters.analysis import AnalysisConfig, AnalysisEngine
+from ..adapters.analysis import (
+    AnalysisConfig,
+    AnalysisEngine,
+    validate_report_for_publication,
+)
 from ..core import AnalysisSettings
 from ..overrides import OverrideConfigError, parse_material_overrides_json
 
@@ -150,6 +154,11 @@ class ALPHA_MATERIAL_SEPARATOR_OT_analyze(bpy.types.Operator):
 
     def _publish(self, context) -> set[str]:
         report = self._engine.finish()
+        valid, reason = validate_report_for_publication(report)
+        if not valid:
+            raise RuntimeError(
+                f"Analysis inputs changed while analysis was running ({reason})"
+            )
         runtime.set_report(report)
         payload = report.public_payload()
         state = context.window_manager.alpha_material_separator_api

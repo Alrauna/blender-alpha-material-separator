@@ -195,6 +195,7 @@ class AnalysisReport:
                         if resolution.supported
                         else resolution.reason,
                         "source_kind": resolution.source_kind,
+                        "source_method": resolution.source_kind,
                         "supported": resolution.supported,
                         "suppressed_failed_gates": dict(
                             sorted(suppressed_failed_gates.items())
@@ -350,8 +351,10 @@ def _structural_signature(objects: Iterable[bpy.types.Object]) -> str:
 
     Face selection, active selection, object transforms, and Object/Edit Mode
     are intentionally absent: none changes which base-mesh UV texels a polygon
-    covers.  Material graph and image content remain in the authoritative full
-    signature and are rechecked whenever their datablocks emit a hint.
+    covers. Resolver-relevant material graph state and cheap image bindings are
+    included here; participating image pixels remain in the authoritative full
+    signature and are rechecked whenever their mutation state cannot be proven
+    reusable.
     """
 
     signature = _Signature()
@@ -690,6 +693,7 @@ def validate_report(report: AnalysisReport) -> tuple[bool, str]:
 
     pending = runtime.pending_scopes() if current_report else frozenset()
     structural_only = bool(pending) and pending <= {"MESH", "OBJECT"}
+    attempted_mode = "STRUCTURAL"
     try:
         for object_ in report.objects:
             if object_.name_full not in bpy.data.objects or bpy.data.objects.get(object_.name_full) != object_:
@@ -710,16 +714,42 @@ def validate_report(report: AnalysisReport) -> tuple[bool, str]:
         if (structural_only and not conservative_image_recheck) or can_reuse_images:
             record("STRUCTURAL", True, "OK")
             return True, "OK"
+        attempted_mode = "FULL"
         _prepared, _cache, signature = _prepare(report.objects, report.config)
     except (OverrideConfigError, ReferenceError, RuntimeError, ValueError):
         reason = "INPUT_DATABLOCK_UNAVAILABLE"
-        record("STRUCTURAL" if structural_only else "FULL", False, reason)
+        record(attempted_mode, False, reason)
         return False, reason
     valid = signature == report.input_signature
     reason = "OK" if valid else "INPUTS_CHANGED"
     digest_rows = sum(snapshot.height for snapshot in _cache.values())
     record("FULL", valid, reason, image_digest_rows=digest_rows)
     return valid, reason
+
+
+def validate_report_for_publication(report: AnalysisReport) -> tuple[bool, str]:
+    """Reject a modal report assembled across changing authoritative inputs.
+
+    Stable file-backed images use the structural signature, whose cheap image
+    state includes identity, bindings, dimensions, packing, and dirty state.
+    Generated or already-dirty images receive a second authoritative digest
+    because Blender exposes no reliable pixel revision for them.
+    """
+
+    try:
+        for object_ in report.objects:
+            if (
+                object_.name_full not in bpy.data.objects
+                or bpy.data.objects.get(object_.name_full) != object_
+            ):
+                return False, "OBJECT_DELETED_OR_REPLACED"
+        if _structural_signature(report.objects) != report.structural_signature:
+            return False, "INPUTS_CHANGED"
+    except (AttributeError, ReferenceError, RuntimeError, ValueError):
+        return False, "INPUT_DATABLOCK_UNAVAILABLE"
+    if _requires_conservative_image_recheck(report):
+        return validate_report(report)
+    return True, "OK"
 
 
 class AnalysisEngine:

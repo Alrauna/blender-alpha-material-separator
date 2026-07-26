@@ -11,7 +11,12 @@ from bpy.props import EnumProperty, IntProperty, StringProperty
 from .. import api_contract, runtime
 from ..adapters.analysis import validate_report
 from ..adapters.assignment import build_assignment_plan, execute_assignment_plan
-from ..presentation import guidance_for, requires_confirmation
+from ..presentation import (
+    assignment_plan_signature,
+    guidance_for,
+    requires_confirmation,
+    review_signature,
+)
 
 
 class ALPHA_MATERIAL_SEPARATOR_OT_assign_materials(bpy.types.Operator):
@@ -24,6 +29,11 @@ class ALPHA_MATERIAL_SEPARATOR_OT_assign_materials(bpy.types.Operator):
 
     api_major: IntProperty(name="API Major", default=1, min=1)
     expected_analysis_id: StringProperty(name="Expected Analysis ID", default="")
+    expected_review_signature: StringProperty(
+        name="Expected Review Signature",
+        default="",
+        options={"HIDDEN", "SKIP_SAVE"},
+    )
     mixed_policy: EnumProperty(
         name="Mixed Faces",
         items=(
@@ -83,6 +93,7 @@ class ALPHA_MATERIAL_SEPARATOR_OT_assign_materials(bpy.types.Operator):
 
     _confirmation_report_json = "{}"
     _confirmation_plan_json = "{}"
+    _confirmation_plan_signature = ""
 
     def _status(self, context, code: str, message: str, **details) -> None:
         state = context.window_manager.alpha_material_separator_api
@@ -92,26 +103,26 @@ class ALPHA_MATERIAL_SEPARATOR_OT_assign_materials(bpy.types.Operator):
 
     def invoke(self, context: bpy.types.Context, _event) -> set[str]:
         """Show a warning summary only when the reviewed plan needs attention."""
+        self._confirmation_plan_signature = ""
         report = runtime.report(self.expected_analysis_id)
         if report is None or runtime.dirty_reason():
             return self.execute(context)
-        if runtime.validation_state() == runtime.VALIDATION_RECHECK_PENDING:
-            restore_edit_mode = (
-                context.object is not None and context.object.mode == "EDIT"
+        restore_edit_mode = (
+            context.object is not None and context.object.mode == "EDIT"
+        )
+        if restore_edit_mode:
+            bpy.ops.object.mode_set(mode="OBJECT")
+        valid, reason = validate_report(report)
+        if restore_edit_mode and context.object is not None:
+            bpy.ops.object.mode_set(mode="EDIT")
+        if not valid:
+            self._status(
+                context,
+                "STALE_ANALYSIS",
+                "Analysis inputs changed; run analysis again",
+                reason=reason,
             )
-            if restore_edit_mode:
-                bpy.ops.object.mode_set(mode="OBJECT")
-            valid, reason = validate_report(report)
-            if restore_edit_mode and context.object is not None:
-                bpy.ops.object.mode_set(mode="EDIT")
-            if not valid:
-                self._status(
-                    context,
-                    "STALE_ANALYSIS",
-                    "Analysis inputs changed; run analysis again",
-                    reason=reason,
-                )
-                return {"CANCELLED"}
+            return {"CANCELLED"}
         plan = build_assignment_plan(
             report,
             mixed_policy=self.mixed_policy,
@@ -120,6 +131,26 @@ class ALPHA_MATERIAL_SEPARATOR_OT_assign_materials(bpy.types.Operator):
             conflict_policy=self.derived_conflict_policy,
         )
         plan_payload = plan.public_payload()
+        current_review_signature = review_signature(
+            report.analysis_id,
+            self.mixed_policy,
+            self.suppressed_policy,
+            self.unsupported_policy,
+            self.derived_conflict_policy,
+            plan_payload,
+        )
+        if (
+            self.expected_review_signature
+            and current_review_signature != self.expected_review_signature
+        ):
+            runtime.clear_review(context.window_manager)
+            self._status(
+                context,
+                "REVIEW_CHANGED",
+                "The material plan changed after preview; preview the faces again",
+                plan=plan_payload,
+            )
+            return {"CANCELLED"}
         actionable = plan.actionable
         if not actionable:
             return self.execute(context)
@@ -128,6 +159,7 @@ class ALPHA_MATERIAL_SEPARATOR_OT_assign_materials(bpy.types.Operator):
             return self.execute(context)
         self._confirmation_report_json = api_contract.dumps(report_payload)
         self._confirmation_plan_json = api_contract.dumps(plan_payload)
+        self._confirmation_plan_signature = assignment_plan_signature(plan_payload)
         return context.window_manager.invoke_props_dialog(self, width=520)
 
     def draw(self, _context) -> None:
@@ -192,9 +224,22 @@ class ALPHA_MATERIAL_SEPARATOR_OT_assign_materials(bpy.types.Operator):
         destinations = plan.get("destinations", {})
         for source, derived in sorted(destinations.items()):
             layout.label(text=f"{source} -> {derived}", icon="MATERIAL")
+        for disposition in plan.get("dispositions", ()):
+            face_count = int(disposition.get("faces_to_alpha", 0))
+            if not face_count:
+                continue
+            layout.label(
+                text=(
+                    f"{disposition.get('object', 'Object')} / "
+                    f"{disposition.get('material', 'Material')}: "
+                    f"{face_count} faces"
+                )
+            )
         layout.separator()
-        layout.label(text="Only material slots and face assignments change.")
-        layout.label(text="Mesh topology is unchanged. Press Ctrl+Z to undo.")
+        layout.label(text="A local alpha material may be created or reused.")
+        layout.label(text="Reviewed slots and face material indices may change.")
+        layout.label(text="Source graphs and mesh topology stay unchanged.")
+        layout.label(text="Press Ctrl+Z to undo.")
 
     def execute(self, context: bpy.types.Context) -> set[str]:
         if self.api_major != api_contract.API_VERSION[0]:
@@ -228,8 +273,6 @@ class ALPHA_MATERIAL_SEPARATOR_OT_assign_materials(bpy.types.Operator):
             if restore_edit_mode and context.object is not None:
                 bpy.ops.object.mode_set(mode="EDIT")
             return {"CANCELLED"}
-        runtime.clear_dirty()
-
         plan = build_assignment_plan(
             report,
             mixed_policy=self.mixed_policy,
@@ -238,12 +281,50 @@ class ALPHA_MATERIAL_SEPARATOR_OT_assign_materials(bpy.types.Operator):
             conflict_policy=self.derived_conflict_policy,
         )
         plan_payload = plan.public_payload()
+        current_review_signature = review_signature(
+            report.analysis_id,
+            self.mixed_policy,
+            self.suppressed_policy,
+            self.unsupported_policy,
+            self.derived_conflict_policy,
+            plan_payload,
+        )
+        if (
+            self.expected_review_signature
+            and current_review_signature != self.expected_review_signature
+        ):
+            runtime.clear_review(context.window_manager)
+            self._status(
+                context,
+                "REVIEW_CHANGED",
+                "The material plan changed after preview; preview the faces again",
+                plan=plan_payload,
+            )
+            if restore_edit_mode and context.object is not None:
+                bpy.ops.object.mode_set(mode="EDIT")
+            return {"CANCELLED"}
+        if (
+            self._confirmation_plan_signature
+            and assignment_plan_signature(plan_payload)
+            != self._confirmation_plan_signature
+        ):
+            runtime.clear_review(context.window_manager)
+            self._status(
+                context,
+                "PREFLIGHT_CHANGED",
+                "The material plan changed while confirmation was open",
+                plan=plan_payload,
+            )
+            if restore_edit_mode and context.object is not None:
+                bpy.ops.object.mode_set(mode="EDIT")
+            return {"CANCELLED"}
         actionable = plan.actionable
         if not actionable:
             unresolved_groups = sum(
                 item.action == "LEAVE_UNCHANGED_NO_ALPHA_SOURCE"
                 for item in plan.dispositions
             )
+            unchanged_groups = plan.unchanged_group_count
             if plan.blocked:
                 message = "No safe material assignment is available"
             elif plan.already_derived:
@@ -272,8 +353,13 @@ class ALPHA_MATERIAL_SEPARATOR_OT_assign_materials(bpy.types.Operator):
                         "created_materials": 0,
                         "reused_materials": 0,
                         "blocked_material_groups": len(plan.blocked),
+                        "partial_material_groups": plan.partial_group_count,
+                        "retained_faces_by_policy": sum(
+                            item.retained_by_policy for item in plan.dispositions
+                        ),
+                        "skipped_objects": len(plan.skipped_objects),
                         "skipped_material_groups": plan.skipped_group_count,
-                        "unchanged_material_groups": unresolved_groups,
+                        "unchanged_material_groups": unchanged_groups,
                     },
                     plan=plan_payload,
                 )
