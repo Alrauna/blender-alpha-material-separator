@@ -42,7 +42,7 @@ zero, or adding private-example heuristics.
   before/after roles, multi-image Base Color resolution, out-of-range UVs,
   exact Preview/Apply equivalence, derived destinations, source/image/mesh/rig
   preservation, and immutable reference files.
-- Created local commits:
+- Created the implementation commits covered by this handoff:
   - `0527dc1 test: cover UV coordinates outside the base tile`
   - `f9d15f2 fix: resolve base color alpha with ancillary textures`
 - Nothing was pushed.
