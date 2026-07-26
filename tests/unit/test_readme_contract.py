@@ -9,6 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 README = ROOT / "README.md"
+PANEL = ROOT / "addon" / "panel.py"
 
 
 class ReadmeContractTests(unittest.TestCase):
@@ -52,6 +53,17 @@ class ReadmeContractTests(unittest.TestCase):
             "One uncertain face can conservatively skip its entire source-material group",
             self.text,
         )
+
+    def test_friendly_status_copy_matches_the_panel(self) -> None:
+        panel_text = PANEL.read_text(encoding="utf8")
+        for text in (
+            "Inputs Changed — Analyze Again",
+            "Left unchanged — no alpha source selected",
+            "Already separated — no additional changes",
+        ):
+            self.assertIn(text, self.text)
+            self.assertIn(text, panel_text)
+        self.assertNotIn("Resolve the skipped groups before applying.", panel_text)
 
     def test_required_end_user_sections_exist_in_order(self) -> None:
         headings = (

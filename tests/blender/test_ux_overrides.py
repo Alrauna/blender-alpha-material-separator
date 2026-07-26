@@ -11,6 +11,7 @@ import bpy
 
 from addon import runtime
 from addon.adapters import analysis as analysis_adapter
+from addon.adapters.assignment import build_assignment_plan
 from addon.presentation import review_signature
 from tests.blender.test_analysis_preview import _clear_scene, _image, _material, _quad
 
@@ -81,6 +82,10 @@ def run() -> None:
         for group in object_payload.get("groups", ())
     }
     assert groups[auto_material.name]["source_kind"] == "UNIQUE_BASE_COLOR_IMAGE_ALPHA"
+    assert (
+        groups[auto_material.name]["source_method"]
+        == groups[auto_material.name]["source_kind"]
+    )
     assert groups[auto_material.name]["channel"] == "ALPHA"
     assert groups[manual_material.name]["source_kind"] == "EXPLICIT_OVERRIDE"
     assert groups[manual_material.name]["channel"] == "RED"
@@ -111,13 +116,22 @@ def run() -> None:
         derived_conflict_policy=settings.derived_conflict_policy,
     )
     assert preview == {"FINISHED"}, preview
-    assert automatic_object.mode == "EDIT" and manual_object.mode == "EDIT"
+    assert automatic_object.mode == "EDIT"
+    assert manual_object.mode == "OBJECT" and not manual_object.select_get()
+    reviewed_plan = build_assignment_plan(
+        runtime.report(state.analysis_id),
+        mixed_policy=settings.mixed_policy,
+        suppressed_policy=settings.suppressed_policy,
+        unsupported_policy=settings.unsupported_policy,
+        conflict_policy=settings.derived_conflict_policy,
+    ).public_payload()
     signature = review_signature(
         state.analysis_id,
         settings.mixed_policy,
         settings.suppressed_policy,
         settings.unsupported_policy,
         settings.derived_conflict_policy,
+        reviewed_plan,
     )
     assert runtime.review_matches(
         bpy.context.window_manager, state.analysis_id, signature
@@ -140,7 +154,9 @@ def run() -> None:
     runtime.mark_recheck("MESH_UPDATED", "MESH")
     assert runtime.validation_state() == runtime.VALIDATION_RECHECK_PENDING
     assert state.validation_state == runtime.VALIDATION_RECHECK_PENDING
-    assert json.loads(state.pending_scopes_json) == ["MESH"]
+    pending_scopes = set(json.loads(state.pending_scopes_json))
+    assert "MESH" in pending_scopes
+    assert pending_scopes <= {"MESH", "OBJECT"}, pending_scopes
     assert not runtime.dirty_reason()
     assert runtime.review_matches(
         bpy.context.window_manager, state.analysis_id, signature
@@ -166,6 +182,29 @@ def run() -> None:
     assert json.loads(state.pending_scopes_json) == []
     assert validation["last_validation_mode"] == "STRUCTURAL", validation
     assert runtime.coverage_get("AMS_REVALIDATION_SENTINEL") is sentinel_coverage
+    assert runtime.review_matches(
+        bpy.context.window_manager, state.analysis_id, signature
+    )
+
+    raw_preview = bpy.ops.alpha_material_separator.select_faces(
+        expected_analysis_id=state.analysis_id,
+        classes={"ALPHA_AFFECTED", "MIXED"},
+        selection_mode="REPLACE",
+        enter_edit_mode=False,
+    )
+    assert raw_preview == {"FINISHED"}, raw_preview
+    assert not ui.reviewed_analysis_id, ui.reviewed_analysis_id
+    exact_preview = bpy.ops.alpha_material_separator.select_faces(
+        expected_analysis_id=state.analysis_id,
+        selection_mode="REPLACE",
+        enter_edit_mode=False,
+        preview_assignment_plan=True,
+        mixed_policy=settings.mixed_policy,
+        suppressed_policy=settings.suppressed_policy,
+        unsupported_policy=settings.unsupported_policy,
+        derived_conflict_policy=settings.derived_conflict_policy,
+    )
+    assert exact_preview == {"FINISHED"}, exact_preview
     assert runtime.review_matches(
         bpy.context.window_manager, state.analysis_id, signature
     )
@@ -206,6 +245,11 @@ def run() -> None:
     runtime.finish_analysis(bpy.context.window_manager)
     prior_report = runtime.report()
     assert prior_report is not None
+    runtime.set_review(
+        bpy.context.window_manager,
+        prior_report.analysis_id,
+        "AMS_PRIOR_REVIEW_TOKEN",
+    )
     assert runtime.begin_analysis(bpy.context.window_manager)
     runtime.update_analysis(bpy.context.window_manager, 5, 10, "Testing")
     runtime.update_analysis(bpy.context.window_manager, 3, 10, "Testing")
@@ -216,5 +260,7 @@ def run() -> None:
     runtime.finish_analysis(bpy.context.window_manager)
     assert not ui.is_analyzing and ui.analysis_progress == 0.0
     assert runtime.report() is prior_report
+    assert ui.reviewed_analysis_id == prior_report.analysis_id
+    assert ui.reviewed_policy_signature == "AMS_PRIOR_REVIEW_TOKEN"
     temporary_images.cleanup()
     print("ALPHA_MATERIAL_SEPARATOR_UX_OVERRIDE_TESTS_OK")

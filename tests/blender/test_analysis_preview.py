@@ -9,6 +9,7 @@ import bpy
 
 from addon import runtime
 from addon.adapters.analysis import AnalysisConfig, AnalysisEngine
+from addon.adapters.assignment import build_assignment_plan
 from addon.adapters.material_resolver import resolve_material
 
 
@@ -251,4 +252,36 @@ def run() -> None:
     skipped_payload = json.loads(state.report_json)
     assert skipped_payload["skip_counts"]["MULTI_USER_MESH"] == 2, skipped_payload
     assert sum(skipped_payload["counts"].values()) == 0, skipped_payload
+
+    safe = _quad("AMS_ANALYSIS_SAFE_PREVIEW", material)
+    safe.select_set(True)
+    first.select_set(True)
+    shared.select_set(True)
+    bpy.context.view_layer.objects.active = safe
+    safe_analysis = bpy.ops.alpha_material_separator.analyze()
+    assert safe_analysis == {"FINISHED"}, safe_analysis
+    safe_report = runtime.report(state.analysis_id)
+    safe_plan = build_assignment_plan(
+        safe_report,
+        mixed_policy="TO_ALPHA",
+        suppressed_policy="CANCEL_SOURCE_MATERIAL",
+        unsupported_policy="TO_ALPHA",
+        conflict_policy="CANCEL_SOURCE_MATERIAL",
+    )
+    assert len(safe_plan.skipped_objects) == 2, safe_plan.public_payload()
+    safe_preview = bpy.ops.alpha_material_separator.select_faces(
+        expected_analysis_id=state.analysis_id,
+        preview_assignment_plan=True,
+        mixed_policy="TO_ALPHA",
+        suppressed_policy="CANCEL_SOURCE_MATERIAL",
+        unsupported_policy="TO_ALPHA",
+        derived_conflict_policy="CANCEL_SOURCE_MATERIAL",
+        selection_mode="REPLACE",
+        enter_edit_mode=True,
+    )
+    assert safe_preview == {"FINISHED"}, state.last_status_json
+    assert safe.mode == "EDIT"
+    assert first.mode == "OBJECT" and shared.mode == "OBJECT"
+    assert not first.select_get() and not shared.select_get()
+    bpy.ops.object.mode_set(mode="OBJECT")
     print("ALPHA_MATERIAL_SEPARATOR_ANALYSIS_PREVIEW_TESTS_OK")

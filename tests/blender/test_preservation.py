@@ -19,6 +19,18 @@ def _all_uvs(mesh):
     return tuple(values)
 
 
+def _attribute_value(item):
+    for property_name in ("value", "vector", "color", "byte_color"):
+        value = getattr(item, property_name, None)
+        if value is None:
+            continue
+        try:
+            return tuple(value)
+        except TypeError:
+            return value
+    return None
+
+
 def _preserved_snapshot(object_):
     mesh = object_.data
     return {
@@ -38,14 +50,20 @@ def _preserved_snapshot(object_):
             for vertex in mesh.vertices
         ),
         "attributes": tuple(
-            (
-                attribute.name,
-                attribute.data_type,
-                attribute.domain,
-                tuple(getattr(item, "value", None) for item in attribute.data),
+            sorted(
+                (
+                    attribute.name,
+                    attribute.data_type,
+                    attribute.domain,
+                    tuple(_attribute_value(item) for item in attribute.data),
+                )
+                for attribute in mesh.attributes
+                if not attribute.is_internal
+                and attribute.name != "material_index"
+                and attribute.name
+                not in {".select_vert", ".select_edge", ".select_poly"}
+                and not attribute.name.startswith(".uv_select_")
             )
-            for attribute in mesh.attributes
-            if not attribute.is_internal and attribute.name != "material_index"
         ),
         "modifiers": tuple(
             (modifier.type, modifier.name, modifier.show_viewport)

@@ -21,25 +21,42 @@ def _partial_support_object(name, source, unresolved):
     mesh = bpy.data.meshes.new(f"{name}_MESH")
     vertices = tuple(
         (x + offset, y, 0.0)
-        for offset in (0.0, 2.0, 4.0)
+        for offset in (0.0, 2.0, 4.0, 6.0, 8.0)
         for x, y in ((0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0))
     )
     mesh.from_pydata(
         vertices,
         (),
-        ((0, 1, 2, 3), (4, 5, 6, 7), (8, 9, 10, 11)),
+        (
+            (0, 1, 2, 3),
+            (4, 5, 6, 7),
+            (8, 9, 10, 11),
+            (12, 13, 14, 15),
+            (16, 17, 18, 19),
+        ),
     )
     mesh.materials.append(source)
     mesh.materials.append(unresolved)
     mesh.polygons[0].material_index = 0
     mesh.polygons[1].material_index = 0
-    mesh.polygons[2].material_index = 1
+    mesh.polygons[2].material_index = 0
+    mesh.polygons[3].material_index = 0
+    mesh.polygons[4].material_index = 1
     uv_layer = mesh.uv_layers.new(name="UVMap", do_init=False)
     uv_layer.active_render = True
     normal = ((0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0))
+    alpha_only = ((0.0, 0.0), (0.5, 0.0), (0.5, 0.5), (0.0, 0.5))
+    opaque_only = ((0.5, 0.0), (1.0, 0.0), (1.0, 0.5), (0.5, 0.5))
     modern = getattr(uv_layer, "uv", None)
     for polygon in mesh.polygons:
-        coordinates = ((0.0, 0.0),) * 4 if polygon.index == 1 else normal
+        if polygon.index == 1:
+            coordinates = ((0.0, 0.0),) * 4
+        elif polygon.index == 2:
+            coordinates = alpha_only
+        elif polygon.index == 3:
+            coordinates = opaque_only
+        else:
+            coordinates = normal
         for offset, loop_index in enumerate(polygon.loop_indices):
             if modern is not None:
                 modern[loop_index].vector = coordinates[offset]
@@ -104,6 +121,8 @@ def run() -> None:
     analysis_id = _analyze(partial)
     payload = json.loads(state.report_json)
     assert payload["counts"]["MIXED"] == 1, payload
+    assert payload["counts"]["ALPHA_AFFECTED"] == 1, payload
+    assert payload["counts"]["OPAQUE"] == 1, payload
     assert payload["counts"]["UNSUPPORTED"] == 2, payload
     groups = {
         group["material"]: group
@@ -143,8 +162,10 @@ def run() -> None:
         unsupported_policy="KEEP_SOURCE",
         conflict_policy="CANCEL_SOURCE_MATERIAL",
     )
-    assert keep_plan.public_payload()["faces_to_reassign"] == 1
-    assert keep_plan.skipped_group_count == 2, keep_plan.public_payload()
+    assert keep_plan.public_payload()["faces_to_reassign"] == 2
+    assert keep_plan.skipped_group_count == 0, keep_plan.public_payload()
+    assert keep_plan.partial_group_count == 1, keep_plan.public_payload()
+    assert keep_plan.unchanged_group_count == 1, keep_plan.public_payload()
     plan = build_assignment_plan(
         report,
         mixed_policy="TO_ALPHA",
@@ -153,7 +174,7 @@ def run() -> None:
         conflict_policy="CANCEL_SOURCE_MATERIAL",
     )
     public_plan = plan.public_payload()
-    assert public_plan["faces_to_reassign"] == 2, public_plan
+    assert public_plan["faces_to_reassign"] == 3, public_plan
     assert public_plan["face_local_unsupported_to_alpha"] == 1, public_plan
     assert public_plan["material_source_groups_left_unchanged"] == 1, public_plan
     assert not plan.blocked, public_plan
@@ -163,7 +184,7 @@ def run() -> None:
     original_slots = tuple(slot.material for slot in partial.material_slots)
     original_indices = tuple(polygon.material_index for polygon in partial.data.polygons)
     original_material_count = len(bpy.data.materials)
-    plan.mutations.append(ObjectMutation(partial, unresolved_material, (2,)))
+    plan.mutations.append(ObjectMutation(partial, unresolved_material, (4,)))
     try:
         execute_assignment_plan(plan)
     except KeyError:
@@ -193,14 +214,26 @@ def run() -> None:
     runtime.mark_recheck("MESH_UPDATED", "MESH")
     assert runtime.validation_state() == runtime.VALIDATION_RECHECK_PENDING
     assert ui.reviewed_analysis_id == analysis_id
-    assert [polygon.select for polygon in partial.data.polygons] == [True, True, False]
+    assert [polygon.select for polygon in partial.data.polygons] == [
+        True,
+        True,
+        True,
+        False,
+        False,
+    ]
 
     assigned, assigned_state = _assign(analysis_id, unsupported_policy="TO_ALPHA")
     assert assigned == {"FINISHED"}, assigned_state.last_status_json
     assert assigned_state.last_status_code == "ASSIGNMENT_COMPLETE_WITH_SKIPS"
-    assert [polygon.material_index for polygon in partial.data.polygons] == [2, 2, 1]
+    assert [polygon.material_index for polygon in partial.data.polygons] == [
+        2,
+        2,
+        2,
+        0,
+        1,
+    ]
     completion = json.loads(assigned_state.last_status_json)
-    assert completion["changes"]["changed_faces"] == 2, completion
+    assert completion["changes"]["changed_faces"] == 3, completion
     assert completion["changes"]["unchanged_material_groups"] == 1, completion
     slot_count = len(partial.material_slots)
     analysis_id = _analyze(partial)
@@ -210,5 +243,47 @@ def run() -> None:
     assert repeated == {"FINISHED"}, repeated_state.last_status_json
     assert repeated_state.last_status_code == "ASSIGNMENT_NO_CHANGES"
     assert len(partial.material_slots) == slot_count
-    assert [polygon.material_index for polygon in partial.data.polygons] == [2, 2, 1]
+    assert [polygon.material_index for polygon in partial.data.polygons] == [
+        2,
+        2,
+        2,
+        0,
+        1,
+    ]
+
+    # A CANCEL_SOURCE_MATERIAL policy is source-wide across selected objects:
+    # one collapsed-UV face must prevent a different object using the same
+    # source from being changed under that explicit Expert policy.
+    _clear_scene()
+    shared_image = _image("AMS_SHARED_POLICY_IMAGE")
+    shared_source, _tree, _principled, _texture = _material(
+        "AMS_SHARED_POLICY_SOURCE", shared_image
+    )
+    shared_unresolved = bpy.data.materials.new("AMS_SHARED_POLICY_UNRESOLVED")
+    uncertain_object = _partial_support_object(
+        "AMS_SHARED_POLICY_UNCERTAIN", shared_source, shared_unresolved
+    )
+    ordinary_object = _quad("AMS_SHARED_POLICY_ORDINARY", shared_source)
+    ordinary_object.location.y = 2.0
+    uncertain_object.select_set(True)
+    ordinary_object.select_set(True)
+    bpy.context.view_layer.objects.active = uncertain_object
+    shared_analysis_id = _analyze(uncertain_object, ordinary_object)
+    shared_report = runtime.report(shared_analysis_id)
+    source_wide_block = build_assignment_plan(
+        shared_report,
+        mixed_policy="TO_ALPHA",
+        suppressed_policy="CANCEL_SOURCE_MATERIAL",
+        unsupported_policy="CANCEL_SOURCE_MATERIAL",
+        conflict_policy="CANCEL_SOURCE_MATERIAL",
+    )
+    assert not source_wide_block.actionable, source_wide_block.public_payload()
+    assert len(source_wide_block.blocked) == 1, source_wide_block.public_payload()
+    source_dispositions = [
+        item
+        for item in source_wide_block.dispositions
+        if item.material_pointer == shared_source.as_pointer()
+    ]
+    assert len(source_dispositions) == 2, source_wide_block.public_payload()
+    assert all(item.action == "SKIP_GROUP" for item in source_dispositions)
     print("ALPHA_MATERIAL_SEPARATOR_ASSIGNMENT_POLICY_TESTS_OK")

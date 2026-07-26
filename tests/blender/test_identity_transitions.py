@@ -8,6 +8,8 @@ from pathlib import Path
 import bpy
 
 import addon
+from addon import runtime
+from addon.adapters import material_metadata
 from addon.adapters.fingerprints import source_fingerprint
 from addon.adapters.material_metadata import (
     SOURCE_FINGERPRINT,
@@ -23,6 +25,24 @@ def _direct_metadata_transitions() -> None:
     image = _image("AMS_IDENTITY_IMAGE")
     source, _tree, principled, _texture = _material("AMS_IDENTITY_SOURCE", image)
     fingerprint = source_fingerprint(source, "IMAGE_DIGEST")
+
+    material_count = len(bpy.data.materials)
+    original_material_fingerprint = material_metadata.material_fingerprint
+
+    def fail_after_copy(_material):
+        raise RuntimeError("fault injection after material copy")
+
+    material_metadata.material_fingerprint = fail_after_copy
+    try:
+        create_derived_material(source, fingerprint)
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("fault-injected derived creation unexpectedly succeeded")
+    finally:
+        material_metadata.material_fingerprint = original_material_fingerprint
+    assert len(bpy.data.materials) == material_count
+
     derived = create_derived_material(source, fingerprint)
 
     source.name = "AMS_IDENTITY_SOURCE_RENAMED"
@@ -158,6 +178,48 @@ def _assignment_slot_and_undo_transitions() -> None:
     assert inspect_metadata(object_.material_slots[1].material).source == source
 
 
+def _review_plan_transition() -> None:
+    _clear_scene()
+    image = _image("AMS_REVIEW_PLAN_IMAGE")
+    source, _tree, _principled, _texture = _material(
+        "AMS_REVIEW_PLAN_SOURCE", image
+    )
+    object_ = _quad("AMS_REVIEW_PLAN_OBJECT", source)
+    analysis_id = _analyze(object_)
+    state = bpy.context.window_manager.alpha_material_separator_api
+    preview = bpy.ops.alpha_material_separator.select_faces(
+        expected_analysis_id=analysis_id,
+        preview_assignment_plan=True,
+        mixed_policy="TO_ALPHA",
+        suppressed_policy="CANCEL_SOURCE_MATERIAL",
+        unsupported_policy="TO_ALPHA",
+        derived_conflict_policy="CANCEL_SOURCE_MATERIAL",
+        selection_mode="REPLACE",
+        enter_edit_mode=False,
+    )
+    assert preview == {"FINISHED"}, state.last_status_json
+    ui = bpy.context.window_manager.alpha_material_separator_ui
+    reviewed_signature = ui.reviewed_policy_signature
+    report = runtime.report(analysis_id)
+    group = next(iter(report.object_results[object_.as_pointer()].groups.values()))
+    unexpected_variant = create_derived_material(
+        source, group.source_fingerprint
+    )
+    slots_before = len(object_.material_slots)
+    index_before = object_.data.polygons[0].material_index
+    changed, changed_state = _assign(
+        analysis_id,
+        expected_review_signature=reviewed_signature,
+        unsupported_policy="TO_ALPHA",
+    )
+    assert changed == {"CANCELLED"}, changed_state.last_status_json
+    assert changed_state.last_status_code == "REVIEW_CHANGED"
+    assert len(object_.material_slots) == slots_before
+    assert object_.data.polygons[0].material_index == index_before
+    assert not ui.reviewed_analysis_id
+    bpy.data.materials.remove(unexpected_variant)
+
+
 def _save_reopen_persistence() -> None:
     _clear_scene()
     image = _image("AMS_PERSIST_IMAGE")
@@ -202,5 +264,6 @@ def run() -> None:
     _clear_scene()
     _direct_metadata_transitions()
     _assignment_slot_and_undo_transitions()
+    _review_plan_transition()
     _save_reopen_persistence()
     print("ALPHA_MATERIAL_SEPARATOR_IDENTITY_TRANSITION_TESTS_OK")

@@ -11,6 +11,7 @@ import json
 import platform
 import statistics
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -231,20 +232,46 @@ def _analysis_benchmark(tier: dict) -> dict:
 
 
 def _revalidation_benchmark() -> dict:
+    temporary_images = tempfile.TemporaryDirectory(prefix="ams-benchmark-revalidation-")
     object_, images, materials = _grid_fixture(
         "revalidation",
         70,
         [1024],
         2,
     )
+    clean_images = []
+    for index, image in enumerate(images):
+        filepath = Path(temporary_images.name) / f"revalidation-{index}.png"
+        image.filepath_raw = str(filepath)
+        image.file_format = "PNG"
+        image.save()
+        clean = bpy.data.images.load(str(filepath), check_existing=False)
+        clean.name = f"revalidation_FILE_IMAGE_{index:02d}"
+        for material in materials:
+            for node in material.node_tree.nodes:
+                if getattr(node, "image", None) == image:
+                    node.image = clean
+        bpy.data.images.remove(image)
+        clean_images.append(clean)
+    images = clean_images
+    assert all(image.source == "FILE" and not image.is_dirty for image in images)
     cold_seconds, cold_metrics, report = _run_analysis(
         object_, clear_coverage=True
     )
     runtime.set_report(report)
+    bpy.ops.object.select_all(action="DESELECT")
+    object_.select_set(True)
+    bpy.context.view_layer.objects.active = object_
     times = []
     final_snapshot = {}
     for run in range(6):
-        runtime.mark_recheck("MESH_UPDATED", "MESH")
+        bpy.ops.object.mode_set(mode="EDIT")
+        bpy.ops.object.mode_set(mode="OBJECT")
+        bpy.context.view_layer.update()
+        if runtime.validation_state() != runtime.VALIDATION_RECHECK_PENDING:
+            # Keep the measured validation path deterministic if this Blender
+            # build coalesces the mode transition before the handler observes it.
+            runtime.mark_recheck("MESH_UPDATED", "MESH")
         started = time.perf_counter()
         valid, reason = validate_report(report)
         elapsed = time.perf_counter() - started
@@ -267,6 +294,18 @@ def _revalidation_benchmark() -> dict:
             "last_validation_rasterized_polygons"
         ),
         "last_validation_mode": final_snapshot.get("last_validation_mode"),
+        "last_validation_component_hash_calls": final_snapshot.get(
+            "last_validation_component_hash_calls"
+        ),
+        "last_validation_coverage_hits": final_snapshot.get(
+            "last_validation_coverage_hits"
+        ),
+        "last_validation_coverage_misses": final_snapshot.get(
+            "last_validation_coverage_misses"
+        ),
+        "last_validation_elapsed_seconds": final_snapshot.get(
+            "last_validation_elapsed_seconds"
+        ),
         "coverage_cache_entries": final_snapshot.get("coverage_cache_entries"),
         "target_under_one_second": median < 1.0,
         "target_under_fifteen_percent_cold": median < cold_seconds * 0.15,
@@ -279,6 +318,7 @@ def _revalidation_benchmark() -> dict:
         bpy.data.materials.remove(material)
     for image in images:
         bpy.data.images.remove(image)
+    temporary_images.cleanup()
     gc.collect()
     print("REVALIDATION complete", flush=True)
     return result
@@ -302,6 +342,12 @@ def _pathological() -> dict:
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--only",
+        choices=("all", "revalidation"),
+        default="all",
+        help="Run the complete release baseline or only the mode/revalidation tier",
+    )
     args = parser.parse_args(argv)
     tiers = (
         {"name": "small", "segments": 70, "image_sizes": [1024], "material_count": 1},
@@ -327,19 +373,29 @@ def main(argv=None) -> int:
         },
     )
     result = {
-        "analysis": {tier["name"]: _analysis_benchmark(tier) for tier in tiers},
         "blender_version": bpy.app.version_string,
-        "digest": {str(size): _digest_benchmark(size) for size in (1024, 2048, 4096, 8192)},
         "machine": {
             "platform": platform.platform(),
             "processor": platform.processor(),
             "python": platform.python_version(),
         },
         "method": "one discarded warm-up, median of five measured runs",
-        "pathological": _pathological(),
         "revalidation": _revalidation_benchmark(),
         "schema_version": 2,
     }
+    if args.only == "all":
+        result.update(
+            {
+                "analysis": {
+                    tier["name"]: _analysis_benchmark(tier) for tier in tiers
+                },
+                "digest": {
+                    str(size): _digest_benchmark(size)
+                    for size in (1024, 2048, 4096, 8192)
+                },
+                "pathological": _pathological(),
+            }
+        )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(f"BENCHMARK_OUTPUT {args.output}", flush=True)

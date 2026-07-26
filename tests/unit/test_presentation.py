@@ -43,6 +43,23 @@ class PresentationTests(unittest.TestCase):
         first = review_signature("id", "TO_ALPHA", "CANCEL_SOURCE_MATERIAL", "KEEP_SOURCE", "REUSE_EXISTING")
         second = review_signature("id", "KEEP_SOURCE", "CANCEL_SOURCE_MATERIAL", "KEEP_SOURCE", "REUSE_EXISTING")
         self.assertNotEqual(first, second)
+        first_plan = review_signature(
+            "id",
+            "TO_ALPHA",
+            "CANCEL_SOURCE_MATERIAL",
+            "KEEP_SOURCE",
+            "REUSE_EXISTING",
+            {"faces_to_reassign": 1, "source_decisions": {"Body": "REUSE"}},
+        )
+        changed_plan = review_signature(
+            "id",
+            "TO_ALPHA",
+            "CANCEL_SOURCE_MATERIAL",
+            "KEEP_SOURCE",
+            "REUSE_EXISTING",
+            {"faces_to_reassign": 1, "source_decisions": {"Body": "CREATE"}},
+        )
+        self.assertNotEqual(first_plan, changed_plan)
 
     def test_warning_only_confirmation(self) -> None:
         clean = {"counts": {"MIXED": 0, "SUPPRESSED": 0, "UNSUPPORTED": 0}, "skip_counts": {}}
@@ -103,6 +120,8 @@ class PresentationTests(unittest.TestCase):
                 self.assertEqual(view["state"], expected)
                 if expected in {"STALE", "NO_CHANGE", "COMPLETED"}:
                     self.assertFalse(view["can_apply"])
+                if expected == "NO_CHANGE":
+                    self.assertFalse(view["can_preview"])
 
 
 if __name__ == "__main__":

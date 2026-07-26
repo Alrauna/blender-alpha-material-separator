@@ -28,6 +28,9 @@ from tests.blender.test_identity_transitions import (  # noqa: E402
 from tests.blender.test_fbx_export import run as run_fbx_export_tests  # noqa: E402
 from tests.blender.test_preservation import run as run_preservation_tests  # noqa: E402
 from tests.blender.test_ux_overrides import run as run_ux_override_tests  # noqa: E402
+from tests.blender.test_revalidation_matrix import (  # noqa: E402
+    run as run_revalidation_matrix_tests,
+)
 
 
 def assert_operator_registered() -> None:
@@ -86,6 +89,7 @@ def run() -> None:
             run_fbx_export_tests()
             run_preservation_tests()
             run_ux_override_tests()
+            run_revalidation_matrix_tests()
 
         clear_result = bpy.ops.alpha_material_separator.clear_results(api_major=1)
         assert clear_result == {"FINISHED"}, clear_result
