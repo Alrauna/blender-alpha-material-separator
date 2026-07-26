@@ -85,11 +85,15 @@ setting or manual source does.
 
 ## Manual alpha sources
 
-Automatic detection supports the common direct Image Texture Alpha path and a
-single authoritative Base Color image containing stored alpha. If a material
-card says **No clear alpha image was found**, click **Set Manual Alpha Source**.
-The interface switches to Expert mode and creates an override for only that
-material. Other materials remain automatic.
+Automatic detection first honors a supported Image Texture Alpha connection.
+When Principled Alpha is genuinely unlinked, it can instead read the stored A
+channel of the Image Texture feeding active Principled Base Color, directly or
+through simple reroutes. This works independently of Blender transparency
+settings, and unrelated normal, roughness, emission, or disconnected image
+nodes do not defeat it. If a material card says **No clear alpha image was
+found**, click **Set Manual Alpha Source**. The interface switches to Expert
+mode and creates an override for only that material. Other materials remain
+automatic.
 
 Each manual record has:
 
@@ -100,6 +104,11 @@ Each manual record has:
   are available only after an explicit image is selected.
 - **UV Map**: optional exact name. Blank uses the resolved active render UV.
 - **Addressing**: Automatic, Repeat, Extend, Clip, or Mirror.
+
+UV coordinates may be below 0 or above 1 on either axis. They are analyzed
+against the pixels selected by the material's Repeat, Extend, Clip, or Mirror
+addressing mode. Only malformed or zero-area UV faces are rejected for their UV
+data; being outside the base tile is not an error.
 
 Typical recipes:
 
@@ -113,7 +122,10 @@ Typical recipes:
   not guess or evaluate arbitrary shader math.
 
 Every override participates in stale-result detection. Analyze again after
-editing an image, material graph, UV, threshold, or override.
+editing the chosen image, supported Alpha/Base Color path, UV authority,
+threshold, or override. An edit elsewhere in the source shader keeps the face
+classification but invalidates the reviewed assignment plan, so use
+**Preview Faces to Move** again before Apply.
 
 A material without an automatic or manual alpha source is left exactly as it
 was. Set a manual source only when that material also needs to be split; it does
@@ -142,8 +154,11 @@ reused, and the UI reports **Already separated — no additional changes**.
 Blender may report mesh updates when you only enter or leave Edit Mode or alter
 face selection. The extension rechecks the relevant structural inputs and keeps
 the same completed report and preview when they are equal. It requests another
-analysis only after a confirmed classification-input change. Apply always
-performs a final synchronous check before mutating material assignments.
+analysis only after a confirmed classification-input change. An unrelated
+source-shader edit does not rerasterize faces, but it does require Preview again
+because the copied material plan changed.
+Apply always performs a final synchronous check before mutating material
+assignments.
 
 Shared multi-user meshes, linked/read-only data, and restricted library
 overrides are skipped instead of being made local or single-user automatically.
@@ -173,6 +188,7 @@ mipmaps, compression, clipping, or shader-specific behavior. See the detailed
 | --- | --- |
 | **No mesh objects selected** | Select one or more Mesh objects in Object Mode. |
 | **No clear alpha image was found** | Use **Set Manual Alpha Source** for that material. |
+| **Alpha uses unsupported shader processing** | Select the intended image/channel manually, including the Base Color image's Alpha channel when appropriate, or bake a combined/procedural result. |
 | **No active render UV map** | Set an active render UV or enter the exact UV name in Expert mode. |
 | **Texture coordinates are not a supported UV path** | Choose a raw UV map or bake the mapped result. |
 | **Image type/projection is not supported** | Use a static flat-UV image or bake the intended mask. |
@@ -180,7 +196,8 @@ mipmaps, compression, clipping, or shader-specific behavior. See the detailed
 | **Below significance—needs review** | Inspect the faces and deliberately choose an Expert policy if the default skip is not appropriate. |
 | **Uncertain faces will use alpha** | The alpha source is valid, but some faces have collapsed UVs or exceeded a deterministic coverage budget. Preview them; the Simple default keeps possible transparency by routing them to alpha. |
 | **Left unchanged — no alpha source selected** | This material does not block supported materials. Use **Set Manual Alpha Source** only if this material also needs separation. |
-| **Inputs Changed — Analyze Again** | A setting, material, image, UV, slot, or object changed after analysis. Reanalyze. |
+| **Inputs Changed — Analyze Again** | A classification input—such as the chosen image/path, UV, settings, slot binding, or mesh—changed after analysis. Reanalyze. |
+| **Preview Faces to Move** becomes available again after a shader edit | The face classification is still valid, but the material-copy plan changed. Preview again; a full reanalysis is not required. |
 | The message appears after pressing `Tab` without editing inputs | This is a defect; mode and selection changes alone should be revalidated and reused. Include the Technical Details state in a bug report. |
 | **Source or alpha material changed** | Preserve the edited material and explicitly choose reuse or a new variant in Expert mode. |
 | Everything stays opaque | Confirm the intended image/channel and that affected pixels are below `0.999`. |
@@ -192,10 +209,16 @@ reports and integrations.
 ## Supported and unsupported material setups
 
 Supported automatic paths include direct Image Texture Alpha to the active
-Principled Alpha input, simple reroutes, a unique Base Color image containing
-stored alpha, direct UV Map nodes, and Texture Coordinate UV. Manual image,
-channel, UV, and addressing records are available per material. Ambiguous
-multiple-image graphs are reported instead of guessed.
+Principled Alpha input, simple reroutes, and one Image Texture Color authority
+feeding active Principled Base Color while Alpha is unlinked. The latter reads
+that image's decoded stored A channel even when the material contains ancillary
+images. Its technical source code, `UNIQUE_BASE_COLOR_IMAGE_ALPHA`, means a
+unique Base Color authority—not a globally single-image material. Direct UV Map
+nodes and Texture Coordinate UV are also supported. Explicit Alpha sources and
+manual per-material image/channel/UV/addressing records take precedence.
+Connected unsupported Alpha processing and complex Mix, Math, Mapping, group,
+or procedural Base Color paths are reported rather than silently guessed; use
+a manual or baked source for those cases.
 
 Version 0.1 does not cut contours, subdivide geometry, separate objects, rewrite
 shaders, automate Unity, integrate CATS automatically, analyze evaluated

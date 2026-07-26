@@ -17,12 +17,12 @@ Status: **approved and implemented for version 0.1**.
 | Explicit image and UV-map overrides | Guaranteed | Use the selected raw UV layer and image; do not infer or evaluate the shader graph. |
 | Separate mask texture whose **Alpha** output is directly connected to active Principled Alpha | Guaranteed | Same direct-alpha rule as above. |
 | Simple reroute between Image Alpha and active Principled Alpha | Supported | Trace only pass-through reroutes; reject cycles, branching, muted ambiguity, or non-reroute processing. |
-| Exactly one Image Texture feeds active Principled Base Color, with no competing alpha/image path | Supported | Use that image's stored alpha. This low-touch fallback is the pattern in the supplied anonymous before/after reference. |
-| Other color image contains alpha but its Alpha output is not connected | Deferred | Multiple or unconnected images do not prove intent. Use an explicit override. |
+| One Image Texture Color path directly or simply rerouted to active Principled Base Color while Principled Alpha is unlinked | Supported | Use that Base Color image's decoded stored A channel, regardless of Blender transparency settings. Normal, roughness, emission, and disconnected image nodes do not compete with this authority path. |
+| Other color image contains alpha but is not the supported active Base Color authority | Deferred | An unconnected or ancillary image does not prove intent. Use an explicit override. |
 | Separate mask **Color** output connected to Principled Alpha | Manual path | Select that image and the intended red, green, blue, alpha, or luminance channel through the override controls. |
 | Image alphas multiplied or otherwise combined | Manual path | Bake the intended result to an image, then select the baked image/channel/UV override. The extension does not guess shader math. |
 | Alpha source inside a node group | Deferred | Group interfaces, nested graphs, cycles, defaults, and library data require separate characterization. |
-| Multiple images without one authoritative direct alpha path | Unsupported | Report `AMBIGUOUS_IMAGE`; never select an image by node order or name. |
+| Multiple images without a supported direct Alpha or Base Color authority path | Unsupported | Report `NO_AUTHORITATIVE_ALPHA_IMAGE`; never select an image by node order or name. |
 | Procedural, animated, arbitrary shader evaluation | Unsupported | Report a stable unsupported reason. |
 
 ## UV/vector resolution
@@ -48,11 +48,16 @@ Status: **approved and implemented for version 0.1**.
 ## Decision record
 
 The four proposed deterministic patterns were approved on 2026-07-22. The
-supplied private example then established the narrow, unique base-color-image
-fallback as expected default behavior. User direction also established
+supplied private example then established the narrow, unique Base Color
+authority fallback as expected default behavior. The stable source code
+`UNIQUE_BASE_COLOR_IMAGE_ALPHA` means one supported Base Color authority path,
+not one Image Texture node in the entire material. User direction also established
 per-material image, UV, channel, and addressing records as the non-seamless
 escape hatch for separate masks and more substantial Blender workflows.
 Materials without a record continue to use automatic detection, so a manual
 source for one material cannot accidentally replace sources for the rest of the
-selection. Mapping nodes, groups, arbitrary combined masks, and ambiguous
-multiple-image graphs remain unsupported rather than guessed.
+selection. An explicitly connected but unsupported Principled Alpha path is
+reported instead of silently ignored; a manual image/channel record can still
+select the Base Color image's A channel. Mix, Math, Mapping, groups, arbitrary
+combined masks, and Base Color paths without one supported image terminal remain
+unsupported rather than guessed.

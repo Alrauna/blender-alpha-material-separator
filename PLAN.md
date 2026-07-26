@@ -1,11 +1,13 @@
 # Blender Alpha Material Separator 0.1 implementation plan
 
-Status: milestones 0-4 are implemented locally on
-`feat/alpha-material-separator-0.1`. Pre-release workflow-friction hardening is
-in progress after real-file testing exposed group-wide assignment blocking and
-a false stale result after leaving face preview. Earlier smoke results do not
-close the new gates below. Manual Unity material/submesh validation remains a
-release gate; VRChat validation remains optional stack-specific evidence.
+Status: milestones 0-4A are implemented and verified locally on
+`feat/alpha-material-separator-0.1`. The workflow-friction hardening prompted
+by real-file testing is complete in commits `a09593b`, `4c26dfd`, and
+`1e61993`: safe groups apply independently, exact-plan preview survives
+harmless selection/mode changes, and the installed-ZIP Analyze → Preview →
+Tab → Apply workflow no longer requires redundant analysis. Milestone 5 is
+partially complete. Manual Unity material/submesh validation remains a release
+gate; VRChat validation remains optional stack-specific evidence.
 
 ## Product outcome
 
@@ -107,7 +109,7 @@ Required identity behavior:
 | Change | Behavior |
 | --- | --- |
 | Source rename | Reanalyze; follow the persistent source pointer and reuse the variant. |
-| Source shader edit | Report `SOURCE_CHANGED`; default to no mutation. Explicitly reuse or create a fresh variant without overwriting the old one. |
+| Source shader edit | Reanalyze when the resolved Alpha/Base Color authority changes. An assignment-only edit elsewhere retains classification but clears review; existing variants then report `SOURCE_CHANGED` and default to no mutation unless explicitly reused or replaced with a fresh variant. |
 | Ordinary source duplicate | Treat as a distinct source with its own variant. |
 | Derived duplicate | Detect copied UUID/metadata and report `DUPLICATED_DERIVED`; never choose silently. |
 | Slot reorder | Resolve by datablock identity, not slot number, and reuse matching variants. |
@@ -130,9 +132,13 @@ Required identity behavior:
 - Replace generic dependency-graph dirtiness with relevant, coalesced recheck
   scopes. Do not rehash participating image pixels or rerasterize geometry for
   selection/mode-only transitions.
-- Treat the lawful private before/after pair only as an ignored local structural
-  example. Require an opaque/alpha section, an untouched unrelated material,
-  and preservation invariants; do not require identical face indices.
+- Use the lawful private before/after pair as a required ignored multi-object
+  smoke layer when available. Exercise partial unsupported results, out-of-range
+  UV addressing, exact-plan Preview and Apply, semantic reference-face coverage,
+  and preservation. Treat the after example as a human-tuned lower bound:
+  conservative additional alpha and `MIXED` faces are valid, while missed
+  reference-alpha faces require an explicit reason. Keep all assets, helpers,
+  paths, and raw output uncommitted.
 - Update panel messages, confirmation/completion summaries, README, integration
   API, test guide, and contributor rules to describe the implemented behavior.
 
@@ -140,6 +146,11 @@ Gate: unit and headless Blender tests cover harmless versus real input changes,
 preview/plan equivalence, partial success, undo/redo, idempotence, save/reopen,
 and registration cleanup. Installed-ZIP Blender 5.2 acceptance must complete
 the reported workflow without redundant analysis.
+
+Gate result: the generated and installed-ZIP layers completed locally on
+2026-07-25. A later full multi-object private before/after smoke confirmed
+out-of-range UV analysis. The user confirmed that extra conservative `MIXED`
+faces are correct; unresolved reference-alpha faces remain an open item.
 
 The authoritative hardening matrix includes:
 
@@ -160,21 +171,65 @@ The authoritative hardening matrix includes:
   cold-analysis, structural-recheck, Apply-preflight, and full-image-digest
   measurements with recorded instrumentation counters.
 
+## Milestone 4B: main Base Color alpha fallback
+
+- [x] Establish a generated failing regression for an alpha-bearing Base Color
+  image alongside connected normal, roughness, emission, and disconnected
+  ancillary image nodes.
+- [x] Resolve one direct or simply rerouted Base Color Image Texture authority
+  when Principled Alpha is genuinely unlinked. Preserve explicit override and
+  supported Principled Alpha precedence.
+- [x] Distinguish unlinked Alpha from connected invalid/reroute-cycle paths.
+  Keep connected unsupported processing explicit and recoverable through a
+  manual per-material source.
+- [x] Keep classification authority separate from assignment-only material
+  state. Ancillary image pixels are not digested; unrelated source-graph edits
+  retain analysis but clear exact-plan review.
+- [x] Bind review/confirmation to a deterministic fingerprint containing exact
+  object/face mutations, current source fingerprints, and derived decisions.
+- [x] Characterize Blender 5.2 decoded stored A behavior for generated
+  RGB-style/RGBA images, fully opaque A, missing images, and the `STRAIGHT`,
+  `PREMUL`, `CHANNEL_PACKED`, and `NONE` alpha modes without changing decoding
+  semantics.
+- [x] Update README, UI remedies, material support, integration API, testing,
+  and performance documentation.
+- [x] Pass generated unit/Blender tests, source/archive validation, isolated ZIP
+  lifecycle validation, and the provisional 25 percent same-machine
+  performance gate.
+- [x] Pass the private resolver, exact-plan workflow, out-of-range UV,
+  derived-role, immutable-reference, and preservation gates.
+- [ ] Resolve the remaining private semantic lower-bound discrepancy. The
+  remaining reference-alpha faces are currently classified `OPAQUE` from their
+  decoded participating A channel; investigate separately without broadening
+  resolver scope or changing raster margin in this milestone.
+
 ## Milestone 5: release validation
 
-- Record small, typical-avatar, high-complexity, repeated-UV, and pathological
+- [x] Record small, typical-avatar, high-complexity, repeated-UV, and pathological
   benchmark tiers. Establish the first baseline before release and block an
   unexplained same-machine time or memory regression over 25%.
-- Validate/build/install the extension ZIP in an isolated Blender environment.
-- Test enable/disable, analysis immutability, preview/undo, assignment/undo,
+- [x] Validate/build/install the extension ZIP in an isolated Blender
+  environment.
+- [x] Test enable/disable, analysis immutability, preview/undo, assignment/undo,
   idempotence, save/reopen metadata, and FBX material partitioning.
-- Require ordinary Unity material/submesh validation. Record VRChat SDK/shader
-  validation only as a reference for the exact tested versions.
-- Benchmark cold analysis, preview validation, mode-exit component recheck,
-  final Apply preflight, and genuine image validation separately. Mode-only
-  rechecks must rasterize zero polygons and digest zero image rows. On the
-  approved same-machine example, target a median under one second and under 15
-  percent of cold analysis time.
+- [x] Benchmark cold analysis, full image validation, coverage/prefix reuse,
+  and mode-exit component recheck. Mode-only rechecks rasterize zero polygons
+  and digest zero image rows. The recorded same-machine structural median is
+  0.0345 seconds, 4.13 percent of cold analysis.
+- [ ] Record a distinct final Apply-preflight timing row. Correctness and
+  instrumentation are covered, but the released performance table does not yet
+  isolate that timing.
+- [x] Complete installed-ZIP Analyze → Preview → Tab → Apply at default UI
+  scale without a second analysis.
+- [ ] Complete the generated two-material interactive partial-apply case in
+  `docs/testing.md`.
+- [ ] Resolve and pass the required ignored multi-object before/after smoke.
+  Out-of-range UV addressing passes and conservative extra faces are allowed;
+  the remaining reference-alpha discrepancy is classified opaque.
+- [ ] Complete the 150 percent UI-scale visual pass.
+- [ ] Complete required ordinary Unity material/submesh validation.
+- Optional: record VRChat SDK/shader validation only as a reference for the
+  exact tested versions.
 
 ## Public integration boundary
 
@@ -212,10 +267,8 @@ extension never imports or depends on CATS.
 5. `feat: add safe material assignment`
 6. `test: add packaging performance and export validation`
 7. `docs: document Unity VRChat workflow and integration API`
-8. `test: reproduce preview and partial assignment friction`
-9. `fix: preserve reviewed analysis across mode changes`
-10. `fix: apply safe material groups independently`
-11. `test: harden workflow and cache regression coverage`
-12. `docs: document revalidation and partial assignment behavior`
+8. `a09593b fix: preserve reviewed analysis and apply safe groups`
+9. `4c26dfd test: harden revalidation and partial assignment coverage`
+10. `1e61993 docs: document partial apply and preview revalidation`
 
 Commits remain local. No push or release occurs without separate approval.

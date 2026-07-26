@@ -38,6 +38,7 @@ class ReadmeContractTests(unittest.TestCase):
             "Unity",
             "draw call",
             "per-material",
+            "UV coordinates may be below 0 or above 1",
         ):
             self.assertIn(text, self.text)
 

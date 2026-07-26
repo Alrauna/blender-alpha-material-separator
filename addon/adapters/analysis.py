@@ -34,6 +34,7 @@ from .image_data import (
     ImageSnapshotBuilder,
     read_image_snapshot,
 )
+from .material_metadata import POINTER_PROPERTY, PREFIX
 from .material_resolver import MaterialResolution, resolve_material
 
 ImageCache = dict[tuple[int, str, float], ImageSnapshot]
@@ -94,6 +95,7 @@ class AnalysisReport:
     analysis_id: str
     input_signature: str
     structural_signature: str
+    assignment_signature: str
     config: AnalysisConfig
     objects: tuple[bpy.types.Object, ...]
     object_results: dict[int, ObjectAnalysis]
@@ -310,57 +312,43 @@ def _mesh_is_safe(object_: bpy.types.Object) -> str:
     return ""
 
 
-def _material_image_states(material: bpy.types.Material) -> list[dict[str, Any]]:
-    """Return cheap image binding/state inputs without reading pixel buffers."""
+def _image_state(image: bpy.types.Image) -> dict[str, Any]:
+    """Return cheap participating-image state without reading pixels."""
 
-    states: list[dict[str, Any]] = []
-    visited: set[int] = set()
-
-    def visit(tree) -> None:
-        if tree is None:
-            return
-        pointer = tree.as_pointer()
-        if pointer in visited:
-            return
-        visited.add(pointer)
-        for node in sorted(tree.nodes, key=lambda item: (item.name, item.bl_idname)):
-            image = getattr(node, "image", None)
-            if image is not None:
-                states.append(
-                    {
-                        "alpha_mode": image.alpha_mode,
-                        "channels": image.channels,
-                        "dimensions": [int(image.size[0]), int(image.size[1])],
-                        "filepath": image.filepath,
-                        "image_name": image.name_full,
-                        "image_pointer": image.as_pointer(),
-                        "is_dirty": bool(image.is_dirty),
-                        "node": node.name,
-                        "packed": bool(image.packed_file),
-                        "source": image.source,
-                    }
-                )
-            child = getattr(node, "node_tree", None)
-            if child is not None:
-                visit(child)
-
-    visit(material.node_tree)
-    return states
+    return {
+        "alpha_mode": image.alpha_mode,
+        "channels": image.channels,
+        "dimensions": [int(image.size[0]), int(image.size[1])],
+        "filepath": image.filepath,
+        "image_name": image.name_full,
+        "image_pointer": image.as_pointer(),
+        "is_dirty": bool(image.is_dirty),
+        "packed": bool(image.packed_file),
+        "source": image.source,
+    }
 
 
-def _structural_signature(objects: Iterable[bpy.types.Object]) -> str:
+def _structural_signature(
+    objects: Iterable[bpy.types.Object], config: AnalysisConfig
+) -> str:
     """Hash every mesh-side analysis input without reading image pixels.
 
     Face selection, active selection, object transforms, and Object/Edit Mode
     are intentionally absent: none changes which base-mesh UV texels a polygon
-    covers. Resolver-relevant material graph state and cheap image bindings are
-    included here; participating image pixels remain in the authoritative full
-    signature and are rechecked whenever their mutation state cannot be proven
-    reusable.
+    covers. Resolver results and participating image state are included here;
+    unrelated shader branches are assignment inputs, not classification inputs.
+    Participating image pixels remain in the authoritative full signature and
+    are rechecked whenever their mutation state cannot be proven reusable.
     """
 
     signature = _Signature()
     signature.add("ALPHA_MATERIAL_SEPARATOR_STRUCTURAL_V1")
+    signature.add(config.payload())
+    explicit_image = _explicit_image(config)
+    override_by_material = {
+        item.material_name: item for item in config.material_overrides
+    }
+    encountered_materials: set[str] = set()
     for object_ in sorted(objects, key=lambda item: (item.name_full, item.as_pointer())):
         if object_.type != "MESH":
             signature.add(
@@ -423,17 +411,100 @@ def _structural_signature(objects: Iterable[bpy.types.Object]) -> str:
             signature.add(
                 {
                     "link": slot.link,
-                    "material_fingerprint": (
-                        material_fingerprint(material) if material else ""
-                    ),
-                    "material_images": (
-                        _material_image_states(material) if material else []
-                    ),
                     "material_name": material.name_full if material else "",
                     "material_pointer": material.as_pointer() if material else 0,
                     "slot_index": slot_index,
                 }
             )
+            if material is None:
+                continue
+            encountered_materials.add(material.name_full)
+            resolution = _resolve_configured_material(
+                material,
+                mesh,
+                config,
+                explicit_image,
+                override_by_material,
+            )
+            signature.add(
+                {
+                    "address": resolution.address_mode.value,
+                    "channel": resolution.channel,
+                    "image": (
+                        _image_state(resolution.image)
+                        if resolution.supported and resolution.image is not None
+                        else None
+                    ),
+                    "reason": resolution.reason,
+                    "source_kind": resolution.source_kind,
+                    "supported": resolution.supported,
+                    "uv": resolution.uv_map_name,
+                }
+            )
+    unused_overrides = sorted(set(override_by_material) - encountered_materials)
+    if unused_overrides:
+        raise OverrideConfigError(
+            "OVERRIDE_TARGET_NOT_SELECTED",
+            "Override target material is not used by the selected meshes: "
+            + ", ".join(unused_overrides),
+        )
+    return signature.hexdigest()
+
+
+def _assignment_signature(objects: Iterable[bpy.types.Object]) -> str:
+    """Hash source/derived state that may change the reviewed mutation plan."""
+
+    signature = _Signature()
+    signature.add("ALPHA_MATERIAL_SEPARATOR_ASSIGNMENT_V1")
+    source_pointers: set[int] = set()
+    for object_ in sorted(objects, key=lambda item: (item.name_full, item.as_pointer())):
+        if object_.type != "MESH":
+            continue
+        for slot_index, slot in enumerate(object_.material_slots):
+            material = slot.material
+            if material is None:
+                signature.add((object_.as_pointer(), slot_index, slot.link, 0))
+                continue
+            pointer = material.as_pointer()
+            source_pointers.add(pointer)
+            source = getattr(material, POINTER_PROPERTY, None)
+            signature.add(
+                {
+                    "editable": bool(getattr(material, "is_editable", True)),
+                    "fingerprint": material_fingerprint(material),
+                    "library": material.library.filepath if material.library else "",
+                    "link": slot.link,
+                    "material_name": material.name_full,
+                    "material_pointer": pointer,
+                    "metadata": sorted(
+                        (key, material.get(key))
+                        for key in material.keys()
+                        if key.startswith(PREFIX)
+                    ),
+                    "object_pointer": object_.as_pointer(),
+                    "slot_index": slot_index,
+                    "source_pointer": source.as_pointer() if source else 0,
+                }
+            )
+    for material in sorted(
+        bpy.data.materials, key=lambda item: (item.name_full, item.as_pointer())
+    ):
+        source = getattr(material, POINTER_PROPERTY, None)
+        if source is None or source.as_pointer() not in source_pointers:
+            continue
+        signature.add(
+            {
+                "fingerprint": material_fingerprint(material),
+                "material_name": material.name_full,
+                "material_pointer": material.as_pointer(),
+                "metadata": sorted(
+                    (key, material.get(key))
+                    for key in material.keys()
+                    if key.startswith(PREFIX)
+                ),
+                "source_pointer": source.as_pointer(),
+            }
+        )
     return signature.hexdigest()
 
 
@@ -452,6 +523,50 @@ def _requires_conservative_image_recheck(report: AnalysisReport) -> bool:
 
 def _explicit_image(config: AnalysisConfig):
     return bpy.data.images.get(config.image_name) if config.image_name else None
+
+
+def _resolve_configured_material(
+    material: bpy.types.Material,
+    mesh: bpy.types.Mesh,
+    config: AnalysisConfig,
+    explicit_image,
+    override_by_material: dict[str, MaterialOverride],
+) -> MaterialResolution:
+    material_override = override_by_material.get(material.name_full)
+    if material_override is not None:
+        override_image = (
+            bpy.data.images.get(material_override.image_name)
+            if material_override.image_name
+            else None
+        )
+        if material_override.image_name and override_image is None:
+            return MaterialResolution(
+                material=material,
+                supported=False,
+                reason="IMAGE_OVERRIDE_NOT_FOUND",
+            )
+        return resolve_material(
+            material,
+            mesh,
+            explicit_image=override_image,
+            explicit_uv=material_override.uv_map_name,
+            explicit_channel=material_override.image_channel,
+            requested_address_mode=material_override.address_mode,
+        )
+    if config.image_name and explicit_image is None:
+        return MaterialResolution(
+            material=material,
+            supported=False,
+            reason="IMAGE_OVERRIDE_NOT_FOUND",
+        )
+    return resolve_material(
+        material,
+        mesh,
+        explicit_image=explicit_image,
+        explicit_uv=config.uv_map_name,
+        explicit_channel=config.image_channel,
+        requested_address_mode=config.address_mode,
+    )
 
 
 def _image_snapshot(
@@ -567,44 +682,13 @@ def _prepare(
             if material is None:
                 continue
             encountered_materials.add(material.name_full)
-            signature.add(material_fingerprint(material))
-            material_override = override_by_material.get(material.name_full)
-            if material_override is not None:
-                override_image = (
-                    bpy.data.images.get(material_override.image_name)
-                    if material_override.image_name
-                    else None
-                )
-                if material_override.image_name and override_image is None:
-                    resolution = MaterialResolution(
-                        material=material,
-                        supported=False,
-                        reason="IMAGE_OVERRIDE_NOT_FOUND",
-                    )
-                else:
-                    resolution = resolve_material(
-                        material,
-                        mesh,
-                        explicit_image=override_image,
-                        explicit_uv=material_override.uv_map_name,
-                        explicit_channel=material_override.image_channel,
-                        requested_address_mode=material_override.address_mode,
-                    )
-            elif config.image_name and explicit_image is None:
-                resolution = MaterialResolution(
-                    material=material,
-                    supported=False,
-                    reason="IMAGE_OVERRIDE_NOT_FOUND",
-                )
-            else:
-                resolution = resolve_material(
-                    material,
-                    mesh,
-                    explicit_image=explicit_image,
-                    explicit_uv=config.uv_map_name,
-                    explicit_channel=config.image_channel,
-                    requested_address_mode=config.address_mode,
-                )
+            resolution = _resolve_configured_material(
+                material,
+                mesh,
+                config,
+                explicit_image,
+                override_by_material,
+            )
             resolutions[slot_index] = resolution
             signature.add(
                 {
@@ -710,7 +794,9 @@ def validate_report(report: AnalysisReport) -> tuple[bool, str]:
         return False, runtime.dirty_reason() or "INPUTS_CHANGED"
 
     pending = runtime.pending_scopes() if current_report else frozenset()
-    structural_only = bool(pending) and pending <= {"MESH", "OBJECT"}
+    classification_only_recheck = (
+        bool(pending) and "IMAGE" not in pending and "UNKNOWN" not in pending
+    )
     attempted_mode = "STRUCTURAL"
     try:
         for object_ in report.objects:
@@ -718,18 +804,25 @@ def validate_report(report: AnalysisReport) -> tuple[bool, str]:
                 reason = "OBJECT_DELETED_OR_REPLACED"
                 record("STRUCTURAL", False, reason)
                 return False, reason
-        structural_signature = _structural_signature(report.objects)
+        structural_signature = _structural_signature(report.objects, report.config)
         structural_valid = structural_signature == report.structural_signature
         if not structural_valid:
             record("STRUCTURAL", False, "INPUTS_CHANGED")
             return False, "INPUTS_CHANGED"
+        assignment_signature = _assignment_signature(report.objects)
+        if assignment_signature != report.assignment_signature:
+            report.assignment_signature = assignment_signature
+            for window_manager in bpy.data.window_managers:
+                runtime.clear_review(window_manager)
         conservative_image_recheck = _requires_conservative_image_recheck(report)
         can_reuse_images = (
             current_report
             and runtime.validation_is_current(report.analysis_id)
             and not conservative_image_recheck
         )
-        if (structural_only and not conservative_image_recheck) or can_reuse_images:
+        if (
+            classification_only_recheck and not conservative_image_recheck
+        ) or can_reuse_images:
             record("STRUCTURAL", True, "OK")
             return True, "OK"
         attempted_mode = "FULL"
@@ -761,7 +854,10 @@ def validate_report_for_publication(report: AnalysisReport) -> tuple[bool, str]:
                 or bpy.data.objects.get(object_.name_full) != object_
             ):
                 return False, "OBJECT_DELETED_OR_REPLACED"
-        if _structural_signature(report.objects) != report.structural_signature:
+        if (
+            _structural_signature(report.objects, report.config)
+            != report.structural_signature
+        ):
             return False, "INPUTS_CHANGED"
     except (AttributeError, ReferenceError, RuntimeError, ValueError):
         return False, "INPUT_DATABLOCK_UNAVAILABLE"
@@ -783,7 +879,8 @@ class AnalysisEngine:
         self.objects = tuple(objects)
         self.config = config
         self.started = time.perf_counter()
-        self.structural_signature = _structural_signature(self.objects)
+        self.structural_signature = _structural_signature(self.objects, self.config)
+        self.assignment_signature = _assignment_signature(self.objects)
         self.image_cache: ImageCache = {}
         self._deferred_images = defer_images
         self._image_builders: list[ImageSnapshotBuilder] = []
@@ -1088,6 +1185,7 @@ class AnalysisEngine:
             analysis_id=analysis_id,
             input_signature=self.signature,
             structural_signature=self.structural_signature,
+            assignment_signature=self.assignment_signature,
             config=self.config,
             objects=self.objects,
             object_results={

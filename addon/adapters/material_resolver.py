@@ -30,15 +30,29 @@ def incoming_link(tree: bpy.types.NodeTree, socket: bpy.types.NodeSocket | None)
 
 
 def _trace_reroutes(tree: bpy.types.NodeTree, socket: bpy.types.NodeSocket | None):
-    link = incoming_link(tree, socket)
+    if socket is None:
+        return None, False
+    links = tuple(link for link in tree.links if link.to_socket == socket)
+    if not links:
+        return None, False
+    if len(links) != 1:
+        return None, True
+    link = links[0]
     visited: set[int] = set()
-    while link is not None and link.from_node.bl_idname == "NodeReroute":
+    while link.from_node.bl_idname == "NodeReroute":
         pointer = link.from_node.as_pointer()
         if pointer in visited:
-            return None
+            return None, True
         visited.add(pointer)
-        link = incoming_link(tree, link.from_node.inputs[0])
-    return link
+        links = tuple(
+            candidate
+            for candidate in tree.links
+            if candidate.to_socket == link.from_node.inputs[0]
+        )
+        if len(links) != 1:
+            return None, True
+        link = links[0]
+    return link, False
 
 
 def active_principled(material: bpy.types.Material):
@@ -147,9 +161,13 @@ def resolve_material(
     if principled is None:
         return MaterialResolution(material, False, "NO_ACTIVE_PRINCIPLED_OUTPUT")
 
-    alpha_link = _trace_reroutes(tree, principled.inputs.get("Alpha"))
+    alpha_link, invalid_alpha_path = _trace_reroutes(
+        tree, principled.inputs.get("Alpha")
+    )
     image_node = None
     source_kind = ""
+    if invalid_alpha_path:
+        return MaterialResolution(material, False, "UNSUPPORTED_ALPHA_PATH")
     if alpha_link is not None:
         if alpha_link.from_node.bl_idname != "ShaderNodeTexImage":
             return MaterialResolution(material, False, "UNSUPPORTED_ALPHA_PATH")
@@ -159,17 +177,16 @@ def resolve_material(
         else:
             return MaterialResolution(material, False, "COLOR_TO_ALPHA_REQUIRES_OVERRIDE")
     else:
-        image_nodes = tuple(
-            node for node in tree.nodes if node.bl_idname == "ShaderNodeTexImage"
+        base_link, invalid_base_path = _trace_reroutes(
+            tree, principled.inputs.get("Base Color")
         )
-        base_link = _trace_reroutes(tree, principled.inputs.get("Base Color"))
         if (
-            len(image_nodes) == 1
+            not invalid_base_path
             and base_link is not None
-            and base_link.from_node == image_nodes[0]
+            and base_link.from_node.bl_idname == "ShaderNodeTexImage"
             and base_link.from_socket.identifier == "Color"
         ):
-            image_node = image_nodes[0]
+            image_node = base_link.from_node
             source_kind = "UNIQUE_BASE_COLOR_IMAGE_ALPHA"
         else:
             return MaterialResolution(material, False, "NO_AUTHORITATIVE_ALPHA_IMAGE")

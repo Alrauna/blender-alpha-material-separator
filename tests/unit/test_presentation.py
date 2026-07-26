@@ -34,6 +34,9 @@ class PresentationTests(unittest.TestCase):
             title, remedy = guidance_for(code)
             self.assertTrue(title, code)
             self.assertTrue(remedy, code)
+        title, remedy = guidance_for("NO_POSITIVE_AREA_UV_COVERAGE")
+        self.assertIn("collapse", title)
+        self.assertIn("outside 0–1", remedy)
 
     def test_default_preview_classes_and_signature(self) -> None:
         self.assertEqual(

@@ -47,13 +47,47 @@ name, path, asset, raw graph dump, raw measurement, or screenshot enters a
 committed test or report. Committed regressions reproduce the relevant shape
 with generated materials, textures, meshes, and collapsed UVs.
 
+When the ignored default before/after pair is present, relevant Blender smoke
+passes must also run its local multi-object validator:
+
+```powershell
+& $Blender52 --factory-startup --background --disable-autoexec `
+  --python-exit-code 1 `
+  --python .local-references\default-example\_validate_analysis.py -- `
+  .local-references\default-example\before.blend `
+  .local-references\default-example\after.blend
+```
+
+This local layer must exercise all mesh objects even when some materials or
+faces remain explicitly unsupported. It checks Analyze → exact-plan Preview →
+Object Mode → Apply without reanalysis, semantic changed-face coverage,
+source/derived material roles, immutable reference files, and preservation of
+meshes, source graphs, images, armatures, transforms, parenting, and original
+slots. It also proves that at least one multi-image material resolves from its
+supported Base Color authority and that positive-area faces whose UVs lie
+outside 0–1 use their actual addressing modes.
+
+The after example is a human-tuned performance reference, not an exact
+partition oracle: the extension may conservatively move additional
+alpha-evidence and `MIXED` faces, but it must explain any reference alpha face
+it misses. It complements generated tests; private data or raw output must
+never become a committed fixture or result.
+
+Current status after the 2026-07-26 resolver correction: the resolver, workflow,
+out-of-range UV, exact-plan, derived-role, and preservation gates pass. The
+semantic lower-bound gate remains open only for a smaller set that the extension
+classifies `OPAQUE` from the decoded participating A channel. Keep that as a
+separate acceptance investigation; do not weaken authority resolution or
+silently change raster margins in this milestone.
+
 For invalidation behavior, every harmless event has a paired real-change test:
 
 | Event | Expected result |
 | --- | --- |
 | Face selection, active face/object, or Object/Edit Mode toggle | Same analysis ID and review token; zero rasterization and image-digest rows. |
 | Unrelated mesh, material, or image update | No report or review change. |
-| Relevant topology, UV, material index/slot, or shader change | Confirmed stale; review cleared; assignment performs zero mutation. |
+| Relevant topology, UV, material index/slot, or Alpha/Base Color authority change | Confirmed stale; review cleared; assignment performs zero mutation. |
+| Assignment-only source graph edit outside the resolved authority | Analysis retained with zero image-digest rows; exact-plan review cleared and Preview required again. |
 | Relevant image pixel/reload/pack/replace change | Conservative participating-channel validation, then confirmed stale if content/state differs. |
 | Assignment-policy change | Analysis retained; another exact-plan preview required. |
 | Analysis setting or manual-source change | Confirmed stale; another analysis required. |

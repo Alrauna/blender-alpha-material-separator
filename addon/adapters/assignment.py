@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass, field
 
 import bpy
@@ -14,6 +16,7 @@ from ..unsupported import (
     unsupported_scope,
 )
 from .analysis import AnalysisReport, MaterialGroupAnalysis, ObjectAnalysis
+from .fingerprints import material_fingerprint, source_fingerprint
 from .material_metadata import (
     DerivedDecision,
     SOURCE_NAME,
@@ -111,6 +114,48 @@ class AssignmentPlan:
             or self.partial_group_count
         )
 
+    def fingerprint(self) -> str:
+        """Return the exact reviewed mutation and material-preflight identity."""
+
+        payload = {
+            "decisions": [
+                {
+                    "action": decision.action,
+                    "material_fingerprint": (
+                        material_fingerprint(decision.material)
+                        if decision.material is not None
+                        else ""
+                    ),
+                    "material_pointer": (
+                        decision.material.as_pointer()
+                        if decision.material is not None
+                        else 0
+                    ),
+                    "reason": decision.reason,
+                    "source_fingerprint": self.source_fingerprints.get(pointer, ""),
+                    "source_pointer": pointer,
+                }
+                for pointer, decision in sorted(self.decisions.items())
+            ],
+            "mutations": [
+                {
+                    "faces": mutation.face_indices,
+                    "object_pointer": mutation.object.as_pointer(),
+                    "source_pointer": mutation.source.as_pointer(),
+                }
+                for mutation in sorted(
+                    self.mutations,
+                    key=lambda item: (
+                        item.object.as_pointer(),
+                        item.source.as_pointer(),
+                        item.face_indices,
+                    ),
+                )
+            ],
+        }
+        encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+        return hashlib.blake2b(encoded, digest_size=24).hexdigest()
+
     def public_payload(self) -> dict:
         return {
             "already_derived_groups": self.already_derived,
@@ -127,6 +172,7 @@ class AssignmentPlan:
             "metadata_refreshes": self.metadata_refreshes,
             "planned_additional_slots": self.planned_slots,
             "partial_material_groups": self.partial_group_count,
+            "plan_fingerprint": self.fingerprint(),
             "retained_faces_by_policy": sum(
                 item.retained_by_policy for item in self.dispositions
             ),
@@ -206,7 +252,9 @@ def build_assignment_plan(
         for pointer, group in object_result.groups.items():
             state = inspect_metadata(group.material)
             if state.kind == "SOURCE":
-                current_fingerprints[pointer] = group.source_fingerprint
+                current_fingerprints[pointer] = source_fingerprint(
+                    group.material, group.image_digest
+                )
 
     policy_blocks: dict[int, tuple[bpy.types.Material, str]] = {}
     for object_result in report.object_results.values():
@@ -434,7 +482,9 @@ def build_assignment_plan(
             )
             required_sources.add(source_pointer)
             plan.sources[source_pointer] = group.material
-            plan.source_fingerprints[source_pointer] = group.source_fingerprint
+            plan.source_fingerprints[source_pointer] = current_fingerprints[
+                source_pointer
+            ]
             pending.append((object_result.object, group.material, tuple(sorted(face_indices))))
 
     for source_pointer in sorted(required_sources):

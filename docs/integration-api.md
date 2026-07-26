@@ -76,6 +76,11 @@ Each `objects[].groups[]` record uses these concrete fields:
 | `default_disposition` | `SPLIT`, `LEAVE_UNCHANGED`, `REVIEW_REQUIRED`, or `NO_CHANGES`. |
 | `default_planned_action` | Default Simple-mode group action. |
 
+`UNIQUE_BASE_COLOR_IMAGE_ALPHA` means the resolver found one supported Image
+Texture Color authority feeding active Principled Base Color while Principled
+Alpha was unlinked. It does not mean the material contains only one Image
+Texture node; ancillary image nodes are ignored for classification.
+
 API 1.2 additionally exposes:
 
 - Report validation state: `CLEAN`, `RECHECK_PENDING`, or confirmed `STALE`.

@@ -10,6 +10,7 @@ import bpy
 from addon import runtime
 from addon.adapters.analysis import AnalysisConfig, AnalysisEngine
 from addon.adapters.assignment import build_assignment_plan
+from addon.adapters.image_data import read_image_snapshot
 from addon.adapters.material_resolver import resolve_material
 from addon.core import FaceClass
 
@@ -154,6 +155,37 @@ def _resolver_tests(material, mesh, image, tree, principled, texture):
     assert resolution.source_kind == "UNIQUE_BASE_COLOR_IMAGE_ALPHA", resolution
     assert resolution.uv_map_name == "UVMap", resolution
 
+    ancillary_image = _image("AMS_ANCILLARY_IMAGE")
+    normal_texture = tree.nodes.new("ShaderNodeTexImage")
+    normal_texture.image = ancillary_image
+    normal_map = tree.nodes.new("ShaderNodeNormalMap")
+    tree.links.new(normal_texture.outputs["Color"], normal_map.inputs["Color"])
+    tree.links.new(normal_map.outputs["Normal"], principled.inputs["Normal"])
+    roughness_texture = tree.nodes.new("ShaderNodeTexImage")
+    roughness_texture.image = ancillary_image
+    tree.links.new(roughness_texture.outputs["Color"], principled.inputs["Roughness"])
+    emission_texture = tree.nodes.new("ShaderNodeTexImage")
+    emission_texture.image = ancillary_image
+    tree.links.new(emission_texture.outputs["Color"], principled.inputs["Emission Color"])
+    disconnected_texture = tree.nodes.new("ShaderNodeTexImage")
+    disconnected_texture.image = ancillary_image
+    resolution = resolve_material(material, mesh)
+    assert resolution.supported, resolution
+    assert resolution.image == image, resolution
+    assert resolution.source_kind == "UNIQUE_BASE_COLOR_IMAGE_ALPHA", resolution
+
+    base_link = next(
+        link for link in tree.links if link.to_socket == principled.inputs["Base Color"]
+    )
+    tree.links.remove(base_link)
+    base_reroute = tree.nodes.new("NodeReroute")
+    tree.links.new(texture.outputs["Color"], base_reroute.inputs[0])
+    tree.links.new(base_reroute.outputs[0], principled.inputs["Base Color"])
+    resolution = resolve_material(material, mesh)
+    assert resolution.supported, resolution
+    assert resolution.image == image, resolution
+    assert resolution.source_kind == "UNIQUE_BASE_COLOR_IMAGE_ALPHA", resolution
+
     tree.links.new(texture.outputs["Alpha"], principled.inputs["Alpha"])
     reroute = tree.nodes.new("NodeReroute")
     direct_link = next(
@@ -175,14 +207,31 @@ def _resolver_tests(material, mesh, image, tree, principled, texture):
     tree.links.new(texcoord.outputs["UV"], texture.inputs["Vector"])
     assert resolve_material(material, mesh).supported
 
-    second = tree.nodes.new("ShaderNodeTexImage")
-    second.image = image
     assert resolve_material(material, mesh).supported, "direct alpha remains authoritative"
 
     direct_alpha = next(
         link for link in tree.links if link.to_socket == principled.inputs["Alpha"]
     )
     tree.links.remove(direct_alpha)
+    resolution = resolve_material(material, mesh)
+    assert resolution.supported, resolution
+    assert resolution.image == image, resolution
+    assert resolution.source_kind == "UNIQUE_BASE_COLOR_IMAGE_ALPHA", resolution
+
+    dangling_reroute = tree.nodes.new("NodeReroute")
+    tree.links.new(dangling_reroute.outputs[0], principled.inputs["Alpha"])
+    unsupported = resolve_material(material, mesh)
+    assert not unsupported.supported
+    assert unsupported.reason == "UNSUPPORTED_ALPHA_PATH", unsupported
+    tree.nodes.remove(dangling_reroute)
+
+    base_link = next(
+        link for link in tree.links if link.to_socket == principled.inputs["Base Color"]
+    )
+    tree.links.remove(base_link)
+    mix = tree.nodes.new("ShaderNodeMixRGB")
+    tree.links.new(texture.outputs["Color"], mix.inputs[1])
+    tree.links.new(mix.outputs["Color"], principled.inputs["Base Color"])
     unsupported = resolve_material(material, mesh)
     assert not unsupported.supported
     assert unsupported.reason == "NO_AUTHORITATIVE_ALPHA_IMAGE", unsupported
@@ -195,6 +244,34 @@ def _resolver_tests(material, mesh, image, tree, principled, texture):
         explicit_channel="RED",
     )
     assert override.supported and override.channel == "RED", override
+
+    tree.nodes.remove(mix)
+    tree.links.new(texture.outputs["Color"], principled.inputs["Base Color"])
+
+    original_alpha_mode = image.alpha_mode
+    for alpha_mode in ("STRAIGHT", "PREMUL", "CHANNEL_PACKED", "NONE"):
+        image.alpha_mode = alpha_mode
+        snapshot = read_image_snapshot(image, channel="ALPHA", threshold=0.999)
+        assert sum(snapshot.grid.affected) == 1, (alpha_mode, snapshot.grid)
+    image.alpha_mode = original_alpha_mode
+
+    opaque_image = bpy.data.images.new(
+        "AMS_OPAQUE_BASE_COLOR", width=2, height=2, alpha=False
+    )
+    opaque_snapshot = read_image_snapshot(
+        opaque_image, channel="ALPHA", threshold=0.999
+    )
+    assert opaque_snapshot.component_count in {3, 4}, opaque_snapshot
+    assert not any(opaque_snapshot.grid.affected), opaque_snapshot.grid
+    texture.image = opaque_image
+    resolution = resolve_material(material, mesh)
+    assert resolution.supported, resolution
+    assert resolution.source_kind == "UNIQUE_BASE_COLOR_IMAGE_ALPHA", resolution
+
+    texture.image = None
+    missing = resolve_material(material, mesh)
+    assert not missing.supported and missing.reason == "IMAGE_MISSING", missing
+    texture.image = image
 
 
 def run() -> None:

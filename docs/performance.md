@@ -107,3 +107,23 @@ rechecks were measured.
 
 The recheck passes both provisional targets. Raw per-run machine output remains
 ignored in `.test-output/benchmarks/revalidation-current.json`.
+
+## Main Base Color fallback regression check
+
+Repeated on 2026-07-26 after separating classification authority from
+assignment-only material state. The same Blender build, machine, fixtures, and
+one-warm-up/five-measurement method were used.
+
+| Tier | Previous cold | Current cold | Change |
+| --- | ---: | ---: | ---: |
+| Small | 0.79 s | 0.790 s | approximately 0% |
+| Typical | 12.33 s | 12.574 s | +1.98% |
+| High | 77.59 s | 79.079 s | +1.92% |
+| Large/tiled UV | 2.52 s | 2.010 s | -20.23% |
+
+The high-tier peak working set was about 2.86 GiB, within 5 percent of the
+recorded peak. Structural revalidation remained 0.0345 seconds, digested zero
+image rows, and rasterized zero polygons. Full 1K/2K/4K/8K digest medians were
+all faster than the first baseline. No matching time or memory metric regressed
+by the provisional 25 percent limit. Raw output remains ignored in
+`.test-output/benchmarks/baseline.json`.

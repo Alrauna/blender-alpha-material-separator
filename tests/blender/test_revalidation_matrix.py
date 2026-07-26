@@ -103,6 +103,12 @@ def _stable_scene(name: str, directory: str):
     return image, material, tree, principled, texture, first, second
 
 
+def _connect_unsupported_alpha(_object, _material, principled) -> None:
+    tree = principled.id_data
+    value = tree.nodes.new("ShaderNodeValue")
+    tree.links.new(value.outputs["Value"], principled.inputs["Alpha"])
+
+
 def run() -> None:
     temporary_images = tempfile.TemporaryDirectory(prefix="ams-revalidation-")
 
@@ -198,6 +204,65 @@ def run() -> None:
     assert runtime.snapshot()["hint_generation"] == generation_before
     assert runtime.validation_state() == runtime.VALIDATION_CLEAN
 
+    # Ancillary texture pixels are not classification inputs. Editing the
+    # surrounding source graph retains classification but requires a fresh
+    # exact-plan review because the copied derived material would differ.
+    (
+        _authority_image,
+        authority_material,
+        authority_tree,
+        authority_principled,
+        _authority_texture,
+        authority_object,
+        _unused,
+    ) = _stable_scene("AMS_AUTHORITY_ONLY", temporary_images.name)
+    ancillary_image = _image("AMS_AUTHORITY_ONLY_NORMAL")
+    ancillary_texture = authority_tree.nodes.new("ShaderNodeTexImage")
+    ancillary_texture.image = ancillary_image
+    normal_map = authority_tree.nodes.new("ShaderNodeNormalMap")
+    authority_tree.links.new(
+        ancillary_texture.outputs["Color"], normal_map.inputs["Color"]
+    )
+    authority_tree.links.new(
+        normal_map.outputs["Normal"], authority_principled.inputs["Normal"]
+    )
+    report, reviewed_signature = _analyze_and_review(authority_object)
+    analysis_id = report.analysis_id
+
+    ancillary_image.pixels[3] = 0.25
+    ancillary_image.update()
+    _hint(ancillary_image)
+    valid, reason = validate_report(report)
+    assert valid and reason == "OK", reason
+    snapshot = runtime.snapshot()
+    ui = bpy.context.window_manager.alpha_material_separator_ui
+    assert runtime.report(analysis_id) is report
+    assert ui.reviewed_policy_signature == reviewed_signature
+    assert snapshot["last_validation_image_digest_rows"] == 0, snapshot
+
+    normal_map.inputs["Strength"].default_value = 0.25
+    _hint(authority_material)
+    valid, reason = validate_report(report)
+    assert valid and reason == "OK", reason
+    snapshot = runtime.snapshot()
+    assert runtime.report(analysis_id) is report
+    assert not ui.reviewed_analysis_id
+    assert snapshot["last_validation_image_digest_rows"] == 0, snapshot
+
+    preview = bpy.ops.alpha_material_separator.select_faces(
+        expected_analysis_id=analysis_id,
+        preview_assignment_plan=True,
+        mixed_policy="TO_ALPHA",
+        suppressed_policy="CANCEL_SOURCE_MATERIAL",
+        unsupported_policy="TO_ALPHA",
+        derived_conflict_policy="CANCEL_SOURCE_MATERIAL",
+        selection_mode="REPLACE",
+        enter_edit_mode=False,
+    )
+    assert preview == {"FINISHED"}, preview
+    assert ui.reviewed_policy_signature
+    assert ui.reviewed_policy_signature != reviewed_signature
+
     # Vertex, UV, slot, shader, and topology changes are paired with the
     # harmless sequence above and must refuse Apply before any mutation.
     structural_cases = (
@@ -221,11 +286,7 @@ def run() -> None:
         ),
         (
             "SHADER",
-            lambda object_, _material, principled: setattr(
-                principled.inputs["Roughness"],
-                "default_value",
-                0.271,
-            ),
+            _connect_unsupported_alpha,
             lambda object_, material: material,
         ),
     )

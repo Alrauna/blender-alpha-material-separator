@@ -20,6 +20,25 @@ material slot without changing topology.
 - `.local-references/`: lawful private inputs; never commit contents or paths.
 - `.packaged-releases/`: generated ZIPs; never commit.
 
+## Plugin coordination
+
+- Superpowers owns the overall development lifecycle: brainstorming, design,
+  planning, TDD, normal implementation, review, and branch completion.
+- Ponytail full applies to solution scope and implementation: prefer reuse,
+  native functionality, minimal dependencies, minimal abstractions, and the
+  smallest correct diff.
+- Ultracode is opt-in. Do not invoke it unless I explicitly request Ultracode
+  or explicitly request an exhaustive, adversarial, repository-wide,
+  multi-perspective investigation.
+- When Ultracode is invoked, it replaces Superpowers parallel-agent dispatch
+  for that specific phase. Do not nest one orchestration system inside the other.
+- Default Ultracode workers to read-only. Do not allow parallel edits unless I
+  explicitly request implementation and each writer uses an isolated worktree.
+- Superpowers TDD and verification requirements remain authoritative for any
+  production changes, including changes produced by Ultracode workers.
+- Do not assume Ultracode workers inherit parent-thread context or plugin
+  instructions. Include all necessary constraints in their worker prompts.
+
 ## Compatibility and invariants
 
 - Target Blender 5.2 LTS; manifest minimum is `5.2.0`.
@@ -124,6 +143,24 @@ Documentation checkboxes may be marked complete only after that exact command
 or installed-ZIP interaction has been executed. Private before/after files may
 support ignored local structural acceptance, but committed fixtures must be
 generated and redistributable.
+
+When `.local-references/default-example/before.blend` and `after.blend` are
+available, every relevant Blender smoke or acceptance pass must include them.
+Use the ignored multi-object helper in that directory to run Analyze → Preview
+→ Apply, tolerate explicitly reported unsupported materials/faces, verify
+positive-area UV faces outside 0–1 are addressed rather than rejected for their
+range, compare semantic changed-face sets with the after example, and recheck
+preservation. Treat the after example as a human-tuned lower bound: additional
+conservative alpha assignments, especially `MIXED` faces, are valid, but faces
+placed on alpha in the after example must not be missed without an explicit
+unsupported reason. Report missed reference faces as an open acceptance
+failure. Never commit the files, helper, identifying details, or raw output.
+
+## Handoff maintenance
+
+At the end of every chat turn, update `docs/HANDOFF.md` to reflect the current
+repository state. Remove or revise items that no longer require immediate
+attention, and add anything that the next turn must address.
 
 ## Commands
 
