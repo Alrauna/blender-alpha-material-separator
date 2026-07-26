@@ -61,6 +61,7 @@ zero, or adding private-example heuristics.
   - `b7f74f7 docs:design-already-separated-button-tooltips`
   - `8f2dd87 fix:explain-already-separated-workflow-actions`
   - `041c4cc fix:show-rerun-tooltip-after-partial-apply`
+  - `7a48eb0 fix:analyze-selected-meshes-from-edit-mode`
 - Nothing was pushed.
 
 ## Important decisions and constraints
