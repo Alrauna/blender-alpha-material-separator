@@ -22,6 +22,9 @@ class ALPHA_MATERIAL_SEPARATOR_OT_select_faces(bpy.types.Operator):
 
     api_major: IntProperty(name="API Major", default=1, min=1)
     expected_analysis_id: StringProperty(name="Expected Analysis ID", default="")
+    ui_description: StringProperty(
+        default="", options={"HIDDEN", "SKIP_SAVE"}
+    )
     classes: EnumProperty(
         name="Classes",
         items=(
@@ -90,6 +93,10 @@ class ALPHA_MATERIAL_SEPARATOR_OT_select_faces(bpy.types.Operator):
         default="CANCEL_SOURCE_MATERIAL",
         options={"HIDDEN", "SKIP_SAVE"},
     )
+
+    @classmethod
+    def description(cls, _context, properties):
+        return properties.ui_description or cls.bl_description
 
     def _fail(self, context, code: str, message: str) -> set[str]:
         runtime.clear_review(context.window_manager)

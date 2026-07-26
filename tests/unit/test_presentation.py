@@ -7,6 +7,7 @@ import unittest
 from addon.presentation import (
     CLASS_COPY,
     KNOWN_GUIDANCE_CODES,
+    already_separated_tooltip,
     classes_to_move,
     guidance_for,
     requires_confirmation,
@@ -16,6 +17,35 @@ from addon.presentation import (
 
 
 class PresentationTests(unittest.TestCase):
+    def test_already_separated_tooltip_is_state_specific(self) -> None:
+        self.assertEqual(
+            already_separated_tooltip(
+                already_derived=True, actionable=False, has_skips=False
+            ),
+            (
+                "All faces on the selected meshes are optimally assigned. "
+                "No faces need to be moved."
+            ),
+        )
+        self.assertEqual(
+            already_separated_tooltip(
+                already_derived=True, actionable=False, has_skips=True
+            ),
+            "",
+        )
+        self.assertEqual(
+            already_separated_tooltip(
+                already_derived=True, actionable=True, has_skips=False
+            ),
+            "",
+        )
+        self.assertEqual(
+            already_separated_tooltip(
+                already_derived=False, actionable=False, has_skips=False
+            ),
+            "",
+        )
+
     def test_plain_language_classification_labels(self) -> None:
         self.assertEqual(CLASS_COPY["OPAQUE"][0], "Stay on opaque material")
         self.assertEqual(CLASS_COPY["ALPHA_AFFECTED"][0], "Move to alpha material")

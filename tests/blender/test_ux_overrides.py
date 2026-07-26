@@ -6,12 +6,17 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 
 import bpy
 
 from addon import runtime
 from addon.adapters import analysis as analysis_adapter
 from addon.adapters.assignment import build_assignment_plan
+from addon.operators.assign_materials import (
+    ALPHA_MATERIAL_SEPARATOR_OT_assign_materials,
+)
+from addon.operators.select_faces import ALPHA_MATERIAL_SEPARATOR_OT_select_faces
 from addon.presentation import review_signature
 from tests.blender.test_analysis_preview import _clear_scene, _image, _material, _quad
 
@@ -44,6 +49,25 @@ def _file_backed_image(name: str, directory: str):
 
 
 def run() -> None:
+    tooltip = (
+        "All faces on the selected meshes are optimally assigned. "
+        "No faces need to be moved."
+    )
+    for operator_type in (
+        ALPHA_MATERIAL_SEPARATOR_OT_select_faces,
+        ALPHA_MATERIAL_SEPARATOR_OT_assign_materials,
+    ):
+        assert (
+            operator_type.description(
+                None, SimpleNamespace(ui_description=tooltip)
+            )
+            == tooltip
+        )
+        assert (
+            operator_type.description(None, SimpleNamespace(ui_description=""))
+            == operator_type.bl_description
+        )
+
     _clear_scene()
     temporary_images = tempfile.TemporaryDirectory(prefix="ams-ux-images-")
     auto_image = _file_backed_image("AMS_UX_AUTO_IMAGE", temporary_images.name)

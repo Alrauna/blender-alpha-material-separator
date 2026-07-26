@@ -29,6 +29,9 @@ class ALPHA_MATERIAL_SEPARATOR_OT_assign_materials(bpy.types.Operator):
 
     api_major: IntProperty(name="API Major", default=1, min=1)
     expected_analysis_id: StringProperty(name="Expected Analysis ID", default="")
+    ui_description: StringProperty(
+        default="", options={"HIDDEN", "SKIP_SAVE"}
+    )
     expected_review_signature: StringProperty(
         name="Expected Review Signature",
         default="",
@@ -94,6 +97,10 @@ class ALPHA_MATERIAL_SEPARATOR_OT_assign_materials(bpy.types.Operator):
     _confirmation_report_json = "{}"
     _confirmation_plan_json = "{}"
     _confirmation_plan_signature = ""
+
+    @classmethod
+    def description(cls, _context, properties):
+        return properties.ui_description or cls.bl_description
 
     def _status(self, context, code: str, message: str, **details) -> None:
         state = context.window_manager.alpha_material_separator_api

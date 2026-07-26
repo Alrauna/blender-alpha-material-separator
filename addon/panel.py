@@ -13,6 +13,7 @@ from .adapters.assignment import build_assignment_plan
 from .overrides import dumps_material_overrides
 from .presentation import (
     CLASS_COPY,
+    already_separated_tooltip,
     classes_to_move,
     guidance_for,
     review_signature,
@@ -232,6 +233,12 @@ class ALPHA_MATERIAL_SEPARATOR_PT_main(bpy.types.Panel):
             _policy_signature(state, settings, plan_payload),
         )
         actionable = bool(current_plan and current_plan.actionable)
+        no_change_tooltip = already_separated_tooltip(
+            already_derived=bool(current_plan and current_plan.already_derived),
+            actionable=actionable,
+            has_skips=bool(current_plan and current_plan.has_skips),
+        )
+        already_separated = bool(no_change_tooltip)
         view = workflow_view(
             eligible_objects=len(eligible),
             running=ui.is_analyzing,
@@ -328,6 +335,7 @@ class ALPHA_MATERIAL_SEPARATOR_PT_main(bpy.types.Panel):
                     icon="RESTRICT_SELECT_OFF",
                 )
                 preview.expected_analysis_id = state.analysis_id
+                preview.ui_description = no_change_tooltip
                 preview.classes = set(
                     classes_to_move(settings.mixed_policy, settings.suppressed_policy)
                 )
@@ -448,7 +456,7 @@ class ALPHA_MATERIAL_SEPARATOR_PT_main(bpy.types.Panel):
                     _label_lines(assignment, remedy)
             if not reviewed and actionable and not stale:
                 assignment.label(text="Preview the faces before applying.", icon="INFO")
-            if not actionable and current_plan and current_plan.already_derived:
+            if already_separated:
                 assignment.label(text="Already separated — no additional changes", icon="CHECKMARK")
             elif not actionable and current_plan and current_plan.blocked:
                 assignment.label(text="No material group is safe to change.")
@@ -464,6 +472,7 @@ class ALPHA_MATERIAL_SEPARATOR_PT_main(bpy.types.Panel):
                 icon="CHECKMARK",
             )
             assign.expected_analysis_id = state.analysis_id
+            assign.ui_description = no_change_tooltip
             assign.mixed_policy = settings.mixed_policy
             assign.suppressed_policy = settings.suppressed_policy
             assign.unsupported_policy = settings.unsupported_policy

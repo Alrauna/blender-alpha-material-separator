@@ -131,6 +131,17 @@ def guidance_for(reason: str | None) -> tuple[str, str]:
     )
 
 
+def already_separated_tooltip(
+    *, already_derived: bool, actionable: bool, has_skips: bool
+) -> str:
+    if not already_derived or actionable or has_skips:
+        return ""
+    return (
+        "All faces on the selected meshes are optimally assigned. "
+        "No faces need to be moved."
+    )
+
+
 def classes_to_move(mixed_policy: str, suppressed_policy: str) -> tuple[str, ...]:
     classes = ["ALPHA_AFFECTED"]
     if mixed_policy == "TO_ALPHA":

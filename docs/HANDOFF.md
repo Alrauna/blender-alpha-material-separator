@@ -38,6 +38,11 @@ zero, or adding private-example heuristics.
   and `NONE` alpha modes without changing image-decoding semantics.
 - Updated README, panel remedies, support matrix, integration API, testing,
   performance, PLAN, and durable contributor guidance.
+- Added state-aware hover text to the disabled Preview and Apply buttons when
+  selected meshes are already separated: “All faces on the selected meshes are
+  optimally assigned. No faces need to be moved.” Other disabled states retain
+  the normal operator descriptions.
+- Rebuilt and validated the ignored local extension ZIP with this UI change.
 - Upgraded the ignored private helper to validate every mesh, semantic
   before/after roles, multi-image Base Color resolution, out-of-range UVs,
   exact Preview/Apply equivalence, derived destinations, source/image/mesh/rig
@@ -81,7 +86,12 @@ zero, or adding private-example heuristics.
   participating-image-only state, and separate assignment-plan invalidation.
 - `addon/adapters/assignment.py`: current source fingerprints and exact plan
   fingerprinting.
-- `addon/presentation.py`: actionable automatic/manual alpha-source remedies.
+- `addon/presentation.py`: actionable automatic/manual alpha-source remedies
+  and the state-specific already-separated tooltip copy.
+- `addon/operators/select_faces.py`, `addon/operators/assign_materials.py`:
+  transient contextual Blender operator descriptions.
+- `addon/panel.py`: supplies the contextual description to both workflow
+  buttons only for an already-separated non-actionable plan.
 - `tests/blender/test_analysis_preview.py`: resolver precedence, ancillary
   images, reroutes, unsupported paths, overrides, decoded A modes, opaque and
   missing images, plus out-of-range UV integration.
@@ -93,6 +103,8 @@ zero, or adding private-example heuristics.
 - `tests/unit/test_presentation.py`,
   `tests/unit/test_readme_contract.py`: preserved and extended UX/documentation
   contracts.
+- `tests/blender/test_ux_overrides.py`: real operator-description coverage for
+  contextual and default hover text.
 - `README.md`, `docs/material-support.md`, `docs/integration-api.md`,
   `docs/testing.md`, `docs/performance.md`, `PLAN.md`: implemented behavior,
   testing boundary, performance comparison, and remaining acceptance gate.
@@ -204,6 +216,41 @@ All commands used Blender 5.2.0 LTS from
    expected LF-to-CRLF working-copy warnings. The branch upstream is marked
    `[gone]`; the remote was not altered.
 
+9. Subsequent-run Preview diagnosis:
+
+   ```powershell
+   rg -n -C 6 "Preview Faces to Move|can_preview|actionable|ALREADY_SEPARATED|NO_CHANGES_NEEDED" addon/panel.py addon/presentation.py addon/adapters/assignment.py
+   ```
+
+   Result: Preview is intentionally disabled when the rebuilt assignment plan
+   has no mutations or metadata refreshes. Previously generated materials are
+   recognized through AMS metadata, not merely the `__AMS_ALPHA` name suffix;
+   the panel reports “Already separated — no additional changes.”
+
+10. Already-separated tooltip implementation:
+
+   ```powershell
+   C:\Program Files\Blender Foundation\Blender 5.2\5.2\python\bin\python.exe `
+     -m unittest discover -s tests/unit -t . -v
+   & $Blender52 --factory-startup --background --disable-autoexec `
+     --python-exit-code 1 --python tests/blender/run_all.py
+   & $Blender52 --factory-startup --command extension validate addon
+   & $Blender52 --factory-startup --command extension build `
+     --source-dir addon --output-dir .packaged-releases
+   & $Blender52 --factory-startup --command extension validate `
+     .packaged-releases\alpha_material_separator-0.1.0.zip
+   git diff --check
+   ```
+
+   Result: the unit test first failed because the tooltip helper was absent;
+   the Blender suite then failed because both operators lacked dynamic
+   descriptions. Final diff review added a second red/green case proving that
+   a selection containing skipped groups cannot claim that every face is
+   optimally assigned. After implementation, 43/43 unit tests and the complete
+   Blender suite passed. Source and rebuilt archive validation passed. The
+   final ignored archive is 63,770 bytes with SHA-256
+   `1174AF14BC4FAB9017DAC4ACAFF48819DAC9E27C69BF78662E4E5631A65BC778`.
+
 ## Known failures, warnings, and unverified assumptions
 
 - Release acceptance remains open because the private semantic lower-bound has
@@ -219,6 +266,10 @@ All commands used Blender 5.2.0 LTS from
   expected to change in Blender 6.0; Blender 5.2 remains the target.
 - Git reports the configured branch upstream as `[gone]`. No remote change or
   push was attempted.
+- Preview and Apply are intentionally disabled after rerunning a genuinely
+  already-separated selection. Both now explain this on hover. If either is
+  disabled while new eligible source faces remain, capture the panel state and
+  treat it as a separate plan-construction defect.
 - The 150% UI-scale pass, generated two-material interactive partial-apply
   checklist item, and ordinary Unity material/submesh validation remain
   unverified release gates.
