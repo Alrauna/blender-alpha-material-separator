@@ -159,6 +159,12 @@ All commands used Blender 5.2.0 LTS from
    Blender profile and `tests/blender/verify_installed_zip.py` passed
    capability, disable, enable, and re-enable checks.
 
+   Rechecked on 2026-07-26 after the milestone commits: the archive remains at
+   `.packaged-releases/alpha_material_separator-0.1.0.zip`, is 63,471 bytes,
+   has SHA-256
+   `AAEDBDBB2F7D84CFF4E355DC6861AB50755FD3C22DE8E0447C98659B20BC98FC`,
+   and Blender 5.2 source parsing succeeds.
+
 6. Performance:
 
    ```powershell
