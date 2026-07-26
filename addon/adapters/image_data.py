@@ -12,8 +12,7 @@ from typing import Callable
 import bpy
 
 from ..core import AlphaGrid
-
-SUPPORTED_CHANNELS = ("ALPHA", "RED", "GREEN", "BLUE", "LUMINANCE")
+from ..overrides import CHANNELS
 
 
 class ImageReadError(RuntimeError):
@@ -42,7 +41,7 @@ class ImageSnapshotBuilder:
         threshold: float,
         rows_per_chunk: int | None = None,
     ) -> None:
-        if channel not in SUPPORTED_CHANNELS:
+        if channel not in CHANNELS:
             raise ImageReadError(f"unsupported image channel: {channel}")
         self.image = image
         self.channel = channel
@@ -158,30 +157,3 @@ def read_image_snapshot(
         if progress is not None:
             progress(builder.current_row, builder.height)
     return builder.finish()
-
-
-class AnalysisImageCache:
-    """Per-analysis snapshot reuse; cross-operation reuse is intentionally absent."""
-
-    def __init__(self) -> None:
-        self._snapshots: dict[tuple[int, str, float], ImageSnapshot] = {}
-
-    def get(
-        self, image: bpy.types.Image, *, channel: str, threshold: float
-    ) -> ImageSnapshot:
-        key = (image.as_pointer(), channel, threshold)
-        snapshot = self._snapshots.get(key)
-        if snapshot is None:
-            snapshot = read_image_snapshot(
-                image,
-                channel=channel,
-                threshold=threshold,
-            )
-            self._snapshots[key] = snapshot
-        return snapshot
-
-    def values(self) -> tuple[ImageSnapshot, ...]:
-        return tuple(self._snapshots.values())
-
-    def store_for_threshold(self, snapshot: ImageSnapshot, threshold: float) -> None:
-        self._snapshots[(snapshot.image.as_pointer(), snapshot.channel, threshold)] = snapshot

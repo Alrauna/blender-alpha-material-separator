@@ -299,19 +299,6 @@ def record_validation(
     for window_manager in bpy.data.window_managers:
         clear_review(window_manager)
     tag_redraw()
-
-
-def clear_dirty() -> None:
-    global _DIRTY_REASON, _VALIDATION_STATE
-    global _VALIDATED_GENERATION, _VALIDATED_ANALYSIS_ID
-    _DIRTY_REASON = ""
-    _PENDING_SCOPES.clear()
-    _VALIDATION_STATE = VALIDATION_CLEAN
-    _VALIDATED_GENERATION = _HINT_GENERATION
-    _VALIDATED_ANALYSIS_ID = _REPORT.analysis_id if _REPORT is not None else ""
-    _sync_public_validation_state()
-
-
 def coverage_get(key: str):
     return _COVERAGE_CACHE.get(key)
 

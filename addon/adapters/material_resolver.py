@@ -22,7 +22,7 @@ class MaterialResolution:
     source_kind: str = ""
 
 
-def _incoming_link(tree: bpy.types.NodeTree, socket: bpy.types.NodeSocket | None):
+def incoming_link(tree: bpy.types.NodeTree, socket: bpy.types.NodeSocket | None):
     if socket is None:
         return None
     links = tuple(link for link in tree.links if link.to_socket == socket)
@@ -30,18 +30,18 @@ def _incoming_link(tree: bpy.types.NodeTree, socket: bpy.types.NodeSocket | None
 
 
 def _trace_reroutes(tree: bpy.types.NodeTree, socket: bpy.types.NodeSocket | None):
-    link = _incoming_link(tree, socket)
+    link = incoming_link(tree, socket)
     visited: set[int] = set()
     while link is not None and link.from_node.bl_idname == "NodeReroute":
         pointer = link.from_node.as_pointer()
         if pointer in visited:
             return None
         visited.add(pointer)
-        link = _incoming_link(tree, link.from_node.inputs[0])
+        link = incoming_link(tree, link.from_node.inputs[0])
     return link
 
 
-def _active_principled(material: bpy.types.Material):
+def active_principled(material: bpy.types.Material):
     tree = material.node_tree
     if tree is None:
         return None
@@ -53,7 +53,7 @@ def _active_principled(material: bpy.types.Material):
     if len(outputs) != 1:
         return None
     surface = outputs[0].inputs.get("Surface")
-    link = _incoming_link(tree, surface)
+    link = incoming_link(tree, surface)
     if link is None or link.from_node.bl_idname != "ShaderNodeBsdfPrincipled":
         return None
     return link.from_node
@@ -76,7 +76,7 @@ def _resolve_uv(
         return explicit_uv, None if mesh.uv_layers.get(explicit_uv) else "UV_OVERRIDE_NOT_FOUND"
 
     vector = image_node.inputs.get("Vector")
-    link = _incoming_link(image_node.id_data, vector)
+    link = incoming_link(image_node.id_data, vector)
     if link is None:
         name = _active_render_uv(mesh)
         return name, None if name else "NO_ACTIVE_RENDER_UV"
@@ -143,7 +143,7 @@ def resolve_material(
     tree = material.node_tree if material.use_nodes else None
     if tree is None:
         return MaterialResolution(material, False, "MATERIAL_HAS_NO_NODE_TREE")
-    principled = _active_principled(material)
+    principled = active_principled(material)
     if principled is None:
         return MaterialResolution(material, False, "NO_ACTIVE_PRINCIPLED_OUTPUT")
 

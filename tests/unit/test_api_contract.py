@@ -7,6 +7,7 @@ import sys
 import unittest
 
 from addon import api_contract
+from addon.overrides import ADDRESS_MODES as OVERRIDE_ADDRESS_MODES
 
 
 class ApiContractTests(unittest.TestCase):
@@ -40,6 +41,10 @@ class ApiContractTests(unittest.TestCase):
             payload["validation_states"], ["CLEAN", "RECHECK_PENDING", "STALE"]
         )
         self.assertIn("SUPPRESSED", payload["classifications"])
+        self.assertEqual(
+            payload["address_modes"],
+            [mode for mode in OVERRIDE_ADDRESS_MODES if mode != "AUTO"],
+        )
         self.assertIn(
             "SIMPLE_REROUTE_IN_ALPHA_PATH",
             payload["supported_material_patterns"],

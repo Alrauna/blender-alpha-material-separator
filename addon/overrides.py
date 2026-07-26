@@ -6,8 +6,22 @@ from __future__ import annotations
 import json
 from dataclasses import asdict, dataclass
 
-CHANNELS = {"ALPHA", "RED", "GREEN", "BLUE", "LUMINANCE"}
-ADDRESS_MODES = {"AUTO", "REPEAT", "EXTEND", "CLIP", "MIRROR"}
+CHANNEL_ITEMS = (
+    ("ALPHA", "Alpha", "Use the image's stored alpha channel"),
+    ("RED", "Red", "Use red as the alpha mask"),
+    ("GREEN", "Green", "Use green as the alpha mask"),
+    ("BLUE", "Blue", "Use blue as the alpha mask"),
+    ("LUMINANCE", "Luminance", "Use linear RGB luminance as the alpha mask"),
+)
+ADDRESS_MODE_ITEMS = (
+    ("AUTO", "Automatic", "Use the resolved Image Texture addressing"),
+    ("REPEAT", "Repeat", "Repeat the image outside its base UV tile"),
+    ("EXTEND", "Extend", "Extend edge pixels outside the base UV tile"),
+    ("CLIP", "Clip", "Treat cells outside the image as transparent"),
+    ("MIRROR", "Mirror", "Repeat with alternating mirrored tiles"),
+)
+CHANNELS = tuple(item[0] for item in CHANNEL_ITEMS)
+ADDRESS_MODES = tuple(item[0] for item in ADDRESS_MODE_ITEMS)
 _FIELDS = {
     "material_name",
     "image_name",

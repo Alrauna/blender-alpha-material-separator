@@ -18,6 +18,8 @@ from typing import Iterable
 
 import bpy
 
+from addon.adapters.material_resolver import active_principled, incoming_link
+
 SCHEMA_VERSION = 1
 
 FEATURE_KEYS = (
@@ -36,27 +38,6 @@ FEATURE_KEYS = (
     "math_or_mix_node_present",
     "multiple_image_nodes",
 )
-
-
-def _incoming_link(node_tree: bpy.types.NodeTree, socket: bpy.types.NodeSocket):
-    for link in node_tree.links:
-        if link.to_socket == socket:
-            return link
-    return None
-
-
-def _active_principled(material: bpy.types.Material):
-    node_tree = material.node_tree
-    if node_tree is None:
-        return None
-    for node in node_tree.nodes:
-        if node.bl_idname != "ShaderNodeOutputMaterial" or not node.is_active_output:
-            continue
-        surface = node.inputs.get("Surface")
-        link = _incoming_link(node_tree, surface) if surface is not None else None
-        if link is not None and link.from_node.bl_idname == "ShaderNodeBsdfPrincipled":
-            return link.from_node
-    return None
 
 
 def characterize_material(material: bpy.types.Material) -> dict[str, object]:
@@ -93,7 +74,7 @@ def characterize_material(material: bpy.types.Material) -> dict[str, object]:
 
     for image_node in image_nodes:
         vector = image_node.inputs.get("Vector")
-        vector_link = _incoming_link(node_tree, vector) if vector is not None else None
+        vector_link = incoming_link(node_tree, vector)
         if vector_link is None:
             features["unlinked_image_vector"] = True
         elif vector_link.from_node.bl_idname == "ShaderNodeUVMap":
@@ -106,17 +87,15 @@ def characterize_material(material: bpy.types.Material) -> dict[str, object]:
         elif vector_link.from_node.bl_idname == "ShaderNodeMapping":
             features["mapping_node_upstream_of_image"] = True
 
-    principled = _active_principled(material)
+    principled = active_principled(material)
     if principled is None:
         return features
 
     features["active_output_uses_principled"] = True
     alpha = principled.inputs.get("Alpha")
     base_color = principled.inputs.get("Base Color")
-    alpha_link = _incoming_link(node_tree, alpha) if alpha is not None else None
-    color_link = (
-        _incoming_link(node_tree, base_color) if base_color is not None else None
-    )
+    alpha_link = incoming_link(node_tree, alpha)
+    color_link = incoming_link(node_tree, base_color)
 
     if alpha_link is not None and alpha_link.from_node.bl_idname == "ShaderNodeTexImage":
         if alpha_link.from_socket.name == "Alpha":

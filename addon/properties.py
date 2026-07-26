@@ -14,6 +14,8 @@ from bpy.props import (
     StringProperty,
 )
 
+from .overrides import ADDRESS_MODE_ITEMS, CHANNEL_ITEMS
+
 
 def _settings_changed(_self, context) -> None:
     from . import runtime
@@ -26,23 +28,6 @@ def _policy_changed(_self, context) -> None:
     from . import runtime
 
     runtime.clear_review(context.window_manager if context else None)
-
-
-_CHANNEL_ITEMS = (
-    ("ALPHA", "Alpha", "Use the image's stored alpha channel"),
-    ("RED", "Red", "Use red as the alpha mask"),
-    ("GREEN", "Green", "Use green as the alpha mask"),
-    ("BLUE", "Blue", "Use blue as the alpha mask"),
-    ("LUMINANCE", "Luminance", "Use linear RGB luminance as the alpha mask"),
-)
-
-_ADDRESS_ITEMS = (
-    ("AUTO", "Automatic", "Use the resolved Image Texture addressing"),
-    ("REPEAT", "Repeat", "Repeat the image outside its base UV tile"),
-    ("EXTEND", "Extend", "Extend edge pixels outside the base UV tile"),
-    ("CLIP", "Clip", "Treat cells outside the image as transparent"),
-    ("MIRROR", "Mirror", "Repeat with alternating mirrored tiles"),
-)
 
 
 class ALPHA_MATERIAL_SEPARATOR_PG_api_state(bpy.types.PropertyGroup):
@@ -81,7 +66,7 @@ class ALPHA_MATERIAL_SEPARATOR_PG_material_override(bpy.types.PropertyGroup):
     image_channel: EnumProperty(
         name="Image Channel",
         description="Channel to classify; available only with an explicit image",
-        items=_CHANNEL_ITEMS,
+        items=CHANNEL_ITEMS,
         default="ALPHA",
         update=_settings_changed,
     )
@@ -94,7 +79,7 @@ class ALPHA_MATERIAL_SEPARATOR_PG_material_override(bpy.types.PropertyGroup):
     address_mode: EnumProperty(
         name="Addressing",
         description="How UVs outside the image tile are interpreted",
-        items=_ADDRESS_ITEMS,
+        items=ADDRESS_MODE_ITEMS,
         default="AUTO",
         update=_settings_changed,
     )
@@ -180,14 +165,14 @@ class ALPHA_MATERIAL_SEPARATOR_PG_settings(bpy.types.PropertyGroup):
     )
     image_channel: EnumProperty(
         name="Legacy Image Channel",
-        items=_CHANNEL_ITEMS,
+        items=CHANNEL_ITEMS,
         default="ALPHA",
         update=_settings_changed,
     )
     address_mode: EnumProperty(
         name="Default Addressing",
         description="Addressing used by automatic sources unless a material override replaces it",
-        items=_ADDRESS_ITEMS,
+        items=ADDRESS_MODE_ITEMS,
         default="AUTO",
         update=_settings_changed,
     )

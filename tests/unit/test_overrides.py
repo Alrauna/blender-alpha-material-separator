@@ -5,6 +5,10 @@ from __future__ import annotations
 import unittest
 
 from addon.overrides import (
+    ADDRESS_MODE_ITEMS,
+    ADDRESS_MODES,
+    CHANNEL_ITEMS,
+    CHANNELS,
     OverrideConfigError,
     dumps_material_overrides,
     parse_material_overrides_json,
@@ -12,6 +16,10 @@ from addon.overrides import (
 
 
 class MaterialOverrideTests(unittest.TestCase):
+    def test_ui_items_and_valid_values_share_one_definition(self) -> None:
+        self.assertEqual(CHANNELS, tuple(item[0] for item in CHANNEL_ITEMS))
+        self.assertEqual(ADDRESS_MODES, tuple(item[0] for item in ADDRESS_MODE_ITEMS))
+
     def test_round_trip_and_defaults(self) -> None:
         overrides = parse_material_overrides_json(
             '[{"material_name":"Body","image_name":"Mask","image_channel":"RED"}]'

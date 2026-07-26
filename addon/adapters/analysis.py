@@ -29,12 +29,14 @@ from ..overrides import MaterialOverride, OverrideConfigError
 from ..unsupported import unsupported_scope
 from .fingerprints import material_fingerprint, source_fingerprint
 from .image_data import (
-    AnalysisImageCache,
     ImageReadError,
     ImageSnapshot,
     ImageSnapshotBuilder,
+    read_image_snapshot,
 )
 from .material_resolver import MaterialResolution, resolve_material
+
+ImageCache = dict[tuple[int, str, float], ImageSnapshot]
 
 
 @dataclass(frozen=True, slots=True)
@@ -452,14 +454,29 @@ def _explicit_image(config: AnalysisConfig):
     return bpy.data.images.get(config.image_name) if config.image_name else None
 
 
+def _image_snapshot(
+    cache: ImageCache,
+    image: bpy.types.Image,
+    *,
+    channel: str,
+    threshold: float,
+) -> ImageSnapshot:
+    key = (image.as_pointer(), channel, threshold)
+    snapshot = cache.get(key)
+    if snapshot is None:
+        snapshot = read_image_snapshot(image, channel=channel, threshold=threshold)
+        cache[key] = snapshot
+    return snapshot
+
+
 def _prepare(
     objects: Iterable[bpy.types.Object],
     config: AnalysisConfig,
     *,
-    image_cache: AnalysisImageCache | None = None,
+    image_cache: ImageCache | None = None,
     load_images: bool = True,
-) -> tuple[list[_PreparedObject], AnalysisImageCache, str]:
-    image_cache = image_cache or AnalysisImageCache()
+) -> tuple[list[_PreparedObject], ImageCache, str]:
+    image_cache = {} if image_cache is None else image_cache
     if config.material_overrides and config.image_name:
         raise OverrideConfigError(
             "OVERRIDE_CONFLICT",
@@ -602,7 +619,8 @@ def _prepare(
             if resolution.supported and resolution.image is not None:
                 if load_images:
                     try:
-                        snapshot = image_cache.get(
+                        snapshot = _image_snapshot(
+                            image_cache,
                             resolution.image,
                             channel=resolution.channel,
                             threshold=config.settings.alpha_threshold,
@@ -766,7 +784,7 @@ class AnalysisEngine:
         self.config = config
         self.started = time.perf_counter()
         self.structural_signature = _structural_signature(self.objects)
-        self.image_cache = AnalysisImageCache()
+        self.image_cache: ImageCache = {}
         self._deferred_images = defer_images
         self._image_builders: list[ImageSnapshotBuilder] = []
         self._image_builder_index = 0
@@ -1031,9 +1049,12 @@ class AnalysisEngine:
                 self.metrics["image_digest_rows"] += rows
                 if builder.complete:
                     snapshot = builder.finish()
-                    self.image_cache.store_for_threshold(
-                        snapshot, self.config.settings.alpha_threshold
+                    key = (
+                        snapshot.image.as_pointer(),
+                        snapshot.channel,
+                        self.config.settings.alpha_threshold,
                     )
+                    self.image_cache[key] = snapshot
                     self.metrics["full_image_digests"] += 1
                     self._image_builder_index += 1
                 return False
