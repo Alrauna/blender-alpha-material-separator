@@ -46,6 +46,10 @@ zero, or adding private-example heuristics.
   workflow: already-separated groups now receive the contextual tooltip when
   no actionable moves remain, even if unresolved groups were safely left
   unchanged. A purely unresolved plan still retains its normal tooltip.
+- Reproduced the Edit Mode Analyze failure with the exact
+  `bpy_prop_collection[index]: index 0 out of range, size 0` status and fixed
+  the shared synchronous/modal start boundary to enter Object Mode before
+  constructing the analysis engine.
 - Rebuilt and validated the ignored local extension ZIP with this UI change.
 - Upgraded the ignored private helper to validate every mesh, semantic
   before/after roles, multi-image Base Color resolution, out-of-range UVs,
@@ -99,9 +103,12 @@ zero, or adding private-example heuristics.
   transient contextual Blender operator descriptions.
 - `addon/panel.py`: supplies the contextual description to both workflow
   buttons only for an already-separated non-actionable plan.
+- `addon/operators/analyze.py`: synchronizes Edit Mode changes by entering
+  Object Mode before authoritative base-mesh reads.
 - `tests/blender/test_analysis_preview.py`: resolver precedence, ancillary
   images, reroutes, unsupported paths, overrides, decoded A modes, opaque and
-  missing images, plus out-of-range UV integration.
+  missing images, out-of-range UV integration, and multi-object Edit Mode
+  Analyze.
 - `tests/blender/test_revalidation_matrix.py`: ancillary pixel/digest behavior,
   assignment-only review invalidation, and classification-relevant shader
   staleness.
@@ -275,6 +282,27 @@ All commands used Blender 5.2.0 LTS from
    state was emitted; the ignored helper and private files remain uncommitted.
    The corrected ignored archive is 63,751 bytes with SHA-256
    `743AC91A8377DCC34ED024E3A0686D34BB50A5C088D2615F80209D43E754C466`.
+
+12. Edit Mode Analyze regression:
+
+   ```powershell
+   & $Blender52 --factory-startup --background --disable-autoexec `
+     --python-exit-code 1 --python tests/blender/run_all.py
+   ```
+
+   Result before the fix: the generated multi-object Edit Mode call returned
+   `ANALYSIS_FAILED` with
+   `bpy_prop_collection[index]: index 0 out of range, size 0`. After the shared
+   start-boundary fix, the complete Blender suite passed and the test confirmed
+   both selected meshes were in Object Mode after successful analysis. An
+   ignored private smoke then started all eligible meshes in the messy
+   before-example in multi-object Edit Mode; analysis completed across all 48
+   selected meshes and every mesh ended in Object Mode. Only anonymized
+   aggregate state was emitted and the reference file was not saved. The
+   rebuilt ignored archive is 63,880 bytes with SHA-256
+   `4CF330C8588BFB07B81FF945C6A79B30D483D32C493D48FBB8513DE53218CB84`.
+   Final verification also passed all 43 unit tests, source validation, archive
+   validation, and `git diff --check`.
 
 ## Known failures, warnings, and unverified assumptions
 

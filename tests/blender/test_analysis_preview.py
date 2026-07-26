@@ -308,6 +308,18 @@ def run() -> None:
     else:
         raise AssertionError("cancelled deferred analysis published a report")
 
+    bpy.ops.object.mode_set(mode="EDIT")
+    edit_mode_result = bpy.ops.alpha_material_separator.analyze(
+        api_major=1,
+        alpha_threshold=0.999,
+        min_affected_texels=1,
+        min_affected_fraction=0.0,
+        margin_texels=0,
+    )
+    state = bpy.context.window_manager.alpha_material_separator_api
+    assert edit_mode_result == {"FINISHED"}, state.last_status_json
+    assert first.mode == "OBJECT" and second.mode == "OBJECT"
+
     result = bpy.ops.alpha_material_separator.analyze(
         api_major=1,
         alpha_threshold=0.999,
@@ -316,7 +328,6 @@ def run() -> None:
         margin_texels=0,
     )
     assert result == {"FINISHED"}, result
-    state = bpy.context.window_manager.alpha_material_separator_api
     payload = json.loads(state.report_json)
     assert payload["validation_state"] == "CLEAN", payload
     assert payload["pending_scopes"] == [], payload

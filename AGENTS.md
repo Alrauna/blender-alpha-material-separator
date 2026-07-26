@@ -46,6 +46,8 @@ material slot without changing topology.
 - Public identity is `alpha_material_separator`; do not introduce the retired
   `alpha_face_separator` name.
 - Analyze original/base meshes, not evaluated modifier topology.
+- Analyze invoked from Mesh Edit Mode must switch to Object Mode before reading
+  authoritative base-mesh polygons, loops, or UV data.
 - Do not use centroid, vertex-only, sparse fixed sampling, or an approximation
   after a raster budget failure.
 - Analysis must not persistently change meshes, materials, images, selection,

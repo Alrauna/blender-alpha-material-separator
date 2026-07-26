@@ -124,6 +124,9 @@ by the corresponding headless regression test.
   explanations and remedies. Raw codes and analysis IDs remain Expert-only.
 - [x] Preview affected and mixed classes and confirm selected faces are visible.
 - [x] Preview multiple eligible objects in multi-object Edit Mode.
+- [x] Start Analyze from multi-object Mesh Edit Mode and confirm it switches to
+  Object Mode before reading base-mesh UV/loop data, completes successfully,
+  and preserves mesh contents.
 - [x] Confirm shared, linked, read-only, and multi-user meshes are skipped by
   preflight. Exact non-mutation is asserted by the preservation and assignment
   policy tests.

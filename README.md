@@ -27,7 +27,9 @@ Blender Undo, but a saved file is still the safest starting point.
 
 ## 60-second Simple workflow
 
-1. In Object Mode, select the mesh object or objects you want to process.
+1. Select the mesh object or objects you want to process. You may start in
+   Object Mode or Mesh Edit Mode; **Analyze Selected Meshes** automatically
+   switches to Object Mode before reading the base meshes.
 2. Leave the interface on **Simple** and click **Analyze Selected Meshes**.
 3. Read the face counts and material cards. Automatic detection is the normal
    path; no settings are required for supported materials.
@@ -133,8 +135,9 @@ not have to be resolved merely to let another material proceed.
 
 ## What each step changes
 
-- **Analyze** reads selected base meshes, materials, UVs, and image pixels. It
-  makes no persistent mesh or material change.
+- **Analyze** switches from Mesh Edit Mode to Object Mode when necessary, then
+  reads selected base meshes, materials, UVs, and image pixels. It makes no
+  persistent mesh or material change.
 - **Preview** changes face selection and normally enters multi-object Edit Mode.
   It does not change topology or material assignments.
 - **Apply** creates or reuses local `<source>__AMS_ALPHA` materials, appends
@@ -186,7 +189,7 @@ mipmaps, compression, clipping, or shader-specific behavior. See the detailed
 
 | Message or symptom | What to do |
 | --- | --- |
-| **No mesh objects selected** | Select one or more Mesh objects in Object Mode. |
+| **No mesh objects selected** | Select one or more Mesh objects in Object Mode or Mesh Edit Mode. |
 | **No clear alpha image was found** | Use **Set Manual Alpha Source** for that material. |
 | **Alpha uses unsupported shader processing** | Select the intended image/channel manually, including the Base Color image's Alpha channel when appropriate, or bake a combined/procedural result. |
 | **No active render UV map** | Set an active render UV or enter the exact UV name in Expert mode. |

@@ -124,6 +124,24 @@ class ALPHA_MATERIAL_SEPARATOR_OT_analyze(bpy.types.Operator):
         if not objects:
             self._status(context, "NO_ELIGIBLE_OBJECTS", "Select at least one mesh object")
             return False
+        if context.mode == "EDIT_MESH":
+            try:
+                mode_result = bpy.ops.object.mode_set(mode="OBJECT")
+            except RuntimeError as error:
+                self._status(
+                    context,
+                    "ANALYSIS_PREPARE_FAILED",
+                    f"Could not leave Edit Mode: {error}",
+                )
+                return False
+            if mode_result != {"FINISHED"}:
+                self._status(
+                    context,
+                    "ANALYSIS_PREPARE_FAILED",
+                    "Could not leave Edit Mode before analysis",
+                )
+                return False
+            objects = _mesh_objects(context)
         if not runtime.begin_analysis(context.window_manager):
             self._status(
                 context,
