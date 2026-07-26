@@ -56,6 +56,7 @@ zero, or adding private-example heuristics.
   - `f9d15f2 fix: resolve base color alpha with ancillary textures`
   - `b7f74f7 docs:design-already-separated-button-tooltips`
   - `8f2dd87 fix:explain-already-separated-workflow-actions`
+  - `041c4cc fix:show-rerun-tooltip-after-partial-apply`
 - Nothing was pushed.
 
 ## Important decisions and constraints
