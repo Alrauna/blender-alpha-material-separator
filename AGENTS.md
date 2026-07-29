@@ -189,13 +189,14 @@ Use the ignored multi-object helper in that directory to run Analyze → Preview
 → Apply, tolerate explicitly reported unsupported materials/faces, verify
 positive-area UV faces outside 0–1 are addressed rather than rejected for their
 range, compare semantic changed-face sets with the after example, and recheck
-preservation. Treat the after example as a human-tuned lower bound: additional
-conservative alpha assignments, especially `MIXED` faces, are valid, but faces
-placed on alpha in the after example must not be missed without an explicit
-unsupported reason. Report missed reference faces as an open acceptance
-failure, but do not treat an already-recorded unrelated lower-bound discrepancy
-as a regression in an otherwise passing patch. Never commit the files, helper,
-private contents, identifying details, or raw output.
+preservation. The after example is an early-development, hand-made material
+partition, not a per-face classification oracle. Additional conservative alpha
+assignments, especially `MIXED` faces, are valid, and faces left in a broad
+hand-made alpha section may correctly classify `OPAQUE` from their sampled A
+values. Treat those differences as an aggregate diagnostic, not an acceptance
+failure; generated fixtures remain authoritative for classification behavior.
+Never commit the files, helper, private contents, identifying details, or raw
+output.
 
 ## Handoff maintenance
 

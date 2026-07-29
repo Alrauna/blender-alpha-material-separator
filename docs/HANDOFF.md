@@ -4,11 +4,11 @@ Updated: 2026-07-29
 
 ## Current objective
 
-The Preview component-selection normalization milestone is complete. Preview
-now clears stale vertex and edge flags on plan-target meshes before entering
-face-select Edit Mode, so highlighted components derive from the reviewed face
-plan. The next production investigation is the established private
-1,176-face `OPAQUE` semantic lower-bound discrepancy.
+The Preview component-selection normalization milestone is complete. The
+private 1,176-face `OPAQUE` difference is also resolved as a test-expectation
+issue: the user confirmed that it comes from broad, hand-made material
+separation in an early-development after example, not an extension defect.
+The next objective is the remaining release-validation checklist.
 
 ## Completed work
 
@@ -33,6 +33,11 @@ plan. The next production investigation is the established private
   one derived slot and reassigned only the affected face.
 - Created local implementation commit
   `cd21ebb fix: normalize preview component selection`.
+- Retired the private after file as a per-face classification oracle. Its
+  hand-made partition remains useful for workflow, aggregate comparison, UV
+  addressing, assignment, and preservation checks.
+- Updated the ignored private helper so the 1,176 opaque reference-only faces
+  are reported diagnostically while the authoritative smoke gates pass.
 
 ## Important decisions and constraints
 
@@ -64,6 +69,8 @@ plan. The next production investigation is the established private
   records completed implementation-plan steps.
 - `docs/HANDOFF.md`: replaces the stale pre-implementation status with current
   evidence and remaining work.
+- `AGENTS.md`, `PLAN.md`, and `docs/testing.md`: record that the hand-made after
+  partition is not a per-face oracle and remove the false release blocker.
 - Ignored only:
   `.local-references/default-example/_validate_analysis.py` was strengthened
   locally; the built ZIP and isolated acceptance profile remain under ignored
@@ -105,11 +112,11 @@ The profiler was deleted after use.
   .local-references\default-example\after.blend
 ```
 
-The new component-selection gate, exact Preview/Apply plan equivalence,
+The component-selection gate, exact Preview/Apply plan equivalence,
 out-of-range UV addressing, assignment, preservation, and immutable-reference
-checks passed. The command ended nonzero only for the unchanged established
-1,176-face `OPAQUE` semantic lower-bound discrepancy. Planned and applied
-faces remained 65,773.
+checks passed. After correcting the test expectation, the command exits zero.
+It reports 1,176 opaque reference-only faces as an anonymized aggregate
+diagnostic; planned and applied faces remain 65,773.
 
 ### Complete change gate
 
@@ -159,10 +166,9 @@ the exact one-face Apply result.
 
 ## Known failures, warnings, and unverified assumptions
 
-- The established private lower-bound discrepancy remains: 1,176 faces that
-  are alpha-assigned in the human-tuned after example classify `OPAQUE`.
-  This was unchanged by the Preview-only patch and is the next production
-  investigation.
+- The 1,176 private `OPAQUE` differences are not a known extension failure.
+  They reflect broad, hand-made alpha sections in the early-development after
+  example and remain visible only as a diagnostic.
 - Expected Blender warnings remain the bundled Grease Pencil brush-path warning
   and the deliberately exercised stale-input warning.
 - Git reports expected LF-to-CRLF working-copy notices on this Windows checkout.
@@ -172,19 +178,14 @@ the exact one-face Apply result.
 
 ## Remaining tasks
 
-1. Systematically characterize the private 1,176-face `OPAQUE` lower-bound
-   misses using ignored diagnostics.
-2. Before any production edit, create a generated failing regression for any
-   newly identified resolver, image, UV, or rasterization defect.
-3. Complete the remaining installed-ZIP checklist items in `docs/testing.md`
+1. Complete the remaining installed-ZIP checklist items in `docs/testing.md`
    needed for release sign-off.
-4. Record the distinct final Apply-preflight timing and interactive
+2. Record the distinct final Apply-preflight timing and interactive
    two-material partial-apply check.
-5. Complete the 150 percent UI-scale pass and user-performed ordinary Unity
+3. Complete the 150 percent UI-scale pass and user-performed ordinary Unity
    material/submesh acceptance.
 
 ## Recommended next action
 
-Investigate the 1,176 private reference-alpha faces that still classify
-`OPAQUE`, record only anonymized aggregate causes, and stop at a root-cause
-report and test-first design before changing production behavior.
+Complete the generated two-material installed-ZIP partial-apply interaction
+and record its result in `docs/testing.md`.

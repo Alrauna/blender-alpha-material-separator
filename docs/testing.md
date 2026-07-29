@@ -67,18 +67,19 @@ slots. It also proves that at least one multi-image material resolves from its
 supported Base Color authority and that positive-area faces whose UVs lie
 outside 0–1 use their actual addressing modes.
 
-The after example is a human-tuned performance reference, not an exact
-partition oracle: the extension may conservatively move additional
-alpha-evidence and `MIXED` faces, but it must explain any reference alpha face
-it misses. It complements generated tests; private data or raw output must
-never become a committed fixture or result.
+The after example is an early-development, hand-made performance reference,
+not a per-face partition oracle. The extension may conservatively move
+additional alpha-evidence and `MIXED` faces, while faces included in a broad
+hand-made alpha section may correctly classify `OPAQUE` from their sampled A
+values. Generated fixtures remain authoritative for classification behavior;
+private data or raw output must never become a committed fixture or result.
 
 Current status after the 2026-07-26 resolver correction: the resolver, workflow,
 out-of-range UV, exact-plan, derived-role, and preservation gates pass. The
-semantic lower-bound gate remains open only for a smaller set that the extension
-classifies `OPAQUE` from the decoded participating A channel. Keep that as a
-separate acceptance investigation; do not weaken authority resolution or
-silently change raster margins in this milestone.
+remaining 1,176 `OPAQUE` differences are a known artifact of the hand-made
+after partition and are reported only as an anonymized aggregate diagnostic.
+Do not weaken authority resolution or silently change raster margins to imitate
+that manual grouping.
 
 For invalidation behavior, every harmless event has a paired real-change test:
 

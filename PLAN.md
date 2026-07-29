@@ -139,11 +139,10 @@ Required identity behavior:
   selection/mode-only transitions.
 - Use the lawful private before/after pair as a required ignored multi-object
   smoke layer when available. Exercise partial unsupported results, out-of-range
-  UV addressing, exact-plan Preview and Apply, semantic reference-face coverage,
-  and preservation. Treat the after example as a human-tuned lower bound:
-  conservative additional alpha and `MIXED` faces are valid, while missed
-  reference-alpha faces require an explicit reason. Keep all assets, helpers,
-  paths, and raw output uncommitted.
+  UV addressing, exact-plan Preview and Apply, aggregate partition comparison,
+  and preservation. Treat the hand-made after example as a workflow reference,
+  not a per-face classification oracle. Keep all assets, helpers, paths, and
+  raw output uncommitted.
 - Update panel messages, confirmation/completion summaries, README, integration
   API, test guide, and contributor rules to describe the implemented behavior.
 
@@ -155,7 +154,8 @@ the reported workflow without redundant analysis.
 Gate result: the generated and installed-ZIP layers completed locally on
 2026-07-25. A later full multi-object private before/after smoke confirmed
 out-of-range UV analysis. The user confirmed that extra conservative `MIXED`
-faces are correct; unresolved reference-alpha faces remain an open item.
+faces are correct and that the remaining `OPAQUE` differences come from broad,
+hand-made alpha sections in the early-development after example.
 
 The authoritative hardening matrix includes:
 
@@ -203,10 +203,10 @@ The authoritative hardening matrix includes:
   performance gate.
 - [x] Pass the private resolver, exact-plan workflow, out-of-range UV,
   derived-role, immutable-reference, and preservation gates.
-- [ ] Resolve the remaining private semantic lower-bound discrepancy. The
-  remaining reference-alpha faces are currently classified `OPAQUE` from their
-  decoded participating A channel; investigate separately without broadening
-  resolver scope or changing raster margin in this milestone.
+- [x] Retire the private semantic lower-bound discrepancy as a release blocker.
+  The user confirmed that the 1,176 `OPAQUE` differences reflect broad,
+  hand-made material separation in the early-development after example rather
+  than an extension classification defect.
 
 ## Milestone 4C: Analyze throughput
 
@@ -226,8 +226,8 @@ The authoritative hardening matrix includes:
   workflow.
 - [x] Pass the final source/archive validation gate. Unit, headless Blender,
   generated benchmark, and private multi-object/preservation smoke are
-  complete; the smoke retains the established 1,176-face `OPAQUE` lower-bound
-  discrepancy and introduces no new mismatch.
+  complete. The private aggregate retains 1,176 `OPAQUE` differences from the
+  hand-made reference partition; these are diagnostic only.
 
 ## Milestone 5: release validation
 
@@ -249,9 +249,9 @@ The authoritative hardening matrix includes:
   scale without a second analysis.
 - [ ] Complete the generated two-material interactive partial-apply case in
   `docs/testing.md`.
-- [ ] Resolve and pass the required ignored multi-object before/after smoke.
-  Out-of-range UV addressing passes and conservative extra faces are allowed;
-  the remaining reference-alpha discrepancy is classified opaque.
+- [x] Pass the required ignored multi-object before/after smoke for workflow,
+  out-of-range UV addressing, exact-plan assignment, and preservation. The
+  hand-made after partition is retained as an aggregate diagnostic only.
 - [ ] Complete the 150 percent UI-scale visual pass.
 - [ ] Complete required ordinary Unity material/submesh validation.
 - Optional: record VRChat SDK/shader validation only as a reference for the
