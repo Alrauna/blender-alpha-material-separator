@@ -85,6 +85,7 @@ private-example heuristics.
   - `b6087aa docs:design-collapsible-material-details`
   - `2c75c6f feat:collapse-material-review-details`
   - `b62ae03 docs:design-compact-apply-confirmation`
+  - `db4ca47 docs:plan-compact-apply-confirmation`
 - Nothing was pushed.
 
 ## Important decisions and constraints
