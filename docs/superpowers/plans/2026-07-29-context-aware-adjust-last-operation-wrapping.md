@@ -36,7 +36,7 @@
 - Produces: private constant `_ADJUST_LAST_OPERATION_FALLBACK_WIDTH = 220`
 - Preserves: `_confirmation_draw_width`, `_confirmation_dialog_width()`, confirmation copy, and `_DialogRecordingLayout`
 
-- [ ] **Step 1: Replace the old manual narrow-width test with failing host-aware regressions**
+- [x] **Step 1: Replace the old manual narrow-width test with failing host-aware regressions**
 
 In `tests/blender/test_assignment_policies.py`, replace lines 299–311 with:
 
@@ -101,7 +101,7 @@ This test intentionally uses a narrow `WINDOW` width to prove that non-HUD
 draws remain governed by the retained 560-pixel confirmation width, not by the
 current region width.
 
-- [ ] **Step 2: Run the headless Blender suite and verify RED**
+- [x] **Step 2: Run the headless Blender suite and verify RED**
 
 Run:
 
@@ -116,7 +116,7 @@ Expected: `tests/blender/test_assignment_policies.py` fails because the current
 wide dialog layout. Confirm no earlier unrelated failure hides this expected
 regression.
 
-- [ ] **Step 3: Implement the smallest context-aware width selection**
+- [x] **Step 3: Implement the smallest context-aware width selection**
 
 In `addon/operators/assign_materials.py`, add beside the existing confirmation
 constants:
@@ -151,7 +151,7 @@ Replace `draw()` with:
 Do not set `layout.ui_units_x`: Blender owns the HUD width, and using the actual
 region width keeps the text correct if the user resizes that native region.
 
-- [ ] **Step 4: Run the headless Blender suite and verify GREEN**
+- [x] **Step 4: Run the headless Blender suite and verify GREEN**
 
 Run the Step 2 command again.
 
@@ -159,7 +159,7 @@ Expected: the complete headless suite passes. The generated HUD case uses more
 labels without ellipsizing source text, the confirmation retains its 560-pixel
 layout, and missing context remains backward-compatible.
 
-- [ ] **Step 5: Run the ordinary unit suite and source validation**
+- [x] **Step 5: Run the ordinary unit suite and source validation**
 
 Run:
 
@@ -174,7 +174,7 @@ Expected: all unit tests pass, source validation succeeds, and
 `git diff --check` reports no whitespace errors beyond any already-known
 working-copy line-ending warning for unstaged `AGENTS.md`.
 
-- [ ] **Step 6: Commit the tested presentation correction**
+- [x] **Step 6: Commit the tested presentation correction**
 
 Review the focused diff, then run:
 
@@ -202,7 +202,7 @@ Blender regression. `AGENTS.md` remains unstaged.
 - Produces: a validated local ZIP and an exact continuation record
 - Preserves: all private `.local-references/` files and the unstaged `AGENTS.md` change
 
-- [ ] **Step 1: Rebuild and validate the ignored extension ZIP**
+- [x] **Step 1: Rebuild and validate the ignored extension ZIP**
 
 Run:
 
@@ -223,6 +223,11 @@ SHA-256 in `docs/HANDOFF.md`; never stage the ZIP.
 
 - [ ] **Step 2: Perform a focused Blender 5.2 visual acceptance**
 
+Partially complete: the installed ZIP passed Analyze → Preview → Apply, the
+adaptive confirmation, normal-width HUD readability without ellipses,
+sidebar/HUD fact equivalence, and undo. Blender did not respond to the attempted
+native-HUD resize, so steps 6 and 7 remain unverified.
+
 Using the rebuilt ZIP in an isolated Blender 5.2 configuration:
 
 1. Run Analyze → Preview → Apply on a generated or lawful local file that
@@ -242,7 +247,7 @@ Expected: confirmation and HUD are both readable, resizing affects wrapping
 only, the same facts are shown, and undo succeeds. Do not save a private
 reference file after this interaction.
 
-- [ ] **Step 3: Update the handoff and plan with exact evidence**
+- [x] **Step 3: Update the handoff and plan with exact evidence**
 
 In `docs/HANDOFF.md`:
 

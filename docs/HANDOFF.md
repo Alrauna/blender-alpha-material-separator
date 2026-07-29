@@ -4,12 +4,11 @@ Updated: 2026-07-29
 
 ## Current objective
 
-Implement the approved context-aware wrapping plan for Blender's bottom-left
-Adjust Last Operation HUD. Blender reuses the assignment operator's `draw()`
-method there after Apply, but the current code retains the wider confirmation
-dialog width and Blender ellipsizes the resulting labels. The approved design
-uses the native `HUD` region width while preserving the adaptive confirmation
-dialog and existing sentences.
+Finish the remaining isolated installed-ZIP visual matrix. Context-aware
+wrapping for Blender's bottom-left Adjust Last Operation HUD is implemented,
+tested, packaged, and confirmed at its normal width. Narrowing and widening the
+native HUD could not be exercised because Blender did not respond to the
+attempted resize interaction.
 
 ## Repository state
 
@@ -23,14 +22,16 @@ dialog and existing sentences.
   - `5edc942 fix: wrap alpha source advisory heading`
 - Context-aware HUD design commit:
   - `8f960d5 docs: design context-aware HUD wrapping`
+- Context-aware HUD implementation commit:
+  - `fa1d6c1 fix: wrap assignment summary for Blender HUD`
 - The test-first implementation plan is
   `docs/superpowers/plans/2026-07-29-context-aware-adjust-last-operation-wrapping.md`.
 - The user chose to keep this branch as-is. It was not merged, pushed, or
   cleaned up; no remote was changed.
 - Completed one-off Superpowers plans/specifications were deleted; Git history
   remains their archive.
-- `AGENTS.md` remains uncommitted pending user review. No production or test
-  changes remain uncommitted after the cleanup boundary.
+- `AGENTS.md` remains uncommitted pending user review. No production, test, or
+  documentation changes from the HUD milestone remain uncommitted.
 
 ## Completed simplification
 
@@ -60,6 +61,11 @@ dialog and existing sentences.
   560 pixels, capped to the usable Blender window.
 - Added generated narrow/ordinary/wide wrapping, first-line icon, dialog-width,
   and invoke/draw-equivalence coverage.
+- Made assignment drawing use Blender's positive native `HUD` region width,
+  with a 220-pixel fallback for a HUD whose width is unavailable. Confirmation
+  and non-HUD draws retain the adaptive saved dialog width.
+- Added a generated Blender regression proving HUD, fallback, non-HUD, and
+  missing-context behavior without introducing another wrapping abstraction.
 
 ## Validation executed
 
@@ -76,6 +82,12 @@ Results: 51/51 unit tests passed; the complete headless Blender suite passed,
 including analysis/preview, assignment, policy, identity, FBX, preservation,
 UX, revalidation, characterization, lifecycle, and simplification contracts;
 source validation passed.
+
+For the HUD correction, the complete headless Blender suite was first run
+against the generated regression and failed at
+`tests/blender/test_assignment_policies.py:322` because the HUD draw ignored
+the 220-pixel region width. After the production change, the same complete
+suite passed with `ASSIGNMENT_POLICY_TESTS_OK` and `BLENDER_TESTS_OK`.
 
 ```powershell
 & $Blender52 --factory-startup --background --disable-autoexec `
@@ -100,9 +112,9 @@ Neither private file was saved.
 Get-FileHash -Algorithm SHA256 $Archive
 ```
 
-Archive validation passed. Ignored package:
-`.packaged-releases/alpha_material_separator-0.1.0.zip`, 64,977 bytes,
-SHA-256 `15721DE78D47E74BEB4C36F6969D1AE055AB4DB6C58D8587B9E8D6C0C1A4AA61`.
+Archive validation passed. Current ignored package:
+`.packaged-releases/alpha_material_separator-0.1.0.zip`, 65,100 bytes,
+SHA-256 `568B2F1FDF0D6C478D96947E9A522FDF4FE8DEDD950D4B113CBB57C0DE201B2E`.
 
 `git diff --check` passed throughout. Expected noise was limited to Blender's
 bundled Grease Pencil brush-path warning, the deliberately exercised
@@ -117,22 +129,30 @@ confirmations were canceled before assignment and neither private file was
 saved. Automated sidebar resizing was unreliable in the 150% session, so that
 specific narrow-layout combination remains open.
 
-The rebuilt ZIP was installed and enabled successfully under ignored isolated
-profile `.test-output/responsive-ui-profile`; `extension list` reported
-`alpha_material_separator [installed]`. Windows UI targeting became unreliable
-while distinguishing that session from the two source-registered sessions, so
-the complete installed-ZIP dialog interaction was not counted as passed.
+The rebuilt ZIP was reinstalled and enabled successfully under ignored
+isolated profile `.test-output/responsive-ui-profile`; `extension list`
+reported `alpha_material_separator [installed]`. The lawful private
+`before.blend` was opened with auto-execution disabled and all 48 eligible mesh
+objects completed Analyze → Preview → Apply. The adaptive warning confirmation
+was readable. The normal-width native `Assign Alpha Materials` HUD showed all
+sentences without ellipses, and its 65,773 moved faces, 28 added slots, 57,731
+mixed faces, 2,577 uncertain faces, and 23 unresolved groups agreed with the
+sidebar. `Ctrl+Z` removed the derived slot visible on the inspected object.
+No save action was performed. The isolated Blender session remains open with
+unsaved transient UI/selection state so the private file is not overwritten.
+
+An attempted drag did not resize the native HUD, so reduced wrapping when
+widened and increased wrapping when narrowed were not counted as visually
+verified. The generated Blender test covers positive 220-pixel HUD width, zero
+width fallback, non-HUD width isolation, and missing context.
 
 ## Open failures and assumptions
 
-- The context-aware HUD correction is designed and planned but not implemented.
-  The screenshot establishes truncation in Blender's native HUD; the generated
-  failing regression and installed-ZIP visual check remain to be run.
 - The private semantic lower bound still includes reference-alpha faces whose
   participating decoded A evidence classifies them `OPAQUE`.
-- The isolated installed ZIP still needs a clean, unambiguous narrow/wide
-  visual pass at 100%/150% scale. Automated contracts and source-registered
-  100%/150% interaction pass.
+- The isolated installed ZIP still needs a narrow/wide native-HUD resize check
+  and the remaining 100%/150% panel matrix. Normal-width installed-ZIP
+  confirmation, HUD readability, fact equivalence, and undo passed.
 - The generated interactive two-material partial-apply check and distinct
   final Apply-preflight timing remain open.
 - Ordinary Unity material/submesh validation remains a release requirement.
@@ -140,19 +160,18 @@ the complete installed-ZIP dialog interaction was not counted as passed.
 
 ## Remaining tasks
 
-1. Execute the approved context-aware HUD wrapping plan test-first, rebuild the
-   ZIP, and visually confirm the native HUD no longer ellipsizes its sentences.
-2. Complete the isolated installed-ZIP narrow/wide 100%/150% panel and
+1. Complete the isolated installed-ZIP narrow/wide 100%/150% panel and
    Apply-dialog visual checklist; the ZIP is already installed in the ignored
-   profile.
-3. Review the uncommitted `AGENTS.md` clarification and commit it separately if
+   profile. Include a native-HUD resize check if Blender exposes a workable
+   resize interaction.
+2. Review the uncommitted `AGENTS.md` clarification and commit it separately if
    accepted.
-4. Investigate private `OPAQUE` lower-bound misses with ignored anonymized
+3. Investigate private `OPAQUE` lower-bound misses with ignored anonymized
    diagnostics and a generated failing regression before any production fix.
-5. Complete the interactive partial-apply check and Apply-preflight timing.
-6. Record user-performed ordinary Unity material/submesh acceptance.
+4. Complete the interactive partial-apply check and Apply-preflight timing.
+5. Record user-performed ordinary Unity material/submesh acceptance.
 
 ## Recommended next action
 
-Execute Task 1 of the context-aware Adjust Last Operation wrapping plan,
-beginning with the generated failing Blender regression.
+Complete the remaining isolated installed-ZIP narrow/wide 100%/150% visual
+matrix, including native-HUD resize behavior if Blender permits resizing it.
