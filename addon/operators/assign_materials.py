@@ -26,6 +26,7 @@ _CONFIRMATION_WINDOW_MARGIN = 64
 _CONFIRMATION_TEXT_PADDING = 32
 _CONFIRMATION_TITLE = "Apply Material Separation"
 _CONFIRMATION_TEXT = "Apply"
+_ADJUST_LAST_OPERATION_FALLBACK_WIDTH = 220
 
 
 def _confirmation_dialog_width(
@@ -221,14 +222,23 @@ class ALPHA_MATERIAL_SEPARATOR_OT_assign_materials(bpy.types.Operator):
             confirm_text=_CONFIRMATION_TEXT,
         )
 
-    def draw(self, _context) -> None:
+    def draw(self, context) -> None:
         plan = json.loads(self._confirmation_plan_json)
         lines = assignment_confirmation_lines(plan)
+        draw_width = self._confirmation_draw_width
+        region = getattr(context, "region", None)
+        if getattr(region, "type", "") == "HUD":
+            region_width = int(getattr(region, "width", 0) or 0)
+            draw_width = (
+                region_width
+                if region_width > 0
+                else _ADJUST_LAST_OPERATION_FALLBACK_WIDTH
+            )
         for line in lines[:-1]:
-            for wrapped in ui_text_lines(line, self._confirmation_draw_width):
+            for wrapped in ui_text_lines(line, draw_width):
                 self.layout.label(text=wrapped)
         self.layout.separator()
-        for wrapped in ui_text_lines(lines[-1], self._confirmation_draw_width):
+        for wrapped in ui_text_lines(lines[-1], draw_width):
             self.layout.label(text=wrapped)
 
     def execute(self, context: bpy.types.Context) -> set[str]:

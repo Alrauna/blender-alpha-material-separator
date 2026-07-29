@@ -24,6 +24,7 @@ from addon.presentation import (
     already_separated_tooltip,
     assignment_confirmation_lines,
     review_signature,
+    ui_text_lines,
 )
 from tests.blender.test_analysis_preview import _clear_scene, _image, _material, _quad
 from tests.blender.test_assignment import _analyze, _assign
@@ -296,19 +297,49 @@ def run() -> None:
     }
     assert operator._confirmation_draw_width == 560
     assert json.loads(operator._confirmation_plan_json) == public_plan
-    wide_draw = _DialogRecordingLayout()
-    operator.layout = wide_draw
-    ALPHA_MATERIAL_SEPARATOR_OT_assign_materials.draw(operator, None)
     confirmation_lines = assignment_confirmation_lines(public_plan)
-    assert wide_draw.labels[0][0] == confirmation_lines[0]
-    assert wide_draw.separators == 1
 
-    narrow_draw = _DialogRecordingLayout()
-    operator.layout = narrow_draw
-    operator._confirmation_draw_width = 260
+    dialog_draw = _DialogRecordingLayout()
+    operator.layout = dialog_draw
+    ALPHA_MATERIAL_SEPARATOR_OT_assign_materials.draw(
+        operator,
+        SimpleNamespace(region=SimpleNamespace(type="WINDOW", width=180)),
+    )
+    assert dialog_draw.labels[0][0] == confirmation_lines[0]
+    assert dialog_draw.separators == 1
+
+    hud_draw = _DialogRecordingLayout()
+    operator.layout = hud_draw
+    ALPHA_MATERIAL_SEPARATOR_OT_assign_materials.draw(
+        operator,
+        SimpleNamespace(region=SimpleNamespace(type="HUD", width=220)),
+    )
+    expected_hud_text = [
+        wrapped
+        for sentence in confirmation_lines
+        for wrapped in ui_text_lines(sentence, 220)
+    ]
+    assert [text for text, _icon in hud_draw.labels] == expected_hud_text
+    assert len(hud_draw.labels) > len(dialog_draw.labels)
+    assert hud_draw.separators == 1
+
+    fallback_draw = _DialogRecordingLayout()
+    operator.layout = fallback_draw
+    ALPHA_MATERIAL_SEPARATOR_OT_assign_materials.draw(
+        operator,
+        SimpleNamespace(region=SimpleNamespace(type="HUD", width=0)),
+    )
+    expected_fallback_text = [
+        wrapped
+        for sentence in confirmation_lines
+        for wrapped in ui_text_lines(sentence, 220)
+    ]
+    assert [text for text, _icon in fallback_draw.labels] == expected_fallback_text
+
+    missing_context_draw = _DialogRecordingLayout()
+    operator.layout = missing_context_draw
     ALPHA_MATERIAL_SEPARATOR_OT_assign_materials.draw(operator, None)
-    assert len(narrow_draw.labels) > len(confirmation_lines)
-    assert wide_draw.labels != narrow_draw.labels
+    assert missing_context_draw.labels == dialog_draw.labels
     assert tuple(
         polygon.material_index for polygon in partial.data.polygons
     ) == indices_before_dialog
