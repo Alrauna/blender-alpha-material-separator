@@ -13,8 +13,10 @@ and Material Details. The user selected the ultra-compact paragraph layout
 (Option B), approved the full interaction/data/testing design, and the written
 spec is ready for user review at
 `docs/superpowers/specs/2026-07-28-compact-apply-confirmation-design.md`.
-No popup implementation has started. The next classification objective remains
-explaining private
+The spec is approved and the detailed test-first implementation plan is ready
+for review at
+`docs/superpowers/plans/2026-07-28-compact-apply-confirmation.md`. No popup
+implementation has started. The next classification objective remains explaining private
 before/after lower-bound faces that the extension classifies `OPAQUE`, without
 broadening the approved resolver, changing raster margin zero, or adding
 private-example heuristics.
@@ -414,10 +416,9 @@ All commands used Blender 5.2.0 LTS from
 
 ## Remaining tasks in priority order
 
-1. Obtain user review of
-   `docs/superpowers/specs/2026-07-28-compact-apply-confirmation-design.md`.
-   After approval, write the test-first implementation plan; do not implement
-   before that plan is approved.
+1. Obtain user approval of
+   `docs/superpowers/plans/2026-07-28-compact-apply-confirmation.md`, then execute
+   it test-first. The design spec is already approved.
 2. Complete any still-unverified wide-sidebar and 150% UI-scale checks for the
    accepted **Material Details (N)** disclosure.
 3. Investigate the remaining private `OPAQUE` lower-bound faces by comparing
@@ -436,5 +437,6 @@ All commands used Blender 5.2.0 LTS from
 
 ## Recommended next action
 
-Have the user review the written compact-confirmation spec. If approved, create
-the detailed test-first implementation plan; otherwise revise the spec first.
+Have the user review the compact-confirmation implementation plan. After
+approval, execute it test-first without parallel orchestration unless the user
+explicitly requests delegation.
