@@ -4,13 +4,22 @@ Updated: 2026-07-29
 
 ## Current objective
 
-The Analyze-throughput milestone is complete and committed locally. The next
-behavior investigation is the established private 1,176-face `OPAQUE`
-lower-bound discrepancy; do not broaden resolver or raster behavior without a
-generated failing regression.
+Obtain approval for the Preview component-selection fix design. Preview
+currently replaces polygon selection correctly but can retain stale edge and
+vertex flags from earlier Edit Mode work, making opaque regions look selected.
 
 ## Completed work
 
+- Reproduced the Preview visual-noise defect through the real Analyze and
+  Preview operators with a generated three-face mesh. The target face set was
+  correct, but every preselected edge and vertex survived.
+- Confirmed the root cause: `select_faces.py` writes `MeshPolygon.select` but
+  does not normalize `MeshEdge.select` or `MeshVertex.select` before entering
+  face-select Edit Mode. A generated control that cleared those component flags
+  retained only components belonging to selected faces.
+- Confirmed that a shared boundary edge between a selected alpha face and an
+  opaque neighbor must remain highlighted in Blender face-select mode; this is
+  not an erroneous extra selection.
 - Strengthened `AGENTS.md` development guidance so Superpowers explicitly owns
   the investigate → design → approval → plan → approval → TDD → review →
   verification → commit lifecycle. Ponytail now minimizes scope inside those
@@ -176,6 +185,9 @@ All passed. The ignored archive is 65,586 bytes with SHA-256
 
 ## Known failures, warnings, and unverified assumptions
 
+- Preview selection has a confirmed visual-noise bug when stale vertex or edge
+  selection flags exist. Material assignment remains correct because it uses
+  the reviewed face plan, not edge or vertex selection.
 - The established 1,176-face private `OPAQUE` lower-bound discrepancy remains
   open and is unrelated to this performance milestone.
 - The private 82.48s-to-46.09s comparison is a single diagnostic run. The
@@ -188,18 +200,23 @@ All passed. The ignored archive is 65,586 bytes with SHA-256
 
 ## Remaining tasks
 
-1. Investigate the private 1,176-face `OPAQUE` lower-bound misses separately,
+1. After design approval, add a generated failing Preview regression that
+   preselects stale components on adjacent and disconnected opaque faces.
+2. Implement the smallest selection-normalization fix and verify REPLACE, ADD,
+   SUBTRACT, repeated Preview, multi-object Edit Mode, review-token retention,
+   and assignment-plan equivalence.
+3. Run the full change gate and private before/after Preview smoke.
+4. Investigate the private 1,176-face `OPAQUE` lower-bound misses separately,
    using ignored diagnostics and a generated failing regression before any
    production change.
-2. Complete the remaining installed-ZIP interaction checks in
+5. Complete the remaining installed-ZIP interaction checks in
    `docs/testing.md` if strict release sign-off is desired.
-3. Record the distinct final Apply-preflight timing and the interactive
+6. Record the distinct final Apply-preflight timing and the interactive
    two-material partial-apply check.
-4. Complete the 150% UI-scale pass and user-performed ordinary Unity
+7. Complete the 150% UI-scale pass and user-performed ordinary Unity
    material/submesh acceptance.
 
 ## Recommended next action
 
-Investigate the private `OPAQUE` lower-bound misses with ignored anonymized
-diagnostics, then create a generated failing regression before proposing any
-production change.
+Approve the minimal Preview selection-normalization design, then prepare its
+test-first implementation plan before editing production code.
