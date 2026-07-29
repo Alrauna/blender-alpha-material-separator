@@ -4,172 +4,176 @@ Updated: 2026-07-29
 
 ## Current objective
 
-Obtain user approval of the test-first optional-preview implementation plan in
-`docs/superpowers/plans/2026-07-29-optional-preview-confirmation.md`. The design
-is approved. No production implementation has begun.
+Finish Blender Alpha Material Separator 0.1 release acceptance. The optional
+Preview workflow is implemented: any current actionable analysis enables Apply,
+while guided Apply without an exact matching Preview always opens the existing
+confirmation dialog.
 
-## Repository state
+## Completed work
 
-- Branch: `feat/alpha-material-separator-0.1`; configured upstream is `[gone]`.
-- The completed simplification range is `4138236..3e5c0f2`, including cleanup
-  commit `3b94172` and independent-review coverage commit `3e5c0f2`.
-- Width-aware UI commits:
-  - `ddef5fc docs: design width-aware UI wrapping`
-  - `b9cca42 feat: add width-aware UI text wrapping`
-  - `4029ce6 fix: adapt UI text to available width`
-  - `5edc942 fix: wrap alpha source advisory heading`
-- Context-aware HUD design commit:
-  - `8f960d5 docs: design context-aware HUD wrapping`
-- Context-aware HUD implementation commit:
-  - `fa1d6c1 fix: wrap assignment summary for Blender HUD`
-- The test-first implementation plan is
-  `docs/superpowers/plans/2026-07-29-context-aware-adjust-last-operation-wrapping.md`.
-- The user chose to keep this branch as-is. It was not merged, pushed, or
-  cleaned up; no remote was changed.
-- Completed one-off Superpowers plans/specifications were deleted; Git history
-  remains their archive.
-- `AGENTS.md` remains uncommitted pending user review. No production, test, or
-  documentation changes from the HUD milestone remain uncommitted.
+- `bc631e6 feat: make face preview optional`
+  - Apply availability no longer depends on a review token.
+  - The panel describes Preview as optional.
+  - Confirmation presentation can add `Faces have not been previewed.`
+- `a6ee3f0 feat: confirm unpreviewed material assignment`
+  - Guided unpreviewed Apply always confirms, including clean supported plans.
+  - Exact reviewed plans retain the existing warning-only behavior.
+  - Scripted invocation/execution compatibility and authoritative mutation
+    validation remain unchanged.
+- README, integration API, testing documentation, and generated documentation
+  contracts now describe the optional workflow.
+- The ignored private multi-object helper now checks unpreviewed availability,
+  confirmation cancellation with zero mutation, exact Preview/Apply agreement,
+  preservation, and the established semantic lower bound.
+- The extension ZIP was rebuilt, validated, installed into an isolated Blender
+  profile, and exercised against the lawful 48-mesh stress example.
 
-## Completed simplification
+## Important decisions and constraints
 
-- Added generated characterization for public API 1.2 operator IDs, public
-  Analyze arguments, registered policy defaults, and material-group counts.
-- Kept policy EnumProperty declarations local: their labels, order, callbacks,
-  visibility, and unsupported defaults intentionally differ. A shared policy
-  module would add indirection or alter registered RNA.
-- Shared Apply validation, report lookup, authoritative revalidation,
-  assignment-plan creation, and exact-review comparison without changing
-  confirmation or mutation boundaries.
-- Removed the parallel per-material count `Counter`; public group counts now
-  derive from authoritative face-index lists.
-- Centralized API status publication in `api_contract.publish_status()`.
-- Removed unused private WindowManager image/UV/channel properties while
-  preserving the public Analyze operator arguments.
-- Removed tests that parsed `panel.py` and `assign_materials.py` source text;
-  observable presentation, dialog, cancellation, and README contracts remain.
-- Independent review added real panel-draw coverage for stale/no-source/
-  already-separated copy, native disclosure binding/icons, and public counts.
-- Rebuilt the ignored extension ZIP. No private helper, asset, raw result,
-  package, or test output was committed.
-- Replaced fixed 34- and 52-character wrapping with a pure width-aware
-  presentation helper.
-- Routed shared panel messages through the active sidebar-region width.
-- Made the Apply confirmation retain an adaptive requested width from 420 to
-  560 pixels, capped to the usable Blender window.
-- Added generated narrow/ordinary/wide wrapping, first-line icon, dialog-width,
-  and invoke/draw-equivalence coverage.
-- Made assignment drawing use Blender's positive native `HUD` region width,
-  with a 220-pixel fallback for a HUD whose width is unavailable. Confirmation
-  and non-HUD draws retain the adaptive saved dialog width.
-- Added a generated Blender regression proving HUD, fallback, non-HUD, and
-  missing-context behavior without introducing another wrapping abstraction.
+- Preview is recommended but optional.
+- Apply without a matching exact-plan Preview always asks for confirmation.
+- Stale, running, non-actionable, or no-change reports still disable Apply.
+- The review token affects confirmation only; it is not an assignment
+  authorization boundary.
+- Assignment still revalidates authoritative inputs and the complete plan
+  fingerprint before mutation.
+- Preserve version `0.1.0`, API `1.2`, operator IDs, public payloads, undo,
+  rollback, idempotence, and the no-topology-change guarantee.
+- Keep the branch as-is. Do not push or alter the gone upstream without user
+  approval.
+- `AGENTS.md` contains a pre-existing user-review modification and remains
+  deliberately unstaged.
 
-## Validation executed
+## Files changed and why
 
-All commands used Blender 5.2.0 LTS and `--disable-autoexec` where applicable.
+- `addon/presentation.py`: optional-Preview Apply state and confirmation copy.
+- `addon/panel.py`: optional Preview guidance.
+- `addon/operators/assign_materials.py`: detect exact reviewed plans during
+  guided invocation and force confirmation otherwise.
+- `tests/unit/test_presentation.py`: workflow and confirmation-copy regressions.
+- `tests/blender/test_assignment_policies.py`: generated clean-plan
+  unpreviewed/reviewed/scripted confirmation behavior.
+- `tests/blender/test_revalidation_matrix.py`: assignment-only changes retain
+  analysis but invalidate exact review.
+- `README.md`, `docs/integration-api.md`, `docs/testing.md`: end-user,
+  integration, and acceptance behavior.
+- `tests/unit/test_readme_contract.py`: exact documentation contract.
+- `docs/superpowers/specs/2026-07-29-optional-preview-confirmation-design.md` and
+  `docs/superpowers/plans/2026-07-29-optional-preview-confirmation.md`: approved
+  design, execution plan, and progress evidence.
+- Ignored only: `.local-references/default-example/_validate_analysis.py`,
+  `.packaged-releases/alpha_material_separator-0.1.0.zip`, and isolated test
+  profile/output.
+
+## Validation commands and results
+
+RED evidence:
+
+```powershell
+& $Python52 -m unittest tests.unit.test_presentation -v
+```
+
+Failed as intended because unreviewed actionable state disabled Apply and
+`assignment_confirmation_lines()` did not accept `previewed`.
+
+```powershell
+& $Blender52 --factory-startup --background --disable-autoexec `
+  --python-exit-code 1 --python tests/blender/run_all.py
+```
+
+Failed as intended because the generated clean unpreviewed plan executed
+without opening a dialog.
+
+```powershell
+& $Python52 -m unittest tests.unit.test_readme_contract -v
+```
+
+Failed as intended because the approved optional-Preview phrases were absent.
+
+GREEN gate:
 
 ```powershell
 & $Python52 -m unittest discover -s tests/unit -t . -v
 & $Blender52 --factory-startup --background --disable-autoexec `
   --python-exit-code 1 --python tests/blender/run_all.py
 & $Blender52 --factory-startup --command extension validate addon
+git diff --check
 ```
 
-Results: 51/51 unit tests passed; the complete headless Blender suite passed,
-including analysis/preview, assignment, policy, identity, FBX, preservation,
-UX, revalidation, characterization, lifecycle, and simplification contracts;
-source validation passed.
+Results: 51/51 unit tests passed. The complete headless Blender suite passed
+through `BLENDER_TESTS_OK`, including analysis/preview, assignment policy,
+identity, FBX, preservation, UX, revalidation, characterization, lifecycle, and
+simplification contracts. Source validation passed. `git diff --check` found no
+whitespace errors; only established LF/CRLF notices were emitted.
 
-For the HUD correction, the complete headless Blender suite was first run
-against the generated regression and failed at
-`tests/blender/test_assignment_policies.py:322` because the HUD draw ignored
-the 220-pixel region width. After the production change, the same complete
-suite passed with `ASSIGNMENT_POLICY_TESTS_OK` and `BLENDER_TESTS_OK`.
+Private smoke:
 
 ```powershell
 & $Blender52 --factory-startup --background --disable-autoexec `
   --python-exit-code 1 `
-  --python .local-references\default-example\_diagnose_rerun_tooltip.py -- `
-  .local-references\default-example\before.blend
-& $Blender52 --factory-startup --background --disable-autoexec `
-  --python-exit-code 1 `
-  --python .local-references\default-example\_diagnose_rerun_tooltip.py -- `
+  --python .local-references\default-example\_validate_analysis.py -- `
+  .local-references\default-example\before.blend `
   .local-references\default-example\after.blend
 ```
 
-Both private smokes passed their established aggregate checks: all 48 selected
-meshes analyzed, 65,773 face changes were planned, 23 unresolved groups were
-left unchanged, and zero objects or material groups were blocked/skipped.
-Neither private file was saved.
+The unpreviewed cancel, exact Preview/Apply plan, addressing, and preservation
+checks passed. The command ended nonzero only on the established lower-bound
+discrepancy: 1,176 reference-alpha faces still classify as `OPAQUE`. The planned
+and applied set remained 65,773 faces, so this patch introduced no regression.
+Neither private file was saved or modified.
+
+Packaging:
 
 ```powershell
 & $Blender52 --factory-startup --command extension build `
   --source-dir addon --output-dir .packaged-releases
 & $Blender52 --factory-startup --command extension validate $Archive
+Get-Item -LiteralPath $Archive | Select-Object FullName,Length
 Get-FileHash -Algorithm SHA256 $Archive
 ```
 
-Archive validation passed. Current ignored package:
-`.packaged-releases/alpha_material_separator-0.1.0.zip`, 65,100 bytes,
-SHA-256 `568B2F1FDF0D6C478D96947E9A522FDF4FE8DEDD950D4B113CBB57C0DE201B2E`.
+Archive validation passed. Ignored package:
+`.packaged-releases/alpha_material_separator-0.1.0.zip`, 65,225 bytes,
+SHA-256 `59E4400FEABE680CD60C4019A0BB7C6F7ADFE73347B62AC259813BAE120C5B1F`.
 
-`git diff --check` passed throughout. Expected noise was limited to Blender's
-bundled Grease Pencil brush-path warning, the deliberately exercised
-stale-input warning, and Git LF-to-CRLF working-copy notices.
+Installed-ZIP acceptance used an isolated Blender profile with config, scripts,
+extensions, and datafiles redirected under `.test-output`. Installation and
+enablement passed. On the 48-mesh private example, Analyze completed; Preview
+and Apply were both enabled before review; the panel displayed the optional
+guidance; unpreviewed Apply opened a dialog beginning `Faces have not been
+previewed.` with matching aggregate counts; Cancel returned to the same active
+report. No Apply mutation or save was performed in that interactive session.
 
-Temporary factory-startup, source-registered Blender 5.2 sessions completed
-Analyze → Preview → warning confirmation at 100% and 150% UI scale. The 100%
-session covered narrow and wide panel layouts; the alpha-source advisory
-wrapped only at the narrow width. The 150% panel and 560-pixel confirmation
-remained readable, with only the long final safety sentence wrapping. Both
-confirmations were canceled before assignment and neither private file was
-saved. Automated sidebar resizing was unreliable in the 150% session, so that
-specific narrow-layout combination remains open.
+## Known failures, warnings, and unverified assumptions
 
-The rebuilt ZIP was reinstalled and enabled successfully under ignored
-isolated profile `.test-output/responsive-ui-profile`; `extension list`
-reported `alpha_material_separator [installed]`. The lawful private
-`before.blend` was opened with auto-execution disabled and all 48 eligible mesh
-objects completed Analyze → Preview → Apply. The adaptive warning confirmation
-was readable. The normal-width native `Assign Alpha Materials` HUD showed all
-sentences without ellipses, and its 65,773 moved faces, 28 added slots, 57,731
-mixed faces, 2,577 uncertain faces, and 23 unresolved groups agreed with the
-sidebar. `Ctrl+Z` removed the derived slot visible on the inspected object.
-No save action was performed. The isolated Blender session remains open with
-unsaved transient UI/selection state so the private file is not overwritten.
-
-An attempted drag did not resize the native HUD, so reduced wrapping when
-widened and increased wrapping when narrowed were not counted as visually
-verified. The generated Blender test covers positive 220-pixel HUD width, zero
-width fallback, non-HUD width isolation, and missing context.
-
-The user reviewed the resulting UI and accepted it as the desired version on
-2026-07-29. The incomplete native-HUD resize interaction is therefore not an
-immediate usability blocker.
-
-## Open failures and assumptions
-
-- The private semantic lower bound still includes reference-alpha faces whose
-  participating decoded A evidence classifies them `OPAQUE`.
-- The generated interactive two-material partial-apply check and distinct
-  final Apply-preflight timing remain open.
+- The 1,176-face private semantic lower-bound discrepancy remains open and is
+  unrelated to optional Preview.
+- Confirmed unpreviewed Apply, Ctrl+Z, and exact-Preview Apply were covered by
+  generated tests and the private helper but were not all manually repeated
+  from this rebuilt installed ZIP.
+- The generated interactive two-material partial-apply check and distinct final
+  Apply-preflight timing remain open.
 - Ordinary Unity material/submesh validation remains a release requirement.
-  VRChat validation applies only to its exact tested stack.
+  VRChat evidence applies only to the exact tested stack.
+- Expected warnings remain limited to Blender's bundled Grease Pencil
+  brush-path warning, deliberately exercised stale-input warnings, and Git
+  line-ending notices.
 
 ## Remaining tasks
 
-1. Review and approve the optional-preview confirmation implementation plan,
-   then execute it test-first.
-2. Review the uncommitted `AGENTS.md` clarification and commit it separately if
-   accepted.
-3. Investigate private `OPAQUE` lower-bound misses with ignored anonymized
+1. Investigate the private `OPAQUE` lower-bound misses using ignored anonymized
    diagnostics and a generated failing regression before any production fix.
-4. Complete the interactive partial-apply check and Apply-preflight timing.
-5. Record user-performed ordinary Unity material/submesh acceptance.
+2. Complete the remaining installed-ZIP interaction checks if strict release
+   sign-off is desired: confirm unpreviewed Apply, Ctrl+Z, and exact-Preview
+   Apply.
+3. Complete the interactive two-material partial-apply and final-preflight
+   timing checks.
+4. Record user-performed ordinary Unity material/submesh acceptance.
+5. Review the separate uncommitted `AGENTS.md` clarification and commit it only
+   if accepted.
 
 ## Recommended next action
 
-Review the optional-preview confirmation implementation plan with the user.
-After approval, execute its generated RED/GREEN presentation and Blender
-regressions before changing production behavior.
+Investigate the 1,176 private reference-alpha faces that still classify as
+`OPAQUE`, starting with ignored anonymized diagnostics and then a generated
+failing regression before changing production code.

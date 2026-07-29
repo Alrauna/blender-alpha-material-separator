@@ -40,7 +40,7 @@
 - Produces: `can_apply=True` for every current actionable report, independent of `reviewed`
 - Produces: first confirmation sentence `Faces have not been previewed.` when `previewed=False`
 
-- [ ] **Step 1: Add failing pure-Python workflow and copy regressions**
+- [x] **Step 1: Add failing pure-Python workflow and copy regressions**
 
 Extend `test_workflow_states()`:
 
@@ -84,7 +84,7 @@ Extend the existing compact confirmation test using its representative
 The default-argument assertion protects all existing callers and public-facing
 copy when Preview has already occurred.
 
-- [ ] **Step 2: Run the focused unit tests and verify RED**
+- [x] **Step 2: Run the focused unit tests and verify RED**
 
 Run:
 
@@ -97,7 +97,7 @@ Expected: fail because unreviewed actionable state currently has
 `can_apply=False`, and `assignment_confirmation_lines()` does not accept the
 `previewed` keyword.
 
-- [ ] **Step 3: Implement the minimal presentation behavior**
+- [x] **Step 3: Implement the minimal presentation behavior**
 
 Change the confirmation signature and initialize its lines:
 
@@ -132,7 +132,7 @@ In the Apply panel, replace the mandatory instruction:
 Keep the existing `expected_review_signature` assignment on the operator. It is
 needed to distinguish the exact current plan in Task 2.
 
-- [ ] **Step 4: Run focused and complete unit tests and verify GREEN**
+- [x] **Step 4: Run focused and complete unit tests and verify GREEN**
 
 Run:
 
@@ -143,7 +143,7 @@ Run:
 
 Expected: presentation tests pass, then every discovered unit test passes.
 
-- [ ] **Step 5: Commit the independently tested presentation boundary**
+- [x] **Step 5: Commit the independently tested presentation boundary**
 
 Run:
 
@@ -171,7 +171,7 @@ committed. `AGENTS.md` remains unstaged.
 - Produces: private operator attribute `_confirmation_previewed: bool`
 - Preserves: `expected_review_signature`, `_confirmation_plan_signature`, and all public RNA
 
-- [ ] **Step 1: Add a generated clean-plan fixture**
+- [x] **Step 1: Add a generated clean-plan fixture**
 
 In `tests/blender/test_assignment_policies.py`, add:
 
@@ -210,7 +210,7 @@ assertions:
 This produces one supported `ALPHA_AFFECTED` face, so the current
 `requires_confirmation()` result is false.
 
-- [ ] **Step 2: Add the failing unpreviewed-invoke regression**
+- [x] **Step 2: Add the failing unpreviewed-invoke regression**
 
 Construct the same lightweight operator shape already used by this test:
 
@@ -271,7 +271,7 @@ Draw the recorded dialog and assert its first complete sentence:
     assert clean_draw_text[0] == "Faces have not been previewed."
 ```
 
-- [ ] **Step 3: Add the reviewed clean-plan compatibility regression**
+- [x] **Step 3: Add the reviewed clean-plan compatibility regression**
 
 Record the exact token and invoke the same clean plan again:
 
@@ -358,7 +358,7 @@ confirmation:
 Retain the existing warning-plan dialog test. Its token state and confirmation
 copy must continue to pass.
 
-- [ ] **Step 4: Run the headless Blender suite and verify RED**
+- [x] **Step 4: Run the headless Blender suite and verify RED**
 
 Run:
 
@@ -372,7 +372,7 @@ Expected: the clean unpreviewed invocation returns
 `EXECUTED_WITHOUT_DIALOG`, proving that the existing operator does not yet force
 confirmation. Confirm no earlier unrelated failure hides this expected result.
 
-- [ ] **Step 5: Implement the smallest operator change**
+- [x] **Step 5: Implement the smallest operator change**
 
 Add one private non-RNA attribute beside the existing confirmation state:
 
@@ -423,7 +423,7 @@ In `draw()`:
 Do not check or consume the token in `execute()`. The existing authoritative
 validation and expected signature comparison remain the mutation boundary.
 
-- [ ] **Step 6: Extend state-transition assertions**
+- [x] **Step 6: Extend state-transition assertions**
 
 In `tests/blender/test_revalidation_matrix.py`, retain the existing proof that
 selection and mode transitions preserve the token. Add assertions after the
@@ -443,7 +443,7 @@ panel logic—to prove that this valid actionable state still enables Apply.
 Keep existing stale-input assertions proving that a real classification change
 blocks mutation.
 
-- [ ] **Step 7: Run the headless Blender suite and verify GREEN**
+- [x] **Step 7: Run the headless Blender suite and verify GREEN**
 
 Run the Step 4 command again.
 
@@ -451,7 +451,7 @@ Expected: complete suite passes, including
 `ASSIGNMENT_POLICY_TESTS_OK`, `REVALIDATION_MATRIX_TESTS_OK`, and
 `BLENDER_TESTS_OK`.
 
-- [ ] **Step 8: Commit the operator behavior**
+- [x] **Step 8: Commit the operator behavior**
 
 Run:
 
@@ -484,7 +484,7 @@ committed.
 - Preserves: no-topology, stale-input, partial-apply, undo, and scripted API guarantees
 - Produces: validated installable ZIP and exact continuation evidence
 
-- [ ] **Step 1: Add failing documentation contracts**
+- [x] **Step 1: Add failing documentation contracts**
 
 In `tests/unit/test_readme_contract.py`, extend the workflow contract with exact
 phrases:
@@ -504,7 +504,7 @@ phrases:
 Update any existing assertion that requires Preview before Apply so it expects
 the optional workflow instead.
 
-- [ ] **Step 2: Run the README contract and verify RED**
+- [x] **Step 2: Run the README contract and verify RED**
 
 Run:
 
@@ -514,7 +514,7 @@ Run:
 
 Expected: fail because the approved optional-preview phrases are absent.
 
-- [ ] **Step 3: Update end-user and integration documentation**
+- [x] **Step 3: Update end-user and integration documentation**
 
 In the README's 60-second workflow:
 
@@ -542,7 +542,7 @@ In `docs/testing.md`, add separate installed-ZIP checks for:
 - exact Preview preserves warning-only confirmation behavior;
 - assignment-only plan changes force confirmation without reanalysis.
 
-- [ ] **Step 4: Run documentation and full automated gates**
+- [x] **Step 4: Run documentation and full automated gates**
 
 Run:
 
@@ -558,7 +558,7 @@ Expected: all unit tests pass, the complete Blender suite prints
 `BLENDER_TESTS_OK`, source validation succeeds, and no whitespace error is
 reported beyond known line-ending notices for unstaged `AGENTS.md`.
 
-- [ ] **Step 5: Run the private default-example workflow smoke**
+- [x] **Step 5: Run the private default-example workflow smoke**
 
 Update only the ignored helper so it exercises:
 
@@ -586,7 +586,7 @@ Expected: workflow and preservation gates pass. Existing separately recorded
 record private names, paths, face sets, graph dumps, or raw output in committed
 files.
 
-- [ ] **Step 6: Rebuild and validate the ignored ZIP**
+- [x] **Step 6: Rebuild and validate the ignored ZIP**
 
 Run:
 
@@ -605,6 +605,12 @@ Expected: build and archive validation pass. Record exact size and SHA-256 in
 
 - [ ] **Step 7: Perform installed-ZIP Blender 5.2 acceptance**
 
+Partially complete: isolated installation, the private 48-mesh analysis,
+unpreviewed Apply availability, warning copy, and cancellation were verified.
+Generated tests and the private helper cover confirmed mutation, exact Preview,
+undo, and preservation, but those interactions were not all repeated manually
+from this rebuilt ZIP.
+
 In the isolated Blender profile:
 
 1. Install or reinstall the rebuilt ZIP.
@@ -621,7 +627,7 @@ In the isolated Blender profile:
    summary, partial apply, completion summary, and undo remain correct.
 9. Do not save the private file.
 
-- [ ] **Step 8: Update handoff and plan status**
+- [x] **Step 8: Update handoff and plan status**
 
 Record:
 
@@ -635,7 +641,7 @@ Record:
 
 Mark only steps backed by executed evidence. Do not modify `AGENTS.md`.
 
-- [ ] **Step 9: Commit documentation and validation evidence**
+- [x] **Step 9: Commit documentation and validation evidence**
 
 Run:
 

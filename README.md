@@ -36,14 +36,16 @@ Blender Undo, but a saved file is still the safest starting point.
    action. If the notice says that materials may need an alpha source, choose
    **Open Material Details** and review them. Automatic detection is the normal
    path; no settings are required for supported materials.
-4. Click **Preview Faces to Move**. Blender enters multi-object Edit Mode and
-   selects the faces that would use alpha. Inspect the orange selection. Press
-   `Tab` when you want to leave Edit Mode. Tabbing out, changing face selection,
-   or changing the active object does not require another analysis when the
-   mesh, UVs, materials, images, and settings are unchanged.
-5. Click **Apply Material Separation**. Clean results apply immediately. A
-   warning dialog appears for mixed or uncertain faces, unchanged/skipped
-   material groups, suppressed evidence, or conflicts. It reports only
+4. Preview is recommended but optional. Click **Preview Faces to Move** when
+   you want Blender to enter multi-object Edit Mode and select the exact faces
+   that would use alpha. Press `Tab` when you finish inspecting them. Tabbing
+   out, changing face selection, or changing the active object does not require
+   another analysis when the mesh, UVs, materials, images, and settings are
+   unchanged.
+5. Click **Apply Material Separation**. Apply without Preview always asks for confirmation.
+   A clean plan that exactly matches a completed Preview applies immediately.
+   Mixed or uncertain faces, unchanged/skipped material groups, suppressed
+   evidence, or conflicts also produce a warning dialog. It reports only
    aggregate assignment outcomes. Object, material, image, UV, and destination
    details remain under **Review → Material Details**.
 6. Check the object's material slots. The original material remains the opaque
@@ -131,8 +133,9 @@ Typical recipes:
 Every override participates in stale-result detection. Analyze again after
 editing the chosen image, supported Alpha/Base Color path, UV authority,
 threshold, or override. An edit elsewhere in the source shader keeps the face
-classification but invalidates the reviewed assignment plan, so use
-**Preview Faces to Move** again before Apply.
+classification but invalidates the reviewed assignment plan.
+Assignment-only plan changes require confirmation, not another analysis.
+Preview the revised plan if you want to inspect its faces before applying.
 
 A material without an automatic or manual alpha source is left exactly as it
 was. Set a manual source only when that material also needs to be split; it does
@@ -146,8 +149,8 @@ not have to be resolved merely to let another material proceed.
 - **Preview** changes face selection and normally enters multi-object Edit Mode.
   It does not change topology or material assignments.
 - **Apply** creates or reuses local `<source>__AMS_ALPHA` materials, appends
-  reviewed material slots, and changes only the intended polygons' material
-  indices.
+  planned material slots, and changes only the intended polygons' material
+  indices. Without a matching Preview, it asks for confirmation first.
 - Source materials, shaders, images, armatures, weights, shape keys, UVs,
   normals, attributes, modifiers, parenting, and unselected objects are not
   rewritten.
@@ -163,8 +166,8 @@ Blender may report mesh updates when you only enter or leave Edit Mode or alter
 face selection. The extension rechecks the relevant structural inputs and keeps
 the same completed report and preview when they are equal. It requests another
 analysis only after a confirmed classification-input change. An unrelated
-source-shader edit does not rerasterize faces, but it does require Preview again
-because the copied material plan changed.
+source-shader edit does not rerasterize faces, but it invalidates the exact-plan
+Preview. Apply then asks for confirmation unless you Preview the revised plan.
 Apply always performs a final synchronous check before mutating material
 assignments.
 
@@ -205,7 +208,7 @@ mipmaps, compression, clipping, or shader-specific behavior. See the detailed
 | **Uncertain faces will use alpha** | The alpha source is valid, but some faces have collapsed UVs or exceeded a deterministic coverage budget. Preview them; the Simple default keeps possible transparency by routing them to alpha. |
 | **Left unchanged — no alpha source selected** | This material does not block supported materials. Use **Set Manual Alpha Source** only if this material also needs separation. |
 | **Inputs Changed — Analyze Again** | A classification input—such as the chosen image/path, UV, settings, slot binding, or mesh—changed after analysis. Reanalyze. |
-| **Preview Faces to Move** becomes available again after a shader edit | The face classification is still valid, but the material-copy plan changed. Preview again; a full reanalysis is not required. |
+| Apply asks for confirmation again after a shader edit | The face classification is still valid, so the edit does not require another analysis. Preview the revised material-copy plan if you want to inspect it. |
 | The message appears after pressing `Tab` without editing inputs | This is a defect; mode and selection changes alone should be revalidated and reused. Include the Technical Details state in a bug report. |
 | **Source or alpha material changed** | Preserve the edited material and explicitly choose reuse or a new variant in Expert mode. |
 | Everything stays opaque | Confirm the intended image/channel and that affected pixels are below `0.999`. |

@@ -50,6 +50,12 @@ class ReadmeContractTests(unittest.TestCase):
             "final synchronous check",
             "aggregate assignment outcomes",
             "Review → Material Details",
+            "Preview is recommended but optional",
+            "Apply without Preview always asks for confirmation",
+            (
+                "Assignment-only plan changes require confirmation, "
+                "not another analysis"
+            ),
         ):
             self.assertIn(text, self.text)
         self.assertNotIn(

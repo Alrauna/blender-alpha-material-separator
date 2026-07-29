@@ -126,10 +126,10 @@ mutation boundary.
 
 Callers must query capabilities, check the API major, and avoid unavailable
 operations. Expected incompatibility is reported as `API_INCOMPATIBLE` rather
-than an exception crossing the operator boundary. The UI's mandatory preview
-review token intentionally does not change direct scripted assignment behavior:
-scripts must still supply the reviewed `expected_analysis_id`, and assignment
-performs its authoritative stale-input validation.
+than an exception crossing the operator boundary. The UI uses the exact-plan
+review token to decide whether confirmation is mandatory. It does not gate
+direct scripted assignment: scripts still supply the expected analysis ID, and
+assignment performs authoritative stale-input validation.
 
 ## Assignment return and status behavior
 

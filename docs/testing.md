@@ -137,6 +137,18 @@ by the corresponding headless regression test.
   applied. The installed-ZIP walkthrough kept Apply enabled after a face
   selection change and the Object Mode transition; the instrumented headless
   matrix confirmed zero digest and rasterization work.
+- [ ] Confirm Apply is enabled immediately after a current actionable analysis,
+  before Preview.
+- [ ] Apply an unpreviewed clean plan and confirm the dialog begins with
+  **Faces have not been previewed.**
+- [ ] Cancel the unpreviewed dialog and confirm zero changes to faces, material
+  slots, materials, and metadata.
+- [ ] Confirm the same unpreviewed plan, verify the exact planned assignment,
+  then undo it completely with Ctrl+Z.
+- [ ] Preview the exact clean plan and confirm Apply retains its immediate
+  no-warning behavior.
+- [ ] Change only assignment preflight, confirm no reanalysis is required, and
+  verify Apply forces confirmation until the revised plan is previewed.
 - [x] Repeat Object/Edit toggles, face selection changes, active-object changes,
   and multi-object Edit Mode transitions without a false stale message.
   Selection and mode changes were repeated in the installed ZIP; active-object
