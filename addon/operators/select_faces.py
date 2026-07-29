@@ -171,6 +171,14 @@ class ALPHA_MATERIAL_SEPARATOR_OT_select_faces(bpy.types.Operator):
             if result.skipped_reason:
                 continue
             mesh = result.object.data
+            if (
+                self.enter_edit_mode
+                and result.object.as_pointer() in target_pointers
+            ):
+                for vertex in mesh.vertices:
+                    vertex.select = False
+                for edge in mesh.edges:
+                    edge.select = False
             object_targets = (
                 plan_targets.get(result.object.as_pointer(), frozenset())
                 if plan_targets is not None

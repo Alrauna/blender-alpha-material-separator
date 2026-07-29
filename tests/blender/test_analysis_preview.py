@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 from array import array
 
+import bmesh
 import bpy
 
 from addon import runtime
@@ -89,6 +90,165 @@ def _quad(name: str, material):
     bpy.context.collection.objects.link(object_)
     object_.select_set(True)
     return object_
+
+
+def _preview_component_object(name: str):
+    image = bpy.data.images.new(f"{name}_IMAGE", width=2, height=1, alpha=True)
+    image.pixels.foreach_set(
+        (1.0, 1.0, 1.0, 0.0, 1.0, 1.0, 1.0, 1.0)
+    )
+    material, _tree, _principled, _texture = _material(
+        f"{name}_MATERIAL",
+        image,
+    )
+    mesh = bpy.data.meshes.new(f"{name}_MESH")
+    mesh.from_pydata(
+        (
+            (0, 0, 0),
+            (1, 0, 0),
+            (2, 0, 0),
+            (0, 1, 0),
+            (1, 1, 0),
+            (2, 1, 0),
+            (3, 0, 0),
+            (4, 0, 0),
+            (3, 1, 0),
+            (4, 1, 0),
+        ),
+        (),
+        ((0, 1, 4, 3), (1, 2, 5, 4), (6, 7, 9, 8)),
+    )
+    mesh.materials.append(material)
+    uv_layer = mesh.uv_layers.new(name="UVMap", do_init=False)
+    uv_layer.active_render = True
+    coordinates = (
+        ((0.0, 0.0), (0.5, 0.0), (0.5, 1.0), (0.0, 1.0)),
+        ((0.5, 0.0), (1.0, 0.0), (1.0, 1.0), (0.5, 1.0)),
+        ((0.5, 0.0), (1.0, 0.0), (1.0, 1.0), (0.5, 1.0)),
+    )
+    modern = getattr(uv_layer, "uv", None)
+    for polygon in mesh.polygons:
+        for offset, loop_index in enumerate(polygon.loop_indices):
+            value = coordinates[polygon.index][offset]
+            if modern is not None:
+                modern[loop_index].vector = value
+            else:
+                uv_layer.data[loop_index].uv = value
+    object_ = bpy.data.objects.new(name, mesh)
+    bpy.context.collection.objects.link(object_)
+    object_.select_set(True)
+    return object_
+
+
+def _seed_component_selection(object_, selected_faces) -> None:
+    for vertex in object_.data.vertices:
+        vertex.select = True
+    for edge in object_.data.edges:
+        edge.select = True
+    for polygon in object_.data.polygons:
+        polygon.select = polygon.index in selected_faces
+    object_.data.update()
+
+
+def _component_selection(object_):
+    return (
+        tuple(vertex.select for vertex in object_.data.vertices),
+        tuple(edge.select for edge in object_.data.edges),
+    )
+
+
+def _assert_face_derived_component_selection(object_, expected_faces) -> None:
+    edit_mesh = bmesh.from_edit_mesh(object_.data)
+    selected_faces = {face.index for face in edit_mesh.faces if face.select}
+    assert selected_faces == set(expected_faces), selected_faces
+    assert all(
+        any(face.select for face in edge.link_faces)
+        for edge in edit_mesh.edges
+        if edge.select
+    ), "selected edge belongs only to unselected faces"
+    assert all(
+        any(face.select for face in vertex.link_faces)
+        for vertex in edit_mesh.verts
+        if vertex.select
+    ), "selected vertex belongs only to unselected faces"
+
+
+def _preview_component_selection_test() -> None:
+    _clear_scene()
+    first = _preview_component_object("AMS_PREVIEW_COMPONENT_A")
+    second = _preview_component_object("AMS_PREVIEW_COMPONENT_B")
+    bpy.context.view_layer.objects.active = first
+    analyzed = bpy.ops.alpha_material_separator.analyze()
+    state = bpy.context.window_manager.alpha_material_separator_api
+    assert analyzed == {"FINISHED"}, state.last_status_json
+    payload = json.loads(state.report_json)
+    assert payload["counts"]["ALPHA_AFFECTED"] == 2, payload
+    assert payload["counts"]["OPAQUE"] == 4, payload
+    for object_ in (first, second):
+        _seed_component_selection(object_, {0, 1, 2})
+
+    preview_arguments = {
+        "expected_analysis_id": state.analysis_id,
+        "preview_assignment_plan": True,
+        "mixed_policy": "TO_ALPHA",
+        "suppressed_policy": "CANCEL_SOURCE_MATERIAL",
+        "unsupported_policy": "TO_ALPHA",
+        "derived_conflict_policy": "CANCEL_SOURCE_MATERIAL",
+        "selection_mode": "REPLACE",
+        "enter_edit_mode": True,
+    }
+    previewed = bpy.ops.alpha_material_separator.select_faces(**preview_arguments)
+    assert previewed == {"FINISHED"}, state.last_status_json
+    _assert_face_derived_component_selection(first, {0})
+    _assert_face_derived_component_selection(second, {0})
+    ui = bpy.context.window_manager.alpha_material_separator_ui
+    reviewed = (ui.reviewed_analysis_id, ui.reviewed_policy_signature)
+    repeated = bpy.ops.alpha_material_separator.select_faces(**preview_arguments)
+    assert repeated == {"FINISHED"}, state.last_status_json
+    assert state.analysis_id == preview_arguments["expected_analysis_id"]
+    assert reviewed == (ui.reviewed_analysis_id, ui.reviewed_policy_signature)
+    _assert_face_derived_component_selection(first, {0})
+    _assert_face_derived_component_selection(second, {0})
+    bpy.ops.object.mode_set(mode="OBJECT")
+
+    for selection_mode, initially_selected, expected_faces in (
+        ("REPLACE", {0, 1, 2}, {0}),
+        ("ADD", {1}, {0, 1}),
+        ("SUBTRACT", {0, 1, 2}, {1, 2}),
+    ):
+        _clear_scene()
+        object_ = _preview_component_object(
+            f"AMS_PREVIEW_COMPONENT_{selection_mode}"
+        )
+        bpy.context.view_layer.objects.active = object_
+        analyzed = bpy.ops.alpha_material_separator.analyze()
+        assert analyzed == {"FINISHED"}, state.last_status_json
+        _seed_component_selection(object_, initially_selected)
+        previewed = bpy.ops.alpha_material_separator.select_faces(
+            expected_analysis_id=state.analysis_id,
+            classes={"ALPHA_AFFECTED"},
+            selection_mode=selection_mode,
+            enter_edit_mode=True,
+        )
+        assert previewed == {"FINISHED"}, state.last_status_json
+        _assert_face_derived_component_selection(object_, expected_faces)
+        bpy.ops.object.mode_set(mode="OBJECT")
+
+    _clear_scene()
+    object_ = _preview_component_object("AMS_PREVIEW_COMPONENT_OBJECT_MODE")
+    bpy.context.view_layer.objects.active = object_
+    analyzed = bpy.ops.alpha_material_separator.analyze()
+    assert analyzed == {"FINISHED"}, state.last_status_json
+    _seed_component_selection(object_, {1})
+    components_before = _component_selection(object_)
+    previewed = bpy.ops.alpha_material_separator.select_faces(
+        expected_analysis_id=state.analysis_id,
+        classes={"ALPHA_AFFECTED"},
+        selection_mode="REPLACE",
+        enter_edit_mode=False,
+    )
+    assert previewed == {"FINISHED"}, state.last_status_json
+    assert _component_selection(object_) == components_before
 
 
 def _mesh_snapshot(object_):
@@ -450,6 +610,7 @@ def run() -> None:
     _clear_scene()
     _bulk_image_reader_tests()
     _out_of_range_uv_test()
+    _preview_component_selection_test()
     _clear_scene()
     image = _image("AMS_ANALYSIS_IMAGE")
     material, tree, principled, texture = _material("AMS_ANALYSIS_MATERIAL", image)
@@ -567,6 +728,8 @@ def run() -> None:
     safe.select_set(True)
     first.select_set(True)
     shared.select_set(True)
+    _seed_component_selection(first, {0})
+    skipped_components_before = _component_selection(first)
     bpy.context.view_layer.objects.active = safe
     safe_analysis = bpy.ops.alpha_material_separator.analyze()
     assert safe_analysis == {"FINISHED"}, safe_analysis
@@ -593,5 +756,6 @@ def run() -> None:
     assert safe.mode == "EDIT"
     assert first.mode == "OBJECT" and shared.mode == "OBJECT"
     assert not first.select_get() and not shared.select_get()
+    assert _component_selection(first) == skipped_components_before
     bpy.ops.object.mode_set(mode="OBJECT")
     print("ALPHA_MATERIAL_SEPARATOR_ANALYSIS_PREVIEW_TESTS_OK")
