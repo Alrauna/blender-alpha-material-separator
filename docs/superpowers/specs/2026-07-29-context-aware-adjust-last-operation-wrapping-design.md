@@ -22,7 +22,7 @@ UI host that is currently drawing them:
 - In a `HUD` region, use the current region width.
 - In every other context, continue using the retained adaptive confirmation
   width.
-- If a HUD-like test or exceptional context has no usable region width, fall
+- If a HUD-like test or exceptional context has no positive region width, fall
   back conservatively rather than raising an error.
 
 The native HUD may become taller when its width is narrow. Complete readable

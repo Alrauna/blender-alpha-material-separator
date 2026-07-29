@@ -1,15 +1,15 @@
 # Repository handoff
 
-Updated: 2026-07-28
+Updated: 2026-07-29
 
 ## Current objective
 
-Finish the remaining installed-ZIP visual acceptance for the implemented
-width-aware Material Details, shared panel, and Apply-confirmation text. The
-production change, automated validation, source-registered visual checks, and
-isolated ZIP installation are complete. Short sentences stay intact when space
-permits, narrow layouts wrap at word boundaries, and the Apply dialog adapts
-from 420 to 560 pixels or the smaller usable window width.
+Implement the approved context-aware wrapping plan for Blender's bottom-left
+Adjust Last Operation HUD. Blender reuses the assignment operator's `draw()`
+method there after Apply, but the current code retains the wider confirmation
+dialog width and Blender ellipsizes the resulting labels. The approved design
+uses the native `HUD` region width while preserving the adaptive confirmation
+dialog and existing sentences.
 
 ## Repository state
 
@@ -21,6 +21,10 @@ from 420 to 560 pixels or the smaller usable window width.
   - `b9cca42 feat: add width-aware UI text wrapping`
   - `4029ce6 fix: adapt UI text to available width`
   - `5edc942 fix: wrap alpha source advisory heading`
+- Context-aware HUD design commit:
+  - `8f960d5 docs: design context-aware HUD wrapping`
+- The test-first implementation plan is
+  `docs/superpowers/plans/2026-07-29-context-aware-adjust-last-operation-wrapping.md`.
 - The user chose to keep this branch as-is. It was not merged, pushed, or
   cleaned up; no remote was changed.
 - Completed one-off Superpowers plans/specifications were deleted; Git history
@@ -121,6 +125,9 @@ the complete installed-ZIP dialog interaction was not counted as passed.
 
 ## Open failures and assumptions
 
+- The context-aware HUD correction is designed and planned but not implemented.
+  The screenshot establishes truncation in Blender's native HUD; the generated
+  failing regression and installed-ZIP visual check remain to be run.
 - The private semantic lower bound still includes reference-alpha faces whose
   participating decoded A evidence classifies them `OPAQUE`.
 - The isolated installed ZIP still needs a clean, unambiguous narrow/wide
@@ -133,16 +140,19 @@ the complete installed-ZIP dialog interaction was not counted as passed.
 
 ## Remaining tasks
 
-1. Complete the isolated installed-ZIP narrow/wide 100%/150% panel and
+1. Execute the approved context-aware HUD wrapping plan test-first, rebuild the
+   ZIP, and visually confirm the native HUD no longer ellipsizes its sentences.
+2. Complete the isolated installed-ZIP narrow/wide 100%/150% panel and
    Apply-dialog visual checklist; the ZIP is already installed in the ignored
    profile.
-2. Review the uncommitted `AGENTS.md` clarification and commit it separately if
+3. Review the uncommitted `AGENTS.md` clarification and commit it separately if
    accepted.
-3. Investigate private `OPAQUE` lower-bound misses with ignored anonymized
+4. Investigate private `OPAQUE` lower-bound misses with ignored anonymized
    diagnostics and a generated failing regression before any production fix.
-4. Complete the interactive partial-apply check and Apply-preflight timing.
-5. Record user-performed ordinary Unity material/submesh acceptance.
+5. Complete the interactive partial-apply check and Apply-preflight timing.
+6. Record user-performed ordinary Unity material/submesh acceptance.
 
 ## Recommended next action
 
-Complete the isolated installed-ZIP responsive panel/dialog visual check.
+Execute Task 1 of the context-aware Adjust Last Operation wrapping plan,
+beginning with the generated failing Blender regression.
