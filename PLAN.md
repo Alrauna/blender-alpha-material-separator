@@ -10,7 +10,9 @@ partially complete. The compact count-only Apply confirmation is implemented
 and automated/private smoke coverage passes; installed-ZIP visual acceptance
 at narrow/wide layouts and 100%/150% UI scale remains open. Manual Unity
 material/submesh validation remains a release gate; VRChat validation remains
-optional stack-specific evidence.
+optional stack-specific evidence. The approved repository-simplification pass
+is complete in commits `4138236` through `f330192`; public API 1.2 and tested
+workflow behavior are unchanged.
 
 ## Product outcome
 
