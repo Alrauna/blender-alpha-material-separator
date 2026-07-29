@@ -14,6 +14,8 @@ import bpy
 from ..core import AlphaGrid
 from ..overrides import CHANNELS
 
+MAX_BULK_WORKING_BYTES = 384 * 1024 * 1024
+
 
 class ImageReadError(RuntimeError):
     pass
@@ -56,6 +58,14 @@ class ImageSnapshotBuilder:
         self.component_count = total_values // texel_count
         if self.component_count not in {1, 2, 3, 4}:
             raise ImageReadError("unsupported image component count")
+        bulk_working_bytes = (
+            total_values * array("f").itemsize
+            + texel_count * (array("f").itemsize + 1)
+        )
+        self.use_bulk_read = (
+            rows_per_chunk is None
+            and bulk_working_bytes <= MAX_BULK_WORKING_BYTES
+        )
         self.rows_per_chunk = rows_per_chunk or max(
             1,
             min(
@@ -78,6 +88,29 @@ class ImageSnapshotBuilder:
     def step(self) -> int:
         if self.complete:
             return 0
+        if self.use_bulk_read:
+            try:
+                pixels = array("f", [0.0]) * len(self.image.pixels)
+                self.image.pixels.foreach_get(pixels)
+            except (AttributeError, MemoryError, RuntimeError, TypeError, ValueError):
+                self.use_bulk_read = False
+                return self.step()
+            values = _selected_values(
+                pixels,
+                self.component_count,
+                self.channel,
+            )
+            del pixels
+            self.digest.update(values.tobytes())
+            for value in values:
+                if not math.isfinite(value):
+                    raise ImageReadError(
+                        "image contains non-finite participating values"
+                    )
+                self.affected[self.destination] = value < self.threshold
+                self.destination += 1
+            self.current_row = self.height
+            return self.height
         stop_row = min(self.height, self.current_row + self.rows_per_chunk)
         first_value = self.current_row * self.width * self.component_count
         stop_value = stop_row * self.width * self.component_count
@@ -145,7 +178,7 @@ def read_image_snapshot(
     rows_per_chunk: int | None = None,
     progress: Callable[[int, int], None] | None = None,
 ) -> ImageSnapshot:
-    """Read one participating channel in bounded complete-row chunks."""
+    """Read one participating channel through bounded native or row chunks."""
     builder = ImageSnapshotBuilder(
         image,
         channel=channel,

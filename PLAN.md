@@ -208,6 +208,27 @@ The authoritative hardening matrix includes:
   decoded participating A channel; investigate separately without broadening
   resolver scope or changing raster margin in this milestone.
 
+## Milestone 4C: Analyze throughput
+
+- [x] Establish generated failing regressions for eligible native bulk image
+  reads, bounded/failure fallback, digest/classification parity, one modal
+  preparation pass, one UV traversal, and shared-material fingerprint reuse.
+- [x] Use Blender's native pixel transfer only when the complete temporary
+  working estimate is at most 384 MiB; retain complete-row chunking otherwise.
+- [x] Remove the duplicate post-image preparation/signature pass without
+  weakening publication-time structural and participating-pixel validation.
+- [x] Measure an exact raster allocation candidate against the clipping oracle
+  and discard it because its 4.8 percent polygon-phase gain did not meet the
+  approved 20 percent keep threshold.
+- [x] Re-profile multiprocessing and defer it because the measured 2.14x
+  isolated-core gain does not justify Blender serialization, memory,
+  cancellation, and process-lifecycle complexity for the projected complete
+  workflow.
+- [x] Pass the final source/archive validation gate. Unit, headless Blender,
+  generated benchmark, and private multi-object/preservation smoke are
+  complete; the smoke retains the established 1,176-face `OPAQUE` lower-bound
+  discrepancy and introduces no new mismatch.
+
 ## Milestone 5: release validation
 
 - [x] Record small, typical-avatar, high-complexity, repeated-UV, and pathological

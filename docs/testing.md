@@ -208,3 +208,12 @@ polygons. Use one discarded warm-up and five measured runs. On the approved
 same-machine structural workflow, the new mode-exit recheck targets a median
 below one second and below 15 percent of cold analysis; established same-machine
 metrics retain the 25 percent unexplained-regression gate.
+
+The Analyze throughput regression also exercises both image-reader paths.
+Eligible images must use one native bulk read with no Python slices; an
+explicit chunk size, an oversized working estimate, or a rejected native call
+must use the existing complete-row fallback. Both paths must produce identical
+digests and affected-texel grids for every supported component count/channel,
+and non-finite participating values must still fail. Modal analysis prepares
+the selected inputs once, traverses each UV layer once, and fingerprints each
+shared material once per assignment signature.

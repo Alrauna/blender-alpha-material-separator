@@ -459,6 +459,14 @@ def _assignment_signature(objects: Iterable[bpy.types.Object]) -> str:
     signature = _Signature()
     signature.add("ALPHA_MATERIAL_SEPARATOR_ASSIGNMENT_V1")
     source_pointers: set[int] = set()
+    fingerprints: dict[int, str] = {}
+
+    def fingerprint(material) -> str:
+        pointer = material.as_pointer()
+        if pointer not in fingerprints:
+            fingerprints[pointer] = material_fingerprint(material)
+        return fingerprints[pointer]
+
     for object_ in sorted(objects, key=lambda item: (item.name_full, item.as_pointer())):
         if object_.type != "MESH":
             continue
@@ -473,7 +481,7 @@ def _assignment_signature(objects: Iterable[bpy.types.Object]) -> str:
             signature.add(
                 {
                     "editable": bool(getattr(material, "is_editable", True)),
-                    "fingerprint": material_fingerprint(material),
+                    "fingerprint": fingerprint(material),
                     "library": material.library.filepath if material.library else "",
                     "link": slot.link,
                     "material_name": material.name_full,
@@ -496,7 +504,7 @@ def _assignment_signature(objects: Iterable[bpy.types.Object]) -> str:
             continue
         signature.add(
             {
-                "fingerprint": material_fingerprint(material),
+                "fingerprint": fingerprint(material),
                 "material_name": material.name_full,
                 "material_pointer": material.as_pointer(),
                 "metadata": sorted(
@@ -592,26 +600,18 @@ def _prepare(
     *,
     image_cache: ImageCache | None = None,
     load_images: bool = True,
-) -> tuple[list[_PreparedObject], ImageCache, str]:
+) -> tuple[list[_PreparedObject], ImageCache]:
     image_cache = {} if image_cache is None else image_cache
     if config.material_overrides and config.image_name:
         raise OverrideConfigError(
             "OVERRIDE_CONFLICT",
             "Legacy selection-wide image override cannot be combined with per-material overrides",
         )
-    signature = _Signature()
-    signature.add(config.payload())
     explicit_image = _explicit_image(config)
     override_by_material = {
         item.material_name: item for item in config.material_overrides
     }
     encountered_materials: set[str] = set()
-    signature.add(
-        {
-            "explicit_image_requested": config.image_name,
-            "explicit_image_pointer": explicit_image.as_pointer() if explicit_image else 0,
-        }
-    )
     prepared: list[_PreparedObject] = []
 
     for object_ in sorted(objects, key=lambda item: (item.name_full, item.as_pointer())):
@@ -623,64 +623,10 @@ def _prepare(
         if unsafe:
             result.skipped_reason = unsafe
 
-        signature.add(
-            {
-                "mesh_editable": getattr(mesh, "is_editable", True),
-                "mesh_library": mesh.library.filepath if mesh.library else "",
-                "mesh_name": mesh.name_full,
-                "mesh_pointer": mesh.as_pointer(),
-                "mesh_users": mesh.users,
-                "object_name": object_.name_full,
-                "object_pointer": object_.as_pointer(),
-                "skip": unsafe,
-            }
-        )
-        for vertex in mesh.vertices:
-            signature.add_bytes(struct.pack("<3d", *vertex.co))
-        for edge in mesh.edges:
-            signature.add_bytes(struct.pack("<2I", *edge.vertices))
-        for loop in mesh.loops:
-            signature.add_bytes(struct.pack("<I", loop.vertex_index))
-        for polygon in mesh.polygons:
-            signature.add_bytes(
-                struct.pack(
-                    "<3I",
-                    polygon.loop_start,
-                    polygon.loop_total,
-                    polygon.material_index,
-                )
-            )
-
-        active_uv = mesh.uv_layers.active
-        signature.add(
-            {
-                "active_uv": active_uv.name if active_uv else "",
-                "uv_layers": [
-                    {
-                        "active_render": bool(getattr(layer, "active_render", False)),
-                        "name": layer.name,
-                    }
-                    for layer in mesh.uv_layers
-                ],
-            }
-        )
-        for layer in mesh.uv_layers:
-            for uv in _uv_values(layer):
-                signature.add_bytes(struct.pack("<2d", *uv))
-
         resolutions: dict[int, MaterialResolution] = {}
         snapshots: dict[int, ImageSnapshot] = {}
-        signature.add({"slot_count": len(object_.material_slots)})
         for slot_index, slot in enumerate(object_.material_slots):
             material = slot.material
-            signature.add(
-                {
-                    "link": slot.link,
-                    "material_name": material.name_full if material else "",
-                    "material_pointer": material.as_pointer() if material else 0,
-                    "slot_index": slot_index,
-                }
-            )
             if material is None:
                 continue
             encountered_materials.add(material.name_full)
@@ -692,16 +638,6 @@ def _prepare(
                 override_by_material,
             )
             resolutions[slot_index] = resolution
-            signature.add(
-                {
-                    "address": resolution.address_mode.value,
-                    "channel": resolution.channel,
-                    "reason": resolution.reason,
-                    "source_kind": resolution.source_kind,
-                    "supported": resolution.supported,
-                    "uv": resolution.uv_map_name,
-                }
-            )
             if resolution.supported and resolution.image is not None:
                 if load_images:
                     try:
@@ -718,31 +654,8 @@ def _prepare(
                             reason=f"IMAGE_READ_ERROR:{error}",
                         )
                         resolutions[slot_index] = resolution
-                        signature.add(resolution.reason)
                     else:
                         snapshots[slot_index] = snapshot
-                        image = resolution.image
-                        signature.add(
-                            {
-                                "alpha_mode": image.alpha_mode,
-                                "channels": image.channels,
-                                "digest": snapshot.digest,
-                                "dimensions": [snapshot.width, snapshot.height],
-                                "filepath": image.filepath,
-                                "image_name": image.name_full,
-                                "image_pointer": image.as_pointer(),
-                                "is_dirty": image.is_dirty,
-                                "packed": bool(image.packed_file),
-                                "source": image.source,
-                            }
-                        )
-                else:
-                    signature.add(
-                        {
-                            "deferred_image_pointer": resolution.image.as_pointer(),
-                            "deferred_image_channel": resolution.channel,
-                        }
-                    )
 
         mesh.calc_loop_triangles()
         triangle_loops: dict[int, list[tuple[int, int, int]]] = defaultdict(list)
@@ -764,7 +677,44 @@ def _prepare(
             "Override target material is not used by the selected meshes: "
             + ", ".join(unused_overrides),
         )
-    return prepared, image_cache, signature.hexdigest()
+    return prepared, image_cache
+
+
+def _input_signature(
+    structural_signature: str,
+    prepared: Iterable[_PreparedObject],
+    config: AnalysisConfig,
+) -> str:
+    """Combine structural authority with the participating pixel digests."""
+
+    signature = _Signature()
+    signature.add("ALPHA_MATERIAL_SEPARATOR_INPUT_V3")
+    signature.add(structural_signature)
+    signature.add(config.payload())
+    for item in prepared:
+        signature.add(item.object.as_pointer())
+        for slot_index, resolution in sorted(item.resolutions.items()):
+            snapshot = item.snapshots.get(slot_index)
+            signature.add(
+                {
+                    "channel": resolution.channel,
+                    "component_count": (
+                        snapshot.component_count if snapshot is not None else 0
+                    ),
+                    "digest": snapshot.digest if snapshot is not None else "",
+                    "height": snapshot.height if snapshot is not None else 0,
+                    "image_pointer": (
+                        resolution.image.as_pointer()
+                        if resolution.image is not None
+                        else 0
+                    ),
+                    "reason": resolution.reason,
+                    "slot_index": slot_index,
+                    "supported": resolution.supported,
+                    "width": snapshot.width if snapshot is not None else 0,
+                }
+            )
+    return signature.hexdigest()
 
 
 def validate_report(report: AnalysisReport) -> tuple[bool, str]:
@@ -828,7 +778,15 @@ def validate_report(report: AnalysisReport) -> tuple[bool, str]:
             record("STRUCTURAL", True, "OK")
             return True, "OK"
         attempted_mode = "FULL"
-        _prepared, _cache, signature = _prepare(report.objects, report.config)
+        prepared, _cache = _prepare(
+            report.objects,
+            report.config,
+        )
+        signature = _input_signature(
+            structural_signature,
+            prepared,
+            report.config,
+        )
     except (OverrideConfigError, ReferenceError, RuntimeError, ValueError):
         reason = "INPUT_DATABLOCK_UNAVAILABLE"
         record(attempted_mode, False, reason)
@@ -888,7 +846,7 @@ class AnalysisEngine:
         self._image_builders: list[ImageSnapshotBuilder] = []
         self._image_builder_index = 0
         if defer_images:
-            self.prepared, _cache, _provisional_signature = _prepare(
+            self.prepared, _cache = _prepare(
                 self.objects,
                 config,
                 image_cache=self.image_cache,
@@ -917,10 +875,15 @@ class AnalysisEngine:
                 for image, channel in unique_requests.values()
             ]
         else:
-            self.prepared, self.image_cache, self.signature = _prepare(
+            self.prepared, self.image_cache = _prepare(
                 self.objects,
                 config,
                 image_cache=self.image_cache,
+            )
+            self.signature = _input_signature(
+                self.structural_signature,
+                self.prepared,
+                self.config,
             )
         polygon_total = sum(len(item.object.data.polygons) for item in self.prepared)
         self.total = polygon_total + sum(
@@ -960,11 +923,23 @@ class AnalysisEngine:
                 )
 
     def _finalize_deferred_images(self) -> None:
-        self.prepared, self.image_cache, self.signature = _prepare(
-            self.objects,
+        for prepared in self.prepared:
+            for slot_index, resolution in prepared.resolutions.items():
+                if not resolution.supported or resolution.image is None:
+                    continue
+                key = (
+                    resolution.image.as_pointer(),
+                    resolution.channel,
+                    self.config.settings.alpha_threshold,
+                )
+                snapshot = self.image_cache.get(key)
+                if snapshot is None:
+                    raise RuntimeError("completed image snapshot is unavailable")
+                prepared.snapshots[slot_index] = snapshot
+        self.signature = _input_signature(
+            self.structural_signature,
+            self.prepared,
             self.config,
-            image_cache=self.image_cache,
-            load_images=True,
         )
         self._deferred_images = False
         self._initialize_groups()

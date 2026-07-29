@@ -71,7 +71,11 @@ the 1,000,000-scanline budget in under 0.1 ms.
 
 ## Interpretation and release policy
 
-- Full authoritative hashing is the dominant 8K cost and remains mandatory
+- Blender-native bulk pixel transfer is used when its complete working buffer
+  is at most 384 MiB. Larger images and unavailable native reads retain the
+  complete-row chunked path. Both paths produce the same participating-channel
+  digest and threshold grid.
+- Full authoritative hashing remains the dominant 8K cost and remains mandatory
   when Blender cannot prove that pixels are unchanged.
 - Coverage reuse is valuable for small, typical, and large/tiled inputs. It is
   not currently a speedup for the high tier because full validation still
@@ -127,3 +131,37 @@ image rows, and rasterized zero polygons. Full 1K/2K/4K/8K digest medians were
 all faster than the first baseline. No matching time or memory metric regressed
 by the provisional 25 percent limit. Raw output remains ignored in
 `.test-output/benchmarks/baseline.json`.
+
+## Analyze throughput optimization
+
+Measured 2026-07-29 after replacing eligible Python pixel slices with bounded
+`Image.pixels.foreach_get` transfers and removing duplicate modal preparation,
+UV traversal, and shared-material fingerprint work. The exact rasterizer was
+left unchanged: an allocation-reduction candidate preserved the clipping-oracle
+results but improved the representative polygon phase by only 4.8 percent,
+below the 20 percent keep threshold.
+
+| Tier | Previous cold | Current cold | Change |
+| --- | ---: | ---: | ---: |
+| Small | 0.790 s | 0.723 s | -8.5% |
+| Typical | 12.574 s | 8.538 s | -32.1% |
+| High | 79.079 s | 82.812 s | +4.7% |
+| Large/tiled UV | 2.010 s | 2.028 s | +0.9% |
+
+The high-tier peak working set was about 2.90 GiB, within 2 percent of the
+previous recorded peak. Full digest medians were 0.073 seconds at 1K, 0.291
+seconds at 2K, 1.242 seconds at 4K, and 47.094 seconds at 8K. The 8K image
+correctly used the bounded fallback.
+
+On the lawful 247,718-polygon private stress example, the same anonymous
+aggregate classifications were preserved while a diagnostic cold run fell
+from 82.48 seconds to 46.09 seconds. Image preparation fell from 38.76 seconds
+to 10.20 seconds and repeated final preparation was eliminated. This is a
+single representative diagnostic, not the release median.
+
+A pure-core process prototype reached 2.14x with four workers but projected
+only about 1.29x for the original complete workflow. After the retained
+single-process improvements, multiprocessing is deferred: Blender datablocks
+must remain on the main process, serialized coverage work would increase
+memory and cancellation complexity, and no measured whole-workflow case clears
+the 20 percent implementation threshold safely.

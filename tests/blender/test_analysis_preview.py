@@ -4,13 +4,19 @@
 from __future__ import annotations
 
 import json
+from array import array
 
 import bpy
 
 from addon import runtime
-from addon.adapters.analysis import AnalysisConfig, AnalysisEngine
+from addon.adapters import analysis as analysis_module
+from addon.adapters import image_data
+from addon.adapters.analysis import (
+    AnalysisConfig,
+    AnalysisEngine,
+)
 from addon.adapters.assignment import build_assignment_plan
-from addon.adapters.image_data import read_image_snapshot
+from addon.adapters.image_data import ImageReadError, read_image_snapshot
 from addon.adapters.material_resolver import resolve_material
 from addon.core import FaceClass
 
@@ -102,6 +108,172 @@ def _mesh_snapshot(object_):
         "materials": tuple(material.as_pointer() for material in mesh.materials),
         "uvs": uvs,
     }
+
+
+class _Pixels:
+    def __init__(self, values, *, reject_slices=False, reject_bulk=False):
+        self.values = tuple(array("f", values))
+        self.reject_slices = reject_slices
+        self.reject_bulk = reject_bulk
+        self.bulk_reads = 0
+        self.slice_reads = 0
+
+    def __len__(self):
+        return len(self.values)
+
+    def __getitem__(self, item):
+        self.slice_reads += 1
+        if self.reject_slices:
+            raise AssertionError("chunked pixel access was used")
+        return self.values[item]
+
+    def foreach_get(self, destination):
+        self.bulk_reads += 1
+        if self.reject_bulk:
+            raise RuntimeError("bulk pixel access unavailable")
+        destination[:] = array("f", self.values)
+
+
+class _Image:
+    def __init__(self, values, component_count, **pixel_options):
+        self.size = (2, 1)
+        self.pixels = _Pixels(values, **pixel_options)
+        self.component_count = component_count
+
+
+def _bulk_image_reader_tests() -> None:
+    assert hasattr(
+        image_data, "MAX_BULK_WORKING_BYTES"
+    ), "bounded native bulk image reader is missing"
+    original_limit = image_data.MAX_BULK_WORKING_BYTES
+    try:
+        for component_count in (1, 2, 3, 4):
+            values = tuple(
+                (index + 1) / 10
+                for index in range(2 * component_count)
+            )
+            channels = ["ALPHA", "RED"]
+            if component_count >= 2:
+                channels.append("GREEN")
+            if component_count >= 3:
+                channels.extend(("BLUE", "LUMINANCE"))
+            for channel in channels:
+                image_data.MAX_BULK_WORKING_BYTES = original_limit
+                bulk_image = _Image(
+                    values,
+                    component_count,
+                    reject_slices=True,
+                )
+                bulk = read_image_snapshot(
+                    bulk_image,
+                    channel=channel,
+                    threshold=0.5,
+                )
+                assert bulk_image.pixels.bulk_reads == 1
+                assert bulk_image.pixels.slice_reads == 0
+
+                image_data.MAX_BULK_WORKING_BYTES = 0
+                chunked_image = _Image(
+                    values,
+                    component_count,
+                    reject_bulk=True,
+                )
+                chunked = read_image_snapshot(
+                    chunked_image,
+                    channel=channel,
+                    threshold=0.5,
+                )
+                assert chunked_image.pixels.bulk_reads == 0
+                assert chunked_image.pixels.slice_reads > 0
+                assert bulk.digest == chunked.digest, (
+                    component_count,
+                    channel,
+                    bulk.digest,
+                    chunked.digest,
+                )
+                assert bulk.grid.affected == chunked.grid.affected, (
+                    component_count,
+                    channel,
+                )
+
+        image_data.MAX_BULK_WORKING_BYTES = original_limit
+        fallback_image = _Image(
+            (1.0, 1.0, 1.0, 0.0, 1.0, 1.0, 1.0, 1.0),
+            4,
+            reject_bulk=True,
+        )
+        fallback = read_image_snapshot(
+            fallback_image,
+            channel="ALPHA",
+            threshold=0.999,
+        )
+        assert fallback_image.pixels.bulk_reads == 1
+        assert fallback_image.pixels.slice_reads > 0
+        assert fallback.grid.affected == b"\x01\x00"
+
+        invalid_image = _Image((1.0, float("nan")), 1)
+        try:
+            read_image_snapshot(
+                invalid_image,
+                channel="RED",
+                threshold=0.999,
+            )
+        except ImageReadError:
+            pass
+        else:
+            raise AssertionError("bulk reader accepted a non-finite channel value")
+    finally:
+        if hasattr(image_data, "MAX_BULK_WORKING_BYTES"):
+            image_data.MAX_BULK_WORKING_BYTES = original_limit
+
+
+def _single_preparation_pass_test(*objects) -> None:
+    calls = 0
+    uv_passes = 0
+    original_prepare = analysis_module._prepare
+    original_uv_values = analysis_module._uv_values
+
+    def counted_prepare(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return original_prepare(*args, **kwargs)
+
+    def counted_uv_values(layer):
+        nonlocal uv_passes
+        uv_passes += 1
+        yield from original_uv_values(layer)
+
+    analysis_module._prepare = counted_prepare
+    analysis_module._uv_values = counted_uv_values
+    try:
+        engine = AnalysisEngine(objects, AnalysisConfig(), defer_images=True)
+        while not engine.step(32):
+            pass
+        engine.finish()
+    finally:
+        analysis_module._prepare = original_prepare
+        analysis_module._uv_values = original_uv_values
+    assert calls == 1, f"modal analysis prepared the same inputs {calls} times"
+    expected_uv_passes = sum(len(object_.data.uv_layers) for object_ in objects)
+    assert uv_passes == expected_uv_passes, (
+        f"modal analysis traversed UV layers {uv_passes} times; "
+        f"expected {expected_uv_passes}"
+    )
+
+    fingerprint_calls = {}
+    original_fingerprint = analysis_module.material_fingerprint
+
+    def counted_fingerprint(material):
+        pointer = material.as_pointer()
+        fingerprint_calls[pointer] = fingerprint_calls.get(pointer, 0) + 1
+        return original_fingerprint(material)
+
+    analysis_module.material_fingerprint = counted_fingerprint
+    try:
+        analysis_module._assignment_signature(objects)
+    finally:
+        analysis_module.material_fingerprint = original_fingerprint
+    assert max(fingerprint_calls.values(), default=0) == 1, fingerprint_calls
 
 
 def _out_of_range_uv_test() -> None:
@@ -276,6 +448,7 @@ def _resolver_tests(material, mesh, image, tree, principled, texture):
 
 def run() -> None:
     _clear_scene()
+    _bulk_image_reader_tests()
     _out_of_range_uv_test()
     _clear_scene()
     image = _image("AMS_ANALYSIS_IMAGE")
@@ -294,6 +467,7 @@ def run() -> None:
         if link.to_socket == principled.inputs["Alpha"] or link.to_socket == texture.inputs["Vector"]:
             tree.links.remove(link)
 
+    _single_preparation_pass_test(first, second)
     before = (_mesh_snapshot(first), _mesh_snapshot(second))
     deferred = AnalysisEngine((first, second), AnalysisConfig(), defer_images=True)
     assert deferred.completed == 0
