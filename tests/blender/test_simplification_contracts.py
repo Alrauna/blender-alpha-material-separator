@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import json
+
 import bpy
 
 from addon import runtime
@@ -91,6 +93,16 @@ def _assert_group_counts_match_face_indices() -> None:
     group = next(iter(object_result.groups.values()))
     for face_class in FaceClass:
         assert group.public_count(face_class) == len(group.face_indices[face_class])
+    group_payload = json.loads(
+        bpy.context.window_manager.alpha_material_separator_api.report_json
+    )["objects"][0]["groups"][0]
+    assert group_payload["counts"] == {
+        "ALPHA_AFFECTED": 0,
+        "MIXED": 1,
+        "OPAQUE": 0,
+        "SUPPRESSED": 0,
+        "UNSUPPORTED": 0,
+    }
 
 
 def run() -> None:

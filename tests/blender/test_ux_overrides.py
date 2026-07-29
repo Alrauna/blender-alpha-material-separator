@@ -10,15 +10,56 @@ from types import SimpleNamespace
 
 import bpy
 
-from addon import runtime
+from addon import api_contract, runtime
 from addon.adapters import analysis as analysis_adapter
 from addon.adapters.assignment import build_assignment_plan
 from addon.operators.assign_materials import (
     ALPHA_MATERIAL_SEPARATOR_OT_assign_materials,
 )
 from addon.operators.select_faces import ALPHA_MATERIAL_SEPARATOR_OT_select_faces
+from addon.panel import (
+    ALPHA_MATERIAL_SEPARATOR_PT_main,
+    _draw_completion,
+)
 from addon.presentation import review_signature
 from tests.blender.test_analysis_preview import _clear_scene, _image, _material, _quad
+
+
+class _RecordingLayout:
+    def __init__(self, root=None):
+        self.root = root or self
+        if root is None:
+            self.labels = []
+            self.properties = []
+
+    def _child(self):
+        return _RecordingLayout(self.root)
+
+    def box(self):
+        return self._child()
+
+    def row(self, **_kwargs):
+        return self._child()
+
+    def label(self, *, text="", icon="NONE"):
+        self.root.labels.append((text, icon))
+
+    def prop(self, _data, property_name, **kwargs):
+        self.root.properties.append((property_name, kwargs))
+
+    def operator(self, *_args, **_kwargs):
+        return SimpleNamespace()
+
+    def separator(self):
+        pass
+
+
+def _draw_main_panel():
+    layout = _RecordingLayout()
+    ALPHA_MATERIAL_SEPARATOR_PT_main.draw(
+        SimpleNamespace(layout=layout), bpy.context
+    )
+    return layout
 
 
 def _select_only(*objects) -> None:
@@ -120,6 +161,64 @@ def run() -> None:
     assert groups[manual_material.name]["uv_map"] == "UVMap"
     assert payload["counts"]["MIXED"] == 1, payload
     assert payload["counts"]["OPAQUE"] == 1, payload
+
+    collapsed = _draw_main_panel()
+    disclosure = next(
+        entry
+        for entry in collapsed.properties
+        if entry[0] == "show_material_details"
+    )
+    assert disclosure[1]["text"] == "Material Details (2)"
+    assert disclosure[1]["icon"] == "TRIA_RIGHT"
+    ui.show_material_details = True
+    expanded = _draw_main_panel()
+    disclosure = next(
+        entry for entry in expanded.properties if entry[0] == "show_material_details"
+    )
+    assert disclosure[1]["icon"] == "TRIA_DOWN"
+
+    original_report_json = state.report_json
+    unsupported_payload = json.loads(original_report_json)
+    unsupported_group = unsupported_payload["objects"][0]["groups"][0]
+    unsupported_group["supported"] = False
+    unsupported_group["resolution"] = "NO_AUTHORITATIVE_ALPHA_IMAGE"
+    state.report_json = json.dumps(unsupported_payload)
+    try:
+        unsupported_panel = _draw_main_panel()
+        assert (
+            "Left unchanged — no alpha source selected",
+            "INFO",
+        ) in unsupported_panel.labels
+    finally:
+        state.report_json = original_report_json
+        ui.show_material_details = False
+
+    active_report = runtime.report(state.analysis_id)
+    assert active_report is not None
+    runtime.mark_dirty("SETTINGS_CHANGED")
+    stale_panel = _draw_main_panel()
+    assert ("Inputs Changed — Analyze Again", "ERROR") in stale_panel.labels
+    runtime.set_report(active_report)
+
+    completion_layout = _RecordingLayout()
+    _draw_completion(
+        completion_layout,
+        SimpleNamespace(
+            last_completion_json=api_contract.dumps(
+                api_contract.status_payload(
+                    "ASSIGNMENT_NO_CHANGES",
+                    "Already separated — no additional changes",
+                    changes={},
+                )
+            )
+        ),
+        SimpleNamespace(last_status_code="", last_status_json="{}"),
+    )
+    assert (
+        "Already separated — no additional changes",
+        "CHECKMARK",
+    ) in completion_layout.labels
+
     unrelated_image = bpy.data.images.new(
         "AMS_UX_UNRELATED_IMAGE", width=1, height=1, alpha=True
     )

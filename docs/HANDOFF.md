@@ -41,6 +41,8 @@ clarification; the next product check is installed-ZIP visual acceptance.
   preserving the public Analyze operator arguments.
 - Removed tests that parsed `panel.py` and `assign_materials.py` source text;
   observable presentation, dialog, cancellation, and README contracts remain.
+- Independent review added real panel-draw coverage for stale/no-source/
+  already-separated copy, native disclosure binding/icons, and public counts.
 - Rebuilt the ignored extension ZIP. No private helper, asset, raw result,
   package, or test output was committed.
 
