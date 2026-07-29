@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import bpy
 
@@ -13,9 +14,28 @@ from addon.adapters.assignment import (
     build_assignment_plan,
     execute_assignment_plan,
 )
-from addon.presentation import already_separated_tooltip
+from addon.operators.assign_materials import (
+    ALPHA_MATERIAL_SEPARATOR_OT_assign_materials,
+    _CONFIRMATION_TEXT,
+    _CONFIRMATION_TITLE,
+    _CONFIRMATION_WIDTH,
+)
+from addon.presentation import already_separated_tooltip, review_signature
 from tests.blender.test_analysis_preview import _clear_scene, _image, _material, _quad
 from tests.blender.test_assignment import _analyze, _assign
+
+
+class _CancelledDialogWindowManager:
+    def __init__(self, real):
+        self._real = real
+        self.options = None
+
+    def __getattr__(self, name):
+        return getattr(self._real, name)
+
+    def invoke_props_dialog(self, _operator, **options):
+        self.options = options
+        return {"CANCELLED"}
 
 
 def _partial_support_object(name, source, unresolved):
@@ -71,6 +91,10 @@ def _partial_support_object(name, source, unresolved):
 
 
 def run() -> None:
+    assert _CONFIRMATION_WIDTH == 420
+    assert _CONFIRMATION_TITLE == "Apply Material Separation"
+    assert _CONFIRMATION_TEXT == "Apply"
+
     _clear_scene()
     image = _image("AMS_POLICY_IMAGE")
     material, _tree, _principled, _texture = _material("AMS_POLICY_SOURCE", image)
@@ -81,6 +105,26 @@ def run() -> None:
     state = bpy.context.window_manager.alpha_material_separator_api
     report = json.loads(state.report_json)
     assert report["counts"]["SUPPRESSED"] == 1, report
+    suppressed_report = runtime.report(state.analysis_id)
+    suppressed_blocked_plan = build_assignment_plan(
+        suppressed_report,
+        mixed_policy="TO_ALPHA",
+        suppressed_policy="CANCEL_SOURCE_MATERIAL",
+        unsupported_policy="TO_ALPHA",
+        conflict_policy="CANCEL_SOURCE_MATERIAL",
+    )
+    suppressed_move_plan = build_assignment_plan(
+        suppressed_report,
+        mixed_policy="TO_ALPHA",
+        suppressed_policy="TO_ALPHA",
+        unsupported_policy="TO_ALPHA",
+        conflict_policy="CANCEL_SOURCE_MATERIAL",
+    )
+    assert (
+        suppressed_blocked_plan.public_payload()["suppressed_faces_to_alpha"]
+        == 0
+    )
+    assert suppressed_move_plan.public_payload()["suppressed_faces_to_alpha"] == 1
     blocked, blocked_state = _assign(state.analysis_id)
     assert blocked == {"CANCELLED"}, blocked_state.last_status_json
     assert object_.data.polygons[0].material_index == 0
@@ -156,6 +200,8 @@ def run() -> None:
     )
     assert len(blocked_plan.blocked) == 1, blocked_plan.public_payload()
     assert blocked_plan.blocked[0]["material"] == source.name
+    blocked_payload = blocked_plan.public_payload()
+    assert blocked_payload["mixed_faces_to_alpha"] == 0, blocked_payload
     keep_plan = build_assignment_plan(
         report,
         mixed_policy="TO_ALPHA",
@@ -176,9 +222,60 @@ def run() -> None:
     )
     public_plan = plan.public_payload()
     assert public_plan["faces_to_reassign"] == 3, public_plan
+    assert public_plan["mixed_faces_to_alpha"] == 1, public_plan
+    assert public_plan["suppressed_faces_to_alpha"] == 0, public_plan
     assert public_plan["face_local_unsupported_to_alpha"] == 1, public_plan
     assert public_plan["material_source_groups_left_unchanged"] == 1, public_plan
     assert not plan.blocked, public_plan
+
+    indices_before_dialog = tuple(
+        polygon.material_index for polygon in partial.data.polygons
+    )
+    slots_before_dialog = tuple(
+        slot.material for slot in partial.material_slots
+    )
+    dialog_window_manager = _CancelledDialogWindowManager(
+        bpy.context.window_manager
+    )
+    operator = SimpleNamespace(
+        api_major=1,
+        expected_analysis_id=analysis_id,
+        mixed_policy="TO_ALPHA",
+        suppressed_policy="CANCEL_SOURCE_MATERIAL",
+        unsupported_policy="TO_ALPHA",
+        derived_conflict_policy="CANCEL_SOURCE_MATERIAL",
+        expected_review_signature="",
+        _confirmation_plan_signature="",
+        _confirmation_plan_json="{}",
+    )
+    operator.expected_review_signature = review_signature(
+        analysis_id,
+        operator.mixed_policy,
+        operator.suppressed_policy,
+        operator.unsupported_policy,
+        operator.derived_conflict_policy,
+        public_plan,
+    )
+    cancelled = ALPHA_MATERIAL_SEPARATOR_OT_assign_materials.invoke(
+        operator,
+        SimpleNamespace(
+            window_manager=dialog_window_manager,
+            object=bpy.context.object,
+        ),
+        None,
+    )
+    assert cancelled == {"CANCELLED"}, cancelled
+    assert dialog_window_manager.options == {
+        "width": 420,
+        "title": "Apply Material Separation",
+        "confirm_text": "Apply",
+    }
+    assert tuple(
+        polygon.material_index for polygon in partial.data.polygons
+    ) == indices_before_dialog
+    assert tuple(
+        slot.material for slot in partial.material_slots
+    ) == slots_before_dialog
 
     # An unexpected execution failure must restore slots, face assignments, and
     # any newly-created derived material before the operator reports failure.

@@ -48,6 +48,8 @@ class GroupDisposition:
     material_source_unsupported: int = 0
     uncertain_to_alpha: int = 0
     retained_by_policy: int = 0
+    mixed_to_alpha: int = 0
+    suppressed_to_alpha: int = 0
 
     def public_payload(self) -> dict[str, object]:
         return {
@@ -57,9 +59,11 @@ class GroupDisposition:
             "faces_to_alpha": self.faces_to_alpha,
             "material": self.material_name,
             "material_source_unsupported": self.material_source_unsupported,
+            "mixed_to_alpha": self.mixed_to_alpha,
             "object": self.object_name,
             "reason": self.reason,
             "retained_by_policy": self.retained_by_policy,
+            "suppressed_to_alpha": self.suppressed_to_alpha,
             "total_faces": self.total_faces,
             "uncertain_to_alpha": self.uncertain_to_alpha,
         }
@@ -169,6 +173,9 @@ class AssignmentPlan:
                 item.action == "LEAVE_UNCHANGED_NO_ALPHA_SOURCE"
                 for item in self.dispositions
             ),
+            "mixed_faces_to_alpha": sum(
+                item.mixed_to_alpha for item in self.dispositions
+            ),
             "metadata_refreshes": self.metadata_refreshes,
             "planned_additional_slots": self.planned_slots,
             "partial_material_groups": self.partial_group_count,
@@ -195,6 +202,9 @@ class AssignmentPlan:
                 for pointer, source in self.sources.items()
                 if pointer in self.decisions
             },
+            "suppressed_faces_to_alpha": sum(
+                item.suppressed_to_alpha for item in self.dispositions
+            ),
         }
 
 
@@ -414,12 +424,18 @@ def build_assignment_plan(
 
             face_indices = list(group.face_indices[FaceClass.ALPHA_AFFECTED])
             retained_by_policy = 0
+            mixed_to_alpha = 0
+            suppressed_to_alpha = 0
             if mixed_policy == "TO_ALPHA":
-                face_indices.extend(group.face_indices[FaceClass.MIXED])
+                mixed_faces = group.face_indices[FaceClass.MIXED]
+                face_indices.extend(mixed_faces)
+                mixed_to_alpha = len(mixed_faces)
             elif mixed_policy == "KEEP_SOURCE":
                 retained_by_policy += len(group.face_indices[FaceClass.MIXED])
             if suppressed_policy == "TO_ALPHA":
-                face_indices.extend(group.face_indices[FaceClass.SUPPRESSED])
+                suppressed_faces = group.face_indices[FaceClass.SUPPRESSED]
+                face_indices.extend(suppressed_faces)
+                suppressed_to_alpha = len(suppressed_faces)
             elif suppressed_policy == "KEEP_SOURCE":
                 retained_by_policy += len(group.face_indices[FaceClass.SUPPRESSED])
             if unsupported_policy == "TO_ALPHA":
@@ -478,6 +494,8 @@ def build_assignment_plan(
                     material_source_unsupported=len(material_source_unsupported),
                     uncertain_to_alpha=uncertain_to_alpha,
                     retained_by_policy=retained_by_policy,
+                    mixed_to_alpha=mixed_to_alpha,
+                    suppressed_to_alpha=suppressed_to_alpha,
                 )
             )
             required_sources.add(source_pointer)
@@ -509,6 +527,8 @@ def build_assignment_plan(
                     disposition.reason = decision.reason
                     disposition.faces_to_alpha = 0
                     disposition.uncertain_to_alpha = 0
+                    disposition.mixed_to_alpha = 0
+                    disposition.suppressed_to_alpha = 0
                     disposition.faces_left_source = disposition.total_faces
                     disposition.retained_by_policy = 0
 

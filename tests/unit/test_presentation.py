@@ -9,6 +9,7 @@ from addon.presentation import (
     KNOWN_GUIDANCE_CODES,
     alpha_source_advisory,
     already_separated_tooltip,
+    assignment_confirmation_lines,
     classes_to_move,
     guidance_for,
     requires_confirmation,
@@ -19,6 +20,95 @@ from addon.presentation import (
 
 
 class PresentationTests(unittest.TestCase):
+    def test_compact_assignment_confirmation_representative_copy(self) -> None:
+        lines = assignment_confirmation_lines(
+            {
+                "faces_to_reassign": 65_775,
+                "planned_additional_slots": 29,
+                "mixed_faces_to_alpha": 57_731,
+                "face_local_unsupported_to_alpha": 2_577,
+                "suppressed_faces_to_alpha": 0,
+                "retained_faces_by_policy": 0,
+                "material_source_groups_left_unchanged": 23,
+                "skipped_material_groups": 0,
+                "skipped_object_count": 0,
+            }
+        )
+        self.assertEqual(
+            lines,
+            (
+                (
+                    "Move 65,775 reviewed faces to alpha materials and add "
+                    "29 material slots."
+                ),
+                "This includes 57,731 mixed faces and 2,577 uncertain faces.",
+                "23 unresolved material groups will remain unchanged.",
+                (
+                    "Only material slots and face assignments change—no topology "
+                    "or source shader changes. Ctrl+Z to undo."
+                ),
+            ),
+        )
+
+    def test_compact_assignment_confirmation_adapts_and_omits_names(self) -> None:
+        plan = {
+            "faces_to_reassign": 1,
+            "planned_additional_slots": 0,
+            "mixed_faces_to_alpha": 1,
+            "face_local_unsupported_to_alpha": 0,
+            "suppressed_faces_to_alpha": 1,
+            "retained_faces_by_policy": 1,
+            "material_source_groups_left_unchanged": 1,
+            "skipped_material_groups": 1,
+            "skipped_object_count": 1,
+            "destinations": {"PRIVATE_SOURCE": "PRIVATE_DESTINATION"},
+            "dispositions": [
+                {"object": "PRIVATE_OBJECT", "material": "PRIVATE_MATERIAL"}
+            ],
+        }
+        lines = assignment_confirmation_lines(plan)
+        self.assertEqual(
+            lines,
+            (
+                "Move 1 reviewed face to an alpha material.",
+                "This includes 1 mixed face.",
+                "Move 1 below-significance face to alpha.",
+                "1 reviewed face will remain on its source material by policy.",
+                "1 unresolved material group will remain unchanged.",
+                "Skip 1 material group and 1 object.",
+                (
+                    "Only material slots and face assignments change—no topology "
+                    "or source shader changes. Ctrl+Z to undo."
+                ),
+            ),
+        )
+        joined = "\n".join(lines)
+        for private_name in (
+            "PRIVATE_SOURCE",
+            "PRIVATE_DESTINATION",
+            "PRIVATE_OBJECT",
+            "PRIVATE_MATERIAL",
+        ):
+            self.assertNotIn(private_name, joined)
+        self.assertLessEqual(len(lines), 7)
+
+    def test_compact_assignment_confirmation_omits_zero_clauses(self) -> None:
+        lines = assignment_confirmation_lines(
+            {
+                "faces_to_reassign": 2,
+                "planned_additional_slots": 0,
+                "mixed_faces_to_alpha": 0,
+                "face_local_unsupported_to_alpha": 0,
+                "suppressed_faces_to_alpha": 0,
+                "retained_faces_by_policy": 0,
+                "material_source_groups_left_unchanged": 0,
+                "skipped_material_groups": 0,
+                "skipped_object_count": 0,
+            }
+        )
+        self.assertEqual(len(lines), 2)
+        self.assertNotIn("0", "\n".join(lines))
+
     def test_material_cards_are_deduplicated_by_displayed_result(self) -> None:
         supported = {
             "material": "Body",

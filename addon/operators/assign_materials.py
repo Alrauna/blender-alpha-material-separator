@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import textwrap
 
 import bpy
 from bpy.props import EnumProperty, IntProperty, StringProperty
@@ -12,11 +13,15 @@ from .. import api_contract, runtime
 from ..adapters.analysis import validate_report
 from ..adapters.assignment import build_assignment_plan, execute_assignment_plan
 from ..presentation import (
+    assignment_confirmation_lines,
     assignment_plan_signature,
-    guidance_for,
     requires_confirmation,
     review_signature,
 )
+
+_CONFIRMATION_WIDTH = 420
+_CONFIRMATION_TITLE = "Apply Material Separation"
+_CONFIRMATION_TEXT = "Apply"
 
 
 class ALPHA_MATERIAL_SEPARATOR_OT_assign_materials(bpy.types.Operator):
@@ -94,7 +99,6 @@ class ALPHA_MATERIAL_SEPARATOR_OT_assign_materials(bpy.types.Operator):
         default="CANCEL_SOURCE_MATERIAL",
     )
 
-    _confirmation_report_json = "{}"
     _confirmation_plan_json = "{}"
     _confirmation_plan_signature = ""
 
@@ -164,89 +168,28 @@ class ALPHA_MATERIAL_SEPARATOR_OT_assign_materials(bpy.types.Operator):
         report_payload = report.public_payload()
         if not requires_confirmation(report_payload, plan_payload):
             return self.execute(context)
-        self._confirmation_report_json = api_contract.dumps(report_payload)
         self._confirmation_plan_json = api_contract.dumps(plan_payload)
         self._confirmation_plan_signature = assignment_plan_signature(plan_payload)
-        return context.window_manager.invoke_props_dialog(self, width=520)
+        return context.window_manager.invoke_props_dialog(
+            self,
+            width=_CONFIRMATION_WIDTH,
+            title=_CONFIRMATION_TITLE,
+            confirm_text=_CONFIRMATION_TEXT,
+        )
 
     def draw(self, _context) -> None:
-        layout = self.layout
-        report = json.loads(self._confirmation_report_json)
         plan = json.loads(self._confirmation_plan_json)
-        counts = report.get("counts", {})
-        layout.label(text="Review warnings before material assignment", icon="ERROR")
-        layout.label(text=f"Faces to move: {plan.get('faces_to_reassign', 0)}")
-        layout.label(text=f"Additional material slots: {plan.get('planned_additional_slots', 0)}")
-        if counts.get("MIXED", 0):
-            layout.label(text=f"Mixed faces: {counts['MIXED']} (cannot be split without topology changes)")
-        if counts.get("SUPPRESSED", 0):
-            layout.label(text=f"Below-significance faces: {counts['SUPPRESSED']}")
-        if counts.get("UNSUPPORTED", 0):
-            layout.label(text=f"Faces that could not be analyzed: {counts['UNSUPPORTED']}")
-        uncertain_to_alpha = plan.get("face_local_unsupported_to_alpha", 0)
-        if uncertain_to_alpha:
-            layout.label(
-                text=f"Uncertain faces moving conservatively to alpha: {uncertain_to_alpha}",
-                icon="INFO",
-            )
-        skipped = sum(report.get("skip_counts", {}).values())
-        blocked = len(plan.get("blocked", []))
-        unchanged = plan.get("material_source_groups_left_unchanged", 0)
-        if skipped or blocked or unchanged:
-            layout.label(
-                text=(
-                    f"Skipped objects: {skipped}; blocked material groups: {blocked}; "
-                    f"unresolved groups left unchanged: {unchanged}"
-                )
-            )
-        for object_result in report.get("objects", ()):
-            if object_result.get("skip_reason"):
-                title, _remedy = guidance_for(object_result["skip_reason"])
-                layout.label(
-                    text=(
-                        f"Skip object {object_result.get('name', 'unknown')}: "
-                        f"{title}"
-                    ),
-                    icon="ERROR",
-                )
-        for blocked_group in plan.get("blocked", ()):
-            title, _remedy = guidance_for(blocked_group.get("reason"))
-            layout.label(
-                text=(
-                    f"Skip material {blocked_group.get('material', 'unknown')}: "
-                    f"{title}"
-                ),
-                icon="ERROR",
-            )
-        for disposition in plan.get("dispositions", ()):
-            if disposition.get("action") != "LEAVE_UNCHANGED_NO_ALPHA_SOURCE":
-                continue
-            layout.label(
-                text=(
-                    f"Leave {disposition.get('material', 'unknown')} unchanged: "
-                    "no alpha source was selected"
-                ),
-                icon="INFO",
-            )
-        destinations = plan.get("destinations", {})
-        for source, derived in sorted(destinations.items()):
-            layout.label(text=f"{source} -> {derived}", icon="MATERIAL")
-        for disposition in plan.get("dispositions", ()):
-            face_count = int(disposition.get("faces_to_alpha", 0))
-            if not face_count:
-                continue
-            layout.label(
-                text=(
-                    f"{disposition.get('object', 'Object')} / "
-                    f"{disposition.get('material', 'Material')}: "
-                    f"{face_count} faces"
-                )
-            )
-        layout.separator()
-        layout.label(text="A local alpha material may be created or reused.")
-        layout.label(text="Reviewed slots and face material indices may change.")
-        layout.label(text="Source graphs and mesh topology stay unchanged.")
-        layout.label(text="Press Ctrl+Z to undo.")
+        lines = assignment_confirmation_lines(plan)
+        for line in lines[:-1]:
+            for wrapped in textwrap.wrap(
+                line, width=52, break_long_words=False
+            ) or ("",):
+                self.layout.label(text=wrapped)
+        self.layout.separator()
+        for wrapped in textwrap.wrap(
+            lines[-1], width=52, break_long_words=False
+        ):
+            self.layout.label(text=wrapped)
 
     def execute(self, context: bpy.types.Context) -> set[str]:
         if self.api_major != api_contract.API_VERSION[0]:

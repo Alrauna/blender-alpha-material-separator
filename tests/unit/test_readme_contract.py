@@ -10,6 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 README = ROOT / "README.md"
 PANEL = ROOT / "addon" / "panel.py"
+ASSIGN_OPERATOR = ROOT / "addon" / "operators" / "assign_materials.py"
 
 
 class ReadmeContractTests(unittest.TestCase):
@@ -49,6 +50,8 @@ class ReadmeContractTests(unittest.TestCase):
             "stays completely unchanged",
             "does not require another analysis",
             "final synchronous check",
+            "aggregate assignment outcomes",
+            "Review → Material Details",
         ):
             self.assertIn(text, self.text)
         self.assertNotIn(
@@ -84,6 +87,23 @@ class ReadmeContractTests(unittest.TestCase):
             "TRIA_RIGHT",
         ):
             self.assertIn(text, panel_text)
+
+    def test_apply_confirmation_is_bounded_and_count_only(self) -> None:
+        source = ASSIGN_OPERATOR.read_text(encoding="utf8")
+        for required in (
+            "assignment_confirmation_lines",
+            "width=_CONFIRMATION_WIDTH",
+            "title=_CONFIRMATION_TITLE",
+            "confirm_text=_CONFIRMATION_TEXT",
+        ):
+            self.assertIn(required, source)
+        for removed in (
+            "Faces that could not be analyzed:",
+            "Leave {disposition.get('material'",
+            "for source, derived in sorted(destinations.items())",
+            "f\"{disposition.get('object', 'Object')} / \"",
+        ):
+            self.assertNotIn(removed, source)
 
     def test_required_end_user_sections_exist_in_order(self) -> None:
         headings = (

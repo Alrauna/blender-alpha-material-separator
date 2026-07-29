@@ -159,6 +159,79 @@ def alpha_source_advisory(
     )
 
 
+def _counted(count: int, singular: str, plural: str | None = None) -> str:
+    word = singular if count == 1 else (plural or f"{singular}s")
+    return f"{count:,} {word}"
+
+
+def assignment_confirmation_lines(plan_payload: dict) -> tuple[str, ...]:
+    """Describe only the aggregate consequences of an assignment plan."""
+
+    faces = int(plan_payload.get("faces_to_reassign", 0))
+    slots = int(plan_payload.get("planned_additional_slots", 0))
+    mixed = int(plan_payload.get("mixed_faces_to_alpha", 0))
+    uncertain = int(plan_payload.get("face_local_unsupported_to_alpha", 0))
+    suppressed = int(plan_payload.get("suppressed_faces_to_alpha", 0))
+    retained = int(plan_payload.get("retained_faces_by_policy", 0))
+    unresolved = int(
+        plan_payload.get("material_source_groups_left_unchanged", 0)
+    )
+    skipped_groups = int(plan_payload.get("skipped_material_groups", 0))
+    skipped_objects = int(plan_payload.get("skipped_object_count", 0))
+    lines = []
+
+    action = ""
+    if faces:
+        destination = "an alpha material" if faces == 1 else "alpha materials"
+        action = f"Move {_counted(faces, 'reviewed face')} to {destination}"
+    if slots:
+        slot_clause = f"add {_counted(slots, 'material slot')}"
+        action = f"{action} and {slot_clause}" if action else slot_clause.capitalize()
+    if action:
+        lines.append(f"{action}.")
+
+    included = []
+    if mixed:
+        included.append(_counted(mixed, "mixed face"))
+    if uncertain:
+        included.append(_counted(uncertain, "uncertain face"))
+    if included:
+        lines.append(f"This includes {' and '.join(included)}.")
+    if suppressed:
+        lines.append(
+            f"Move {_counted(suppressed, 'below-significance face')} to alpha."
+        )
+    if retained:
+        if retained == 1:
+            lines.append(
+                "1 reviewed face will remain on its source material by policy."
+            )
+        else:
+            lines.append(
+                f"{retained:,} reviewed faces will remain on their source "
+                "materials by policy."
+            )
+    if unresolved:
+        lines.append(
+            f"{_counted(unresolved, 'unresolved material group')} "
+            "will remain unchanged."
+        )
+
+    skipped = []
+    if skipped_groups:
+        skipped.append(_counted(skipped_groups, "material group"))
+    if skipped_objects:
+        skipped.append(_counted(skipped_objects, "object"))
+    if skipped:
+        lines.append(f"Skip {' and '.join(skipped)}.")
+
+    lines.append(
+        "Only material slots and face assignments change—no topology or "
+        "source shader changes. Ctrl+Z to undo."
+    )
+    return tuple(lines)
+
+
 def guidance_for(reason: str | None) -> tuple[str, str]:
     """Return short user copy and a safe next action for an internal reason."""
     code = (reason or "").split(":", 1)[0]
