@@ -380,7 +380,12 @@ class ALPHA_MATERIAL_SEPARATOR_PT_main(bpy.types.Panel):
                 advisory = alpha_source_advisory(material_cards)
                 if advisory:
                     notice = review.box()
-                    notice.label(text=advisory[0], icon="INFO")
+                    _label_lines(
+                        notice,
+                        advisory[0],
+                        icon="INFO",
+                        available_width=available_width,
+                    )
                     _label_lines(
                         notice,
                         advisory[1],

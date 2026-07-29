@@ -55,10 +55,17 @@ class _RecordingLayout:
         pass
 
 
-def _draw_main_panel():
+def _draw_main_panel(region_width=None):
     layout = _RecordingLayout()
+    context = bpy.context
+    if region_width is not None:
+        context = SimpleNamespace(
+            region=SimpleNamespace(width=region_width),
+            selected_objects=bpy.context.selected_objects,
+            window_manager=bpy.context.window_manager,
+        )
     ALPHA_MATERIAL_SEPARATOR_PT_main.draw(
-        SimpleNamespace(layout=layout), bpy.context
+        SimpleNamespace(layout=layout), context
     )
     return layout
 
@@ -203,6 +210,13 @@ def run() -> None:
             "Left unchanged — no alpha source selected",
             "INFO",
         ) in unsupported_panel.labels
+        narrow_panel = _draw_main_panel(region_width=180)
+        assert (
+            "1 material may need an alpha source.",
+            "INFO",
+        ) not in narrow_panel.labels
+        assert ("1 material may need", "INFO") in narrow_panel.labels
+        assert ("an alpha source.", "NONE") in narrow_panel.labels
     finally:
         state.report_json = original_report_json
         ui.show_material_details = False
