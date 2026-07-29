@@ -332,25 +332,30 @@ All commands used Blender 5.2.0 LTS from
 
 ## Remaining tasks in priority order
 
-1. Investigate the remaining private `OPAQUE` lower-bound faces by comparing
+1. Implement the requested collapsed material-details UX after design
+   approval. The approved behavior is a **Material Details** disclosure that
+   automatically collapses after every newly completed analysis. A single
+   warning box remains outside and above it when one or more deduplicated
+   material groups may need a manual alpha source; existing per-material
+   details and actions move inside the disclosure. The written design is
+   `docs/superpowers/specs/2026-07-28-collapsible-material-details-design.md`
+   and is awaiting user review before implementation planning.
+2. Investigate the remaining private `OPAQUE` lower-bound faces by comparing
    their supported authority, resolved UV/address mode, positive-area coverage,
    addressed texels, and decoded A values. Keep diagnostics ignored and
    anonymized.
-2. If a genuine general defect is found, reproduce it with a generated failing
+3. If a genuine general defect is found, reproduce it with a generated failing
    test before changing production code. Do not change resolver scope or margin
    merely to match the private after file.
-3. Complete the generated two-material interactive partial-apply checklist and
+4. Complete the generated two-material interactive partial-apply checklist and
    150% UI-scale pass.
-4. Have the user perform ordinary Unity material/submesh acceptance and record
+5. Have the user perform ordinary Unity material/submesh acceptance and record
    the result.
-5. Rerun the complete gate for any production follow-up. Do not push without
+6. Rerun the complete gate for any production follow-up. Do not push without
    separate approval.
 
 ## Recommended next action
 
-Run an ignored diagnostic pass over only the remaining private opaque
-lower-bound faces, recording anonymized counts for resolved source kind,
-address mode, UV coverage, sampled alpha range, and semantic-role ambiguity.
-Use that evidence to decide whether the next task is a raster/addressing defect,
-an image-decoding issue, or a difference between the human-tuned after file and
-the extension's unopinionated visual-equivalence rule.
+After user review of the written material-details design, create the focused
+implementation plan and add the failing UI-state tests before changing the
+panel.
