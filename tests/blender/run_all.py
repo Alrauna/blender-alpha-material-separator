@@ -31,6 +31,9 @@ from tests.blender.test_ux_overrides import run as run_ux_override_tests  # noqa
 from tests.blender.test_revalidation_matrix import (  # noqa: E402
     run as run_revalidation_matrix_tests,
 )
+from tests.blender.test_simplification_contracts import (  # noqa: E402
+    run as run_simplification_contracts,
+)
 
 
 def assert_operator_registered() -> None:
@@ -85,6 +88,7 @@ def run() -> None:
             run_analysis_preview_tests()
             run_assignment_tests()
             run_assignment_policy_tests()
+            run_simplification_contracts()
             run_identity_transition_tests()
             run_fbx_export_tests()
             run_preservation_tests()

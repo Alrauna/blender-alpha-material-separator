@@ -54,6 +54,22 @@ class ApiContractTests(unittest.TestCase):
             payload["supported_material_patterns"],
         )
 
+    def test_public_operator_ids_remain_api_1_2_compatible(self) -> None:
+        self.assertEqual(api_contract.API_VERSION, (1, 2))
+        self.assertEqual(
+            api_contract.PUBLIC_OPERATOR_IDS,
+            (
+                "alpha_material_separator.query_capabilities",
+                "alpha_material_separator.analyze",
+                "alpha_material_separator.select_faces",
+                "alpha_material_separator.assign_materials",
+                "alpha_material_separator.clear_results",
+            ),
+        )
+        payload = api_contract.capability_payload()
+        self.assertEqual(payload["operator_ids"], list(api_contract.PUBLIC_OPERATOR_IDS))
+        self.assertTrue(payload["capabilities"]["per_material_overrides"])
+
     def test_status_json_uses_stable_sorting(self) -> None:
         encoded = api_contract.dumps(
             api_contract.status_payload("OK", "done", z_value=1, a_value=2)
