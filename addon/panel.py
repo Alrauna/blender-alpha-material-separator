@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import json
-import textwrap
 
 import bpy
 
@@ -19,6 +18,7 @@ from .presentation import (
     guidance_for,
     review_material_cards,
     review_signature,
+    ui_text_lines,
     workflow_view,
 )
 
@@ -31,10 +31,16 @@ def _json(value: str) -> dict:
         return {}
 
 
-def _label_lines(layout, text: str, *, icon: str = "NONE", width: int = 34) -> None:
+def _label_lines(
+    layout,
+    text: str,
+    *,
+    icon: str = "NONE",
+    available_width: int,
+) -> None:
     """Draw readable copy in narrow sidebars where Blender does not wrap labels."""
-    lines = textwrap.wrap(str(text), width=width, break_long_words=False) or [""]
-    for index, line in enumerate(lines):
+
+    for index, line in enumerate(ui_text_lines(text, available_width)):
         layout.label(text=line, icon=icon if index == 0 else "NONE")
 
 
@@ -103,7 +109,7 @@ def _plan(report, settings):
     )
 
 
-def _draw_completion(layout, ui, state) -> None:
+def _draw_completion(layout, ui, state, *, available_width: int) -> None:
     payload = _json(ui.last_completion_json)
     if not payload and state.last_status_code.startswith("ASSIGNMENT_"):
         payload = _json(state.last_status_json)
@@ -121,7 +127,11 @@ def _draw_completion(layout, ui, state) -> None:
     box.label(text=heading, icon=icon)
     changes = payload.get("changes", {})
     if code == "ASSIGNMENT_NO_CHANGES":
-        _label_lines(box, payload.get("message", "No additional changes"))
+        _label_lines(
+            box,
+            payload.get("message", "No additional changes"),
+            available_width=available_width,
+        )
     else:
         box.label(text=f"Faces moved: {changes.get('changed_faces', 0)}")
         box.label(
@@ -164,7 +174,7 @@ def _draw_completion(layout, ui, state) -> None:
     box.label(text="Bind opaque and alpha materials there.")
 
 
-def _draw_status_problem(layout, state) -> None:
+def _draw_status_problem(layout, state, *, available_width: int) -> None:
     normal = {
         "NOT_QUERIED",
         "OK",
@@ -184,8 +194,8 @@ def _draw_status_problem(layout, state) -> None:
     box.label(text=title, icon="ERROR")
     message = payload.get("message", "")
     if message and message != title:
-        _label_lines(box, message)
-    _label_lines(box, remedy)
+        _label_lines(box, message, available_width=available_width)
+    _label_lines(box, remedy, available_width=available_width)
 
 
 class ALPHA_MATERIAL_SEPARATOR_UL_material_overrides(bpy.types.UIList):
@@ -210,6 +220,8 @@ class ALPHA_MATERIAL_SEPARATOR_PT_main(bpy.types.Panel):
 
     def draw(self, context: bpy.types.Context) -> None:
         layout = self.layout
+        region = getattr(context, "region", None)
+        available_width = int(getattr(region, "width", 320) or 320)
         window_manager = context.window_manager
         state = window_manager.alpha_material_separator_api
         settings = window_manager.alpha_material_separator_settings
@@ -272,10 +284,11 @@ class ALPHA_MATERIAL_SEPARATOR_PT_main(bpy.types.Panel):
                 selection,
                 "Select one or more Mesh objects to begin.",
                 icon="ERROR",
+                available_width=available_width,
             )
 
-        _draw_status_problem(layout, state)
-        _draw_completion(layout, ui, state)
+        _draw_status_problem(layout, state, available_width=available_width)
+        _draw_completion(layout, ui, state, available_width=available_width)
 
         analysis = layout.box()
         analysis.label(text="1. Analyze", icon="VIEWZOOM")
@@ -357,14 +370,22 @@ class ALPHA_MATERIAL_SEPARATOR_PT_main(bpy.types.Panel):
                         warning = review.box()
                         warning.alert = True
                         warning.label(text=f"{object_result.get('name', 'Object')}: {title}", icon="ERROR")
-                        _label_lines(warning, remedy)
+                        _label_lines(
+                            warning,
+                            remedy,
+                            available_width=available_width,
+                        )
 
                 material_cards = review_material_cards(report_payload)
                 advisory = alpha_source_advisory(material_cards)
                 if advisory:
                     notice = review.box()
                     notice.label(text=advisory[0], icon="INFO")
-                    _label_lines(notice, advisory[1])
+                    _label_lines(
+                        notice,
+                        advisory[1],
+                        available_width=available_width,
+                    )
 
                 disclosure = review.row()
                 disclosure.prop(
@@ -415,8 +436,16 @@ class ALPHA_MATERIAL_SEPARATOR_PT_main(bpy.types.Panel):
                                 text="Left unchanged — no alpha source selected",
                                 icon="INFO",
                             )
-                            _label_lines(detail, title)
-                            _label_lines(detail, remedy)
+                            _label_lines(
+                                detail,
+                                title,
+                                available_width=available_width,
+                            )
+                            _label_lines(
+                                detail,
+                                remedy,
+                                available_width=available_width,
+                            )
                             fix = detail.operator(
                                 "alpha_material_separator.add_material_override",
                                 text="Set Manual Alpha Source",
@@ -459,7 +488,11 @@ class ALPHA_MATERIAL_SEPARATOR_PT_main(bpy.types.Panel):
                 for blocked in current_plan.blocked[:3]:
                     title, remedy = guidance_for(blocked.get("reason"))
                     assignment.label(text=f"{blocked.get('material', '')}: {title}")
-                    _label_lines(assignment, remedy)
+                    _label_lines(
+                        assignment,
+                        remedy,
+                        available_width=available_width,
+                    )
             if not reviewed and actionable and not stale:
                 assignment.label(text="Preview the faces before applying.", icon="INFO")
             if already_separated:

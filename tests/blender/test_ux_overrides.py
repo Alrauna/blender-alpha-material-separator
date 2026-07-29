@@ -20,6 +20,7 @@ from addon.operators.select_faces import ALPHA_MATERIAL_SEPARATOR_OT_select_face
 from addon.panel import (
     ALPHA_MATERIAL_SEPARATOR_PT_main,
     _draw_completion,
+    _label_lines,
 )
 from addon.presentation import review_signature
 from tests.blender.test_analysis_preview import _clear_scene, _image, _material, _quad
@@ -90,6 +91,19 @@ def _file_backed_image(name: str, directory: str):
 
 
 def run() -> None:
+    sentence = "Open Material Details below to review it."
+
+    wide_layout = _RecordingLayout()
+    _label_lines(wide_layout, sentence, icon="INFO", available_width=560)
+    assert wide_layout.labels == [(sentence, "INFO")]
+
+    narrow_layout = _RecordingLayout()
+    _label_lines(narrow_layout, sentence, icon="INFO", available_width=180)
+    assert len(narrow_layout.labels) > 1, narrow_layout.labels
+    assert " ".join(text for text, _icon in narrow_layout.labels) == sentence
+    assert narrow_layout.labels[0][1] == "INFO"
+    assert all(icon == "NONE" for _text, icon in narrow_layout.labels[1:])
+
     tooltip = (
         "All faces on the selected meshes are optimally assigned. "
         "No faces need to be moved."
@@ -213,6 +227,7 @@ def run() -> None:
             )
         ),
         SimpleNamespace(last_status_code="", last_status_json="{}"),
+        available_width=420,
     )
     assert (
         "Already separated — no additional changes",

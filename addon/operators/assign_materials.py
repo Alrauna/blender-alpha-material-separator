@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import json
-import textwrap
 
 import bpy
 from bpy.props import EnumProperty, IntProperty, StringProperty
@@ -13,15 +12,37 @@ from .. import api_contract, runtime
 from ..adapters.analysis import validate_report
 from ..adapters.assignment import build_assignment_plan, execute_assignment_plan
 from ..presentation import (
+    _UI_AVERAGE_CHARACTER_WIDTH,
     assignment_confirmation_lines,
     assignment_plan_signature,
     requires_confirmation,
     review_signature,
+    ui_text_lines,
 )
 
-_CONFIRMATION_WIDTH = 420
+_CONFIRMATION_MIN_WIDTH = 420
+_CONFIRMATION_MAX_WIDTH = 560
+_CONFIRMATION_WINDOW_MARGIN = 64
+_CONFIRMATION_TEXT_PADDING = 32
 _CONFIRMATION_TITLE = "Apply Material Separation"
 _CONFIRMATION_TEXT = "Apply"
+
+
+def _confirmation_dialog_width(
+    lines: tuple[str, ...],
+    window_width: int,
+) -> int:
+    longest = max((len(line) for line in lines), default=0)
+    preferred = max(
+        _CONFIRMATION_MIN_WIDTH,
+        min(
+            _CONFIRMATION_MAX_WIDTH,
+            longest * _UI_AVERAGE_CHARACTER_WIDTH
+            + _CONFIRMATION_TEXT_PADDING,
+        ),
+    )
+    usable_window = max(1, int(window_width) - _CONFIRMATION_WINDOW_MARGIN)
+    return min(preferred, usable_window)
 
 
 def _validated_plan(operator, context):
@@ -154,6 +175,7 @@ class ALPHA_MATERIAL_SEPARATOR_OT_assign_materials(bpy.types.Operator):
 
     _confirmation_plan_json = "{}"
     _confirmation_plan_signature = ""
+    _confirmation_draw_width = _CONFIRMATION_MIN_WIDTH
 
     @classmethod
     def description(cls, _context, properties):
@@ -185,11 +207,16 @@ class ALPHA_MATERIAL_SEPARATOR_OT_assign_materials(bpy.types.Operator):
         report_payload = report.public_payload()
         if not requires_confirmation(report_payload, plan_payload):
             return self.execute(context)
+        lines = assignment_confirmation_lines(plan_payload)
+        self._confirmation_draw_width = _confirmation_dialog_width(
+            lines,
+            context.window.width,
+        )
         self._confirmation_plan_json = api_contract.dumps(plan_payload)
         self._confirmation_plan_signature = assignment_plan_signature(plan_payload)
         return context.window_manager.invoke_props_dialog(
             self,
-            width=_CONFIRMATION_WIDTH,
+            width=self._confirmation_draw_width,
             title=_CONFIRMATION_TITLE,
             confirm_text=_CONFIRMATION_TEXT,
         )
@@ -198,14 +225,10 @@ class ALPHA_MATERIAL_SEPARATOR_OT_assign_materials(bpy.types.Operator):
         plan = json.loads(self._confirmation_plan_json)
         lines = assignment_confirmation_lines(plan)
         for line in lines[:-1]:
-            for wrapped in textwrap.wrap(
-                line, width=52, break_long_words=False
-            ) or ("",):
+            for wrapped in ui_text_lines(line, self._confirmation_draw_width):
                 self.layout.label(text=wrapped)
         self.layout.separator()
-        for wrapped in textwrap.wrap(
-            lines[-1], width=52, break_long_words=False
-        ):
+        for wrapped in ui_text_lines(lines[-1], self._confirmation_draw_width):
             self.layout.label(text=wrapped)
 
     def execute(self, context: bpy.types.Context) -> set[str]:

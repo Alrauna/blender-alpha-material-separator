@@ -18,9 +18,13 @@ from addon.operators.assign_materials import (
     ALPHA_MATERIAL_SEPARATOR_OT_assign_materials,
     _CONFIRMATION_TEXT,
     _CONFIRMATION_TITLE,
-    _CONFIRMATION_WIDTH,
+    _confirmation_dialog_width,
 )
-from addon.presentation import already_separated_tooltip, review_signature
+from addon.presentation import (
+    already_separated_tooltip,
+    assignment_confirmation_lines,
+    review_signature,
+)
 from tests.blender.test_analysis_preview import _clear_scene, _image, _material, _quad
 from tests.blender.test_assignment import _analyze, _assign
 
@@ -36,6 +40,18 @@ class _CancelledDialogWindowManager:
     def invoke_props_dialog(self, _operator, **options):
         self.options = options
         return {"CANCELLED"}
+
+
+class _DialogRecordingLayout:
+    def __init__(self):
+        self.labels = []
+        self.separators = 0
+
+    def label(self, *, text="", icon="NONE"):
+        self.labels.append((text, icon))
+
+    def separator(self):
+        self.separators += 1
 
 
 def _partial_support_object(name, source, unresolved):
@@ -91,7 +107,14 @@ def _partial_support_object(name, source, unresolved):
 
 
 def run() -> None:
-    assert _CONFIRMATION_WIDTH == 420
+    short_lines = ("Move 2 reviewed faces to alpha materials.",)
+    long_lines = (
+        "Only material slots and face assignments change—no topology "
+        "or source shader changes. Ctrl+Z to undo.",
+    )
+    assert _confirmation_dialog_width(short_lines, 1920) == 420
+    assert _confirmation_dialog_width(long_lines, 1920) == 560
+    assert _confirmation_dialog_width(long_lines, 500) == 436
     assert _CONFIRMATION_TITLE == "Apply Material Separation"
     assert _CONFIRMATION_TEXT == "Apply"
 
@@ -261,16 +284,31 @@ def run() -> None:
         SimpleNamespace(
             window_manager=dialog_window_manager,
             object=bpy.context.object,
+            window=SimpleNamespace(width=1920),
         ),
         None,
     )
     assert cancelled == {"CANCELLED"}, cancelled
     assert dialog_window_manager.options == {
-        "width": 420,
+        "width": 560,
         "title": "Apply Material Separation",
         "confirm_text": "Apply",
     }
+    assert operator._confirmation_draw_width == 560
     assert json.loads(operator._confirmation_plan_json) == public_plan
+    wide_draw = _DialogRecordingLayout()
+    operator.layout = wide_draw
+    ALPHA_MATERIAL_SEPARATOR_OT_assign_materials.draw(operator, None)
+    confirmation_lines = assignment_confirmation_lines(public_plan)
+    assert wide_draw.labels[0][0] == confirmation_lines[0]
+    assert wide_draw.separators == 1
+
+    narrow_draw = _DialogRecordingLayout()
+    operator.layout = narrow_draw
+    operator._confirmation_draw_width = 260
+    ALPHA_MATERIAL_SEPARATOR_OT_assign_materials.draw(operator, None)
+    assert len(narrow_draw.labels) > len(confirmation_lines)
+    assert wide_draw.labels != narrow_draw.labels
     assert tuple(
         polygon.material_index for polygon in partial.data.polygons
     ) == indices_before_dialog
