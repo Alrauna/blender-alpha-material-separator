@@ -144,6 +144,12 @@ by the corresponding headless regression test.
 - [x] Review analyzed objects, source material, resolved image/UV/channel,
   destination material, skips, faces to move, and estimated slot/section
   increase before assignment.
+- [ ] Confirm each successful analysis automatically collapses the native
+  **Material Details (N)** disclosure, duplicate material results count once,
+  and a single advisory above it points to unsupported materials. Expand it in
+  narrow and wide sidebars and confirm all existing cards and **Set Manual
+  Alpha Source** actions remain usable. Cancellation must preserve the prior
+  report and disclosure state.
 - [x] Assign directly from the Edit Mode preview and verify the intended material
   partition.
 - [ ] Process a generated two-material case where one resolved source has

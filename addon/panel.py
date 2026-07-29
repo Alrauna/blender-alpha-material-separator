@@ -13,9 +13,11 @@ from .adapters.assignment import build_assignment_plan
 from .overrides import dumps_material_overrides
 from .presentation import (
     CLASS_COPY,
+    alpha_source_advisory,
     already_separated_tooltip,
     classes_to_move,
     guidance_for,
+    review_material_cards,
     review_signature,
     workflow_view,
 )
@@ -349,7 +351,6 @@ class ALPHA_MATERIAL_SEPARATOR_PT_main(bpy.types.Panel):
                     review.label(text="Preview complete: selected faces use alpha.", icon="CHECKMARK")
                     review.label(text="Press Tab when finished inspecting.")
 
-                shown_material_cards = set()
                 for object_result in report_payload.get("objects", ()):
                     if object_result.get("skip_reason"):
                         title, remedy = guidance_for(object_result["skip_reason"])
@@ -357,22 +358,28 @@ class ALPHA_MATERIAL_SEPARATOR_PT_main(bpy.types.Panel):
                         warning.alert = True
                         warning.label(text=f"{object_result.get('name', 'Object')}: {title}", icon="ERROR")
                         _label_lines(warning, remedy)
-                        continue
-                    for group in object_result.get("groups", ()):
-                        card_key = (
-                            group.get("material"),
-                            group.get("supported"),
-                            group.get("resolution"),
-                            group.get("image"),
-                            group.get("uv_map"),
-                            group.get("channel"),
-                            group.get("address_mode"),
-                            group.get("source_method"),
-                            group.get("alpha_material"),
-                        )
-                        if card_key in shown_material_cards:
-                            continue
-                        shown_material_cards.add(card_key)
+
+                material_cards = review_material_cards(report_payload)
+                advisory = alpha_source_advisory(material_cards)
+                if advisory:
+                    notice = review.box()
+                    notice.label(text=advisory[0], icon="INFO")
+                    _label_lines(notice, advisory[1])
+
+                disclosure = review.row()
+                disclosure.prop(
+                    ui,
+                    "show_material_details",
+                    text=f"Material Details ({len(material_cards)})",
+                    icon=(
+                        "TRIA_DOWN"
+                        if ui.show_material_details
+                        else "TRIA_RIGHT"
+                    ),
+                    emboss=False,
+                )
+                if ui.show_material_details:
+                    for group in material_cards:
                         detail = review.box()
                         detail.label(text=group.get("material", "Material"), icon="MATERIAL")
                         if group.get("supported"):

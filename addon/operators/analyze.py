@@ -177,6 +177,7 @@ class ALPHA_MATERIAL_SEPARATOR_OT_analyze(bpy.types.Operator):
             raise RuntimeError(
                 f"Analysis inputs changed while analysis was running ({reason})"
             )
+        context.window_manager.alpha_material_separator_ui.show_material_details = False
         runtime.set_report(report)
         payload = report.public_payload()
         state = context.window_manager.alpha_material_separator_api

@@ -7,16 +7,67 @@ import unittest
 from addon.presentation import (
     CLASS_COPY,
     KNOWN_GUIDANCE_CODES,
+    alpha_source_advisory,
     already_separated_tooltip,
     classes_to_move,
     guidance_for,
     requires_confirmation,
+    review_material_cards,
     review_signature,
     workflow_view,
 )
 
 
 class PresentationTests(unittest.TestCase):
+    def test_material_cards_are_deduplicated_by_displayed_result(self) -> None:
+        supported = {
+            "material": "Body",
+            "supported": True,
+            "resolution": "OK",
+            "image": "Body.png",
+            "uv_map": "UVMap",
+            "channel": "ALPHA",
+            "address_mode": "REPEAT",
+            "source_method": "UNIQUE_BASE_COLOR_IMAGE_ALPHA",
+            "alpha_material": "Body__AMS_ALPHA",
+        }
+        unsupported = {
+            "material": "Hair",
+            "supported": False,
+            "resolution": "NO_AUTHORITATIVE_ALPHA_IMAGE",
+        }
+        report = {
+            "objects": (
+                {"groups": (supported, unsupported)},
+                {"groups": (dict(supported),), "skip_reason": ""},
+                {"groups": (unsupported,), "skip_reason": "LINKED_MESH"},
+            )
+        }
+
+        cards = review_material_cards(report)
+
+        self.assertEqual(cards, (supported, unsupported))
+
+    def test_alpha_source_advisory_uses_singular_and_plural_copy(self) -> None:
+        supported = {"material": "Body", "supported": True}
+        unsupported = {"material": "Hair", "supported": False}
+
+        self.assertIsNone(alpha_source_advisory((supported,)))
+        self.assertEqual(
+            alpha_source_advisory((unsupported,)),
+            (
+                "1 material may need an alpha source.",
+                "Open Material Details below to review it.",
+            ),
+        )
+        self.assertEqual(
+            alpha_source_advisory((unsupported, dict(unsupported, material="Eyes"))),
+            (
+                "2 materials may need an alpha source.",
+                "Open Material Details below to review them.",
+            ),
+        )
+
     def test_already_separated_tooltip_is_state_specific(self) -> None:
         self.assertEqual(
             already_separated_tooltip(

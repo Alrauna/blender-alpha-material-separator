@@ -114,6 +114,50 @@ _GUIDANCE = {
 
 KNOWN_GUIDANCE_CODES = frozenset(_GUIDANCE)
 
+_MATERIAL_CARD_FIELDS = (
+    "material",
+    "supported",
+    "resolution",
+    "image",
+    "uv_map",
+    "channel",
+    "address_mode",
+    "source_method",
+    "alpha_material",
+)
+
+
+def review_material_cards(report_payload: dict) -> tuple[dict, ...]:
+    """Return the panel's unique material results in report order."""
+
+    cards = []
+    seen = set()
+    for object_result in report_payload.get("objects", ()):
+        if object_result.get("skip_reason"):
+            continue
+        for group in object_result.get("groups", ()):
+            key = tuple(group.get(field) for field in _MATERIAL_CARD_FIELDS)
+            if key not in seen:
+                seen.add(key)
+                cards.append(group)
+    return tuple(cards)
+
+
+def alpha_source_advisory(
+    material_cards: tuple[dict, ...],
+) -> tuple[str, str] | None:
+    """Return concise review guidance when automatic alpha sources are missing."""
+
+    count = sum(not card.get("supported") for card in material_cards)
+    if not count:
+        return None
+    noun = "material" if count == 1 else "materials"
+    pronoun = "it" if count == 1 else "them"
+    return (
+        f"{count} {noun} may need an alpha source.",
+        f"Open Material Details below to review {pronoun}.",
+    )
+
 
 def guidance_for(reason: str | None) -> tuple[str, str]:
     """Return short user copy and a safe next action for an internal reason."""

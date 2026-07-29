@@ -94,10 +94,13 @@ def run() -> None:
             }
         ]
     )
+    ui = bpy.context.window_manager.alpha_material_separator_ui
+    ui.show_material_details = True
     analyzed = bpy.ops.alpha_material_separator.analyze(
         api_major=1, material_overrides_json=override_json
     )
     assert analyzed == {"FINISHED"}, analyzed
+    assert not ui.show_material_details
     state = bpy.context.window_manager.alpha_material_separator_api
     payload = json.loads(state.report_json)
     groups = {
@@ -127,7 +130,6 @@ def run() -> None:
     assert runtime._relevant_update_scope(unrelated_image) == ""
 
     settings = bpy.context.window_manager.alpha_material_separator_settings
-    ui = bpy.context.window_manager.alpha_material_separator_ui
     preview = bpy.ops.alpha_material_separator.select_faces(
         expected_analysis_id=state.analysis_id,
         classes={"ALPHA_AFFECTED", "MIXED"},
@@ -185,6 +187,23 @@ def run() -> None:
     assert runtime.review_matches(
         bpy.context.window_manager, state.analysis_id, signature
     )
+    reviewed_state = (
+        state.analysis_id,
+        ui.reviewed_analysis_id,
+        ui.reviewed_policy_signature,
+    )
+    ui.show_material_details = True
+    assert (
+        state.analysis_id,
+        ui.reviewed_analysis_id,
+        ui.reviewed_policy_signature,
+    ) == reviewed_state
+    ui.show_material_details = False
+    assert (
+        state.analysis_id,
+        ui.reviewed_analysis_id,
+        ui.reviewed_policy_signature,
+    ) == reviewed_state
     report = runtime.report(state.analysis_id)
     assert report is not None
     original_prepare = analysis_adapter._prepare
@@ -274,6 +293,7 @@ def run() -> None:
         prior_report.analysis_id,
         "AMS_PRIOR_REVIEW_TOKEN",
     )
+    ui.show_material_details = True
     assert runtime.begin_analysis(bpy.context.window_manager)
     runtime.update_analysis(bpy.context.window_manager, 5, 10, "Testing")
     runtime.update_analysis(bpy.context.window_manager, 3, 10, "Testing")
@@ -286,5 +306,6 @@ def run() -> None:
     assert runtime.report() is prior_report
     assert ui.reviewed_analysis_id == prior_report.analysis_id
     assert ui.reviewed_policy_signature == "AMS_PRIOR_REVIEW_TOKEN"
+    assert ui.show_material_details
     temporary_images.cleanup()
     print("ALPHA_MATERIAL_SEPARATOR_UX_OVERRIDE_TESTS_OK")

@@ -24,6 +24,7 @@ class ReadmeContractTests(unittest.TestCase):
             "Analyze Selected Meshes",
             "Preview Faces to Move",
             "Apply Material Separation",
+            "Material Details",
             "Simple",
             "Expert",
         ):
@@ -65,6 +66,24 @@ class ReadmeContractTests(unittest.TestCase):
             self.assertIn(text, self.text)
             self.assertIn(text, panel_text)
         self.assertNotIn("Resolve the skipped groups before applying.", panel_text)
+        for text in (
+            "materials may need an alpha source",
+            "Open Material Details",
+            "collapsed after every successful analysis",
+        ):
+            self.assertIn(text, self.text)
+
+    def test_material_results_use_one_native_disclosure(self) -> None:
+        panel_text = PANEL.read_text(encoding="utf8")
+        for text in (
+            "review_material_cards",
+            "alpha_source_advisory",
+            "show_material_details",
+            "Material Details (",
+            "TRIA_DOWN",
+            "TRIA_RIGHT",
+        ):
+            self.assertIn(text, panel_text)
 
     def test_required_end_user_sections_exist_in_order(self) -> None:
         headings = (

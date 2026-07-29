@@ -31,7 +31,10 @@ Blender Undo, but a saved file is still the safest starting point.
    Object Mode or Mesh Edit Mode; **Analyze Selected Meshes** automatically
    switches to Object Mode before reading the base meshes.
 2. Leave the interface on **Simple** and click **Analyze Selected Meshes**.
-3. Read the face counts and material cards. Automatic detection is the normal
+3. Read the face counts. **Material Details** is collapsed after every successful analysis.
+   Open it only for the per-material image, UV, destination, or manual-source
+   action. If the notice says that materials may need an alpha source, choose
+   **Open Material Details** and review them. Automatic detection is the normal
    path; no settings are required for supported materials.
 4. Click **Preview Faces to Move**. Blender enters multi-object Edit Mode and
    selects the faces that would use alpha. Inspect the orange selection. Press

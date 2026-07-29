@@ -1,15 +1,16 @@
 # Repository handoff
 
-Updated: 2026-07-26
+Updated: 2026-07-28
 
 ## Current objective
 
 Continue release hardening for Blender Alpha Material Separator 0.1 on
-`feat/alpha-material-separator-0.1`. The main Base Color stored-A fallback
-milestone is implemented. The immediate open objective is to explain the
-remaining private before/after lower-bound faces that the extension classifies
-`OPAQUE`, without broadening the approved resolver, changing raster margin
-zero, or adding private-example heuristics.
+`feat/alpha-material-separator-0.1`. The collapsed material-details
+implementation is complete and locally packaged. Its remaining immediate gate
+is an installed-ZIP visual check in narrow and wide sidebars. The next
+classification objective remains explaining private before/after lower-bound
+faces that the extension classifies `OPAQUE`, without broadening the approved
+resolver, changing raster margin zero, or adding private-example heuristics.
 
 ## Completed work
 
@@ -50,6 +51,16 @@ zero, or adding private-example heuristics.
   `bpy_prop_collection[index]: index 0 out of range, size 0` status and fixed
   the shared synchronous/modal start boundary to enter Object Mode before
   constructing the analysis engine.
+- Replaced the always-expanded material cards with one Blender-native
+  **Material Details (N)** disclosure. It automatically collapses only after a
+  successfully published analysis; canceled replacement analysis preserves the
+  previous report, review token, and disclosure state.
+- Added one informational box above the disclosure when deduplicated material
+  results lack an automatic alpha source. Singular/plural copy is generated
+  from the same card list the disclosure renders, and all existing manual-source
+  actions remain inside it.
+- Added unit and Blender regressions for card deduplication, advisory copy,
+  successful reset, cancellation preservation, and review-token stability.
 - Rebuilt and validated the ignored local extension ZIP with this UI change.
 - Upgraded the ignored private helper to validate every mesh, semantic
   before/after roles, multi-image Base Color resolution, out-of-range UVs,
@@ -62,6 +73,7 @@ zero, or adding private-example heuristics.
   - `8f2dd87 fix:explain-already-separated-workflow-actions`
   - `041c4cc fix:show-rerun-tooltip-after-partial-apply`
   - `7a48eb0 fix:analyze-selected-meshes-from-edit-mode`
+  - `b6087aa docs:design-collapsible-material-details`
 - Nothing was pushed.
 
 ## Important decisions and constraints
@@ -98,14 +110,17 @@ zero, or adding private-example heuristics.
   participating-image-only state, and separate assignment-plan invalidation.
 - `addon/adapters/assignment.py`: current source fingerprints and exact plan
   fingerprinting.
-- `addon/presentation.py`: actionable automatic/manual alpha-source remedies
-  and the state-specific already-separated tooltip copy.
+- `addon/presentation.py`: actionable automatic/manual alpha-source remedies,
+  the state-specific already-separated tooltip copy, and the pure deduplicated
+  material-card/advisory presentation rules.
 - `addon/operators/select_faces.py`, `addon/operators/assign_materials.py`:
   transient contextual Blender operator descriptions.
-- `addon/panel.py`: supplies the contextual description to both workflow
-  buttons only for an already-separated non-actionable plan.
-- `addon/operators/analyze.py`: synchronizes Edit Mode changes by entering
-  Object Mode before authoritative base-mesh reads.
+- `addon/panel.py`: supplies contextual button descriptions and renders the
+  material advisory plus one native disclosure around existing cards.
+- `addon/properties.py`: transient, non-saved disclosure Boolean.
+- `addon/operators/analyze.py`: synchronizes Edit Mode changes before
+  authoritative reads and collapses material details after successful report
+  publication.
 - `tests/blender/test_analysis_preview.py`: resolver precedence, ancillary
   images, reroutes, unsupported paths, overrides, decoded A modes, opaque and
   missing images, out-of-range UV integration, and multi-object Edit Mode
@@ -118,8 +133,8 @@ zero, or adding private-example heuristics.
 - `tests/unit/test_presentation.py`,
   `tests/unit/test_readme_contract.py`: preserved and extended UX/documentation
   contracts.
-- `tests/blender/test_ux_overrides.py`: real operator-description coverage for
-  contextual and default hover text.
+- `tests/blender/test_ux_overrides.py`: operator-description coverage and
+  disclosure state-transition/review-preservation coverage.
 - `README.md`, `docs/material-support.md`, `docs/integration-api.md`,
   `docs/testing.md`, `docs/performance.md`, `PLAN.md`: implemented behavior,
   testing boundary, performance comparison, and remaining acceptance gate.
@@ -127,6 +142,12 @@ zero, or adding private-example heuristics.
   requested earlier in the worktree.
 - `.local-references/default-example/_validate_analysis.py`: ignored private
   acceptance helper; never commit it or its output.
+- `.local-references/default-example/_diagnose_rerun_tooltip.py`: ignored
+  aggregate smoke helper extended locally with material-card, advisory, and
+  collapsed-state assertions; never commit it or its output.
+- `docs/superpowers/specs/2026-07-28-collapsible-material-details-design.md`,
+  `docs/superpowers/plans/2026-07-28-collapsible-material-details.md`: approved
+  design and test-first implementation record.
 - `docs/HANDOFF.md`: this current continuation record.
 
 ## Validation commands and results
@@ -305,6 +326,55 @@ All commands used Blender 5.2.0 LTS from
    Final verification also passed all 43 unit tests, source validation, archive
    validation, and `git diff --check`.
 
+13. Collapsible material-details TDD and package:
+
+   ```powershell
+   $Python52 = 'C:\Program Files\Blender Foundation\Blender 5.2\5.2\python\bin\python.exe'
+   & $Python52 -m unittest tests.unit.test_presentation -v
+   & $Blender52 --factory-startup --background --disable-autoexec `
+     --python-exit-code 1 --python tests/blender/run_all.py
+   & $Python52 -m unittest `
+     tests.unit.test_readme_contract.ReadmeContractTests.test_material_results_use_one_native_disclosure -v
+   & $Python52 -m unittest discover -s tests/unit -t . -v
+   & $Blender52 --factory-startup --command extension validate addon
+   & $Blender52 --factory-startup --command extension build `
+     --source-dir addon --output-dir .packaged-releases
+   & $Blender52 --factory-startup --command extension validate `
+     .packaged-releases\alpha_material_separator-0.1.0.zip
+   git diff --check
+   ```
+
+   Result: the unit RED check failed because `review_material_cards` and
+   `alpha_source_advisory` were absent. The Blender RED check failed because a
+   successful analysis left `show_material_details` true. The panel contract
+   then failed because the native disclosure was absent. After the minimal
+   implementation, all 46 unit tests and the complete Blender suite passed.
+   Source and rebuilt archive validation passed. The ignored archive is 64,403
+   bytes with SHA-256
+   `2C4E8B5FDB3CCC920EA61EA39C2B910A3867546D2595A05CF14527DD030FB227`.
+   `git diff --check` reported only the repository's existing LF-to-CRLF
+   checkout warnings.
+
+14. Private material-details smoke:
+
+   ```powershell
+   & $Blender52 --factory-startup --background --disable-autoexec `
+     --python-exit-code 1 `
+     --python .local-references\default-example\_diagnose_rerun_tooltip.py -- `
+     .local-references\default-example\before.blend
+   & $Blender52 --factory-startup --background --disable-autoexec `
+     --python-exit-code 1 `
+     --python .local-references\default-example\_diagnose_rerun_tooltip.py -- `
+     .local-references\default-example\after.blend
+   ```
+
+   Result: both files analyzed all 48 selected mesh objects and published with
+   Material Details collapsed. The before example produced 33 deduplicated
+   cards and one advisory covering 15 unresolved cards; the after example
+   produced 37 cards and the same single-advisory behavior. Both had zero
+   skipped objects and retained actionable supported groups. Only anonymized
+   aggregate counts were emitted; neither private file was saved.
+
 ## Known failures, warnings, and unverified assumptions
 
 - Release acceptance remains open because the private semantic lower-bound has
@@ -328,18 +398,17 @@ All commands used Blender 5.2.0 LTS from
 - The 150% UI-scale pass, generated two-material interactive partial-apply
   checklist item, and ordinary Unity material/submesh validation remain
   unverified release gates.
+- The rebuilt ZIP has not yet received the visual disclosure check in narrow
+  and wide 3D View sidebars. Automated tests prove state/copy contracts but do
+  not prove Blender's actual layout, wrapping, or click target.
 - VRChat validation remains optional evidence for the exact tested stack only.
 
 ## Remaining tasks in priority order
 
-1. Implement the requested collapsed material-details UX after design
-   approval. The approved behavior is a **Material Details** disclosure that
-   automatically collapses after every newly completed analysis. A single
-   warning box remains outside and above it when one or more deduplicated
-   material groups may need a manual alpha source; existing per-material
-   details and actions move inside the disclosure. The written design is
-   `docs/superpowers/specs/2026-07-28-collapsible-material-details-design.md`
-   and is awaiting user review before implementation planning.
+1. Install the rebuilt ZIP in a clean Blender 5.2 profile and verify the native
+   **Material Details (N)** row in narrow and wide sidebars: collapsed after
+   analysis, one advisory above it when needed, cards/actions visible when
+   expanded, and another successful analysis collapses it again.
 2. Investigate the remaining private `OPAQUE` lower-bound faces by comparing
    their supported authority, resolved UV/address mode, positive-area coverage,
    addressed texels, and decoded A values. Keep diagnostics ignored and
@@ -356,6 +425,5 @@ All commands used Blender 5.2.0 LTS from
 
 ## Recommended next action
 
-After user review of the written material-details design, create the focused
-implementation plan and add the failing UI-state tests before changing the
-panel.
+Install the rebuilt ZIP and perform the narrow/wide-sidebar disclosure check;
+record the result before returning to the private lower-bound investigation.

@@ -103,6 +103,7 @@ class ALPHA_MATERIAL_SEPARATOR_PG_ui_state(bpy.types.PropertyGroup):
     cancel_requested: BoolProperty(default=False, options={"SKIP_SAVE"})
     reviewed_analysis_id: StringProperty(default="", options={"SKIP_SAVE"})
     reviewed_policy_signature: StringProperty(default="", options={"SKIP_SAVE"})
+    show_material_details: BoolProperty(default=False, options={"SKIP_SAVE"})
     last_completion_json: StringProperty(default="{}", options={"SKIP_SAVE"})
     override_index: IntProperty(default=0, min=0, options={"SKIP_SAVE"})
 
