@@ -270,6 +270,7 @@ def run() -> None:
         "title": "Apply Material Separation",
         "confirm_text": "Apply",
     }
+    assert json.loads(operator._confirmation_plan_json) == public_plan
     assert tuple(
         polygon.material_index for polygon in partial.data.polygons
     ) == indices_before_dialog

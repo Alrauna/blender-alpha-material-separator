@@ -24,6 +24,59 @@ _CONFIRMATION_TITLE = "Apply Material Separation"
 _CONFIRMATION_TEXT = "Apply"
 
 
+def _validated_plan(operator, context):
+    if operator.api_major != api_contract.API_VERSION[0]:
+        operator._status(context, "API_INCOMPATIBLE", "Unsupported API major")
+        return None
+    report = runtime.report(operator.expected_analysis_id)
+    if report is None:
+        operator._status(
+            context, "ANALYSIS_ID_MISMATCH", "The reviewed analysis is unavailable"
+        )
+        return None
+    if runtime.dirty_reason() == "SETTINGS_CHANGED":
+        operator._status(context, "STALE_ANALYSIS", "Analysis settings changed")
+        return None
+    valid, reason = validate_report(report)
+    if not valid:
+        operator._status(
+            context,
+            "STALE_ANALYSIS",
+            "Analysis inputs changed; run analysis again",
+            reason=reason,
+        )
+        return None
+    plan = build_assignment_plan(
+        report,
+        mixed_policy=operator.mixed_policy,
+        suppressed_policy=operator.suppressed_policy,
+        unsupported_policy=operator.unsupported_policy,
+        conflict_policy=operator.derived_conflict_policy,
+    )
+    plan_payload = plan.public_payload()
+    current_review_signature = review_signature(
+        report.analysis_id,
+        operator.mixed_policy,
+        operator.suppressed_policy,
+        operator.unsupported_policy,
+        operator.derived_conflict_policy,
+        plan_payload,
+    )
+    if (
+        operator.expected_review_signature
+        and current_review_signature != operator.expected_review_signature
+    ):
+        runtime.clear_review(context.window_manager)
+        operator._status(
+            context,
+            "REVIEW_CHANGED",
+            "The material plan changed after preview; preview the faces again",
+            plan=plan_payload,
+        )
+        return None
+    return report, plan, plan_payload
+
+
 class ALPHA_MATERIAL_SEPARATOR_OT_assign_materials(bpy.types.Operator):
     """Assign reviewed face groups to safe local derived materials."""
 
@@ -115,53 +168,19 @@ class ALPHA_MATERIAL_SEPARATOR_OT_assign_materials(bpy.types.Operator):
     def invoke(self, context: bpy.types.Context, _event) -> set[str]:
         """Show a warning summary only when the reviewed plan needs attention."""
         self._confirmation_plan_signature = ""
-        report = runtime.report(self.expected_analysis_id)
-        if report is None or runtime.dirty_reason():
-            return self.execute(context)
         restore_edit_mode = (
             context.object is not None and context.object.mode == "EDIT"
         )
         if restore_edit_mode:
             bpy.ops.object.mode_set(mode="OBJECT")
-        valid, reason = validate_report(report)
-        if restore_edit_mode and context.object is not None:
-            bpy.ops.object.mode_set(mode="EDIT")
-        if not valid:
-            self._status(
-                context,
-                "STALE_ANALYSIS",
-                "Analysis inputs changed; run analysis again",
-                reason=reason,
-            )
+        try:
+            prepared = _validated_plan(self, context)
+        finally:
+            if restore_edit_mode and context.object is not None:
+                bpy.ops.object.mode_set(mode="EDIT")
+        if prepared is None:
             return {"CANCELLED"}
-        plan = build_assignment_plan(
-            report,
-            mixed_policy=self.mixed_policy,
-            suppressed_policy=self.suppressed_policy,
-            unsupported_policy=self.unsupported_policy,
-            conflict_policy=self.derived_conflict_policy,
-        )
-        plan_payload = plan.public_payload()
-        current_review_signature = review_signature(
-            report.analysis_id,
-            self.mixed_policy,
-            self.suppressed_policy,
-            self.unsupported_policy,
-            self.derived_conflict_policy,
-            plan_payload,
-        )
-        if (
-            self.expected_review_signature
-            and current_review_signature != self.expected_review_signature
-        ):
-            runtime.clear_review(context.window_manager)
-            self._status(
-                context,
-                "REVIEW_CHANGED",
-                "The material plan changed after preview; preview the faces again",
-                plan=plan_payload,
-            )
-            return {"CANCELLED"}
+        report, plan, plan_payload = prepared
         actionable = plan.actionable
         if not actionable:
             return self.execute(context)
@@ -192,67 +211,18 @@ class ALPHA_MATERIAL_SEPARATOR_OT_assign_materials(bpy.types.Operator):
             self.layout.label(text=wrapped)
 
     def execute(self, context: bpy.types.Context) -> set[str]:
-        if self.api_major != api_contract.API_VERSION[0]:
-            self._status(context, "API_INCOMPATIBLE", "Unsupported API major")
-            return {"CANCELLED"}
-        report = runtime.report(self.expected_analysis_id)
-        if report is None:
-            self._status(
-                context, "ANALYSIS_ID_MISMATCH", "The reviewed analysis is unavailable"
-            )
-            return {"CANCELLED"}
         restore_edit_mode = context.object is not None and context.object.mode == "EDIT"
         if restore_edit_mode:
             # Object-mode mesh arrays are the authoritative base-mesh input.  Edit
             # Mode may expose a temporarily unsynchronised RNA view even when the
             # user changed only face selection during preview.
             bpy.ops.object.mode_set(mode="OBJECT")
-        if runtime.dirty_reason() == "SETTINGS_CHANGED":
-            self._status(context, "STALE_ANALYSIS", "Analysis settings changed")
+        prepared = _validated_plan(self, context)
+        if prepared is None:
             if restore_edit_mode and context.object is not None:
                 bpy.ops.object.mode_set(mode="EDIT")
             return {"CANCELLED"}
-        valid, reason = validate_report(report)
-        if not valid:
-            self._status(
-                context,
-                "STALE_ANALYSIS",
-                "Analysis inputs changed; run analysis again",
-                reason=reason,
-            )
-            if restore_edit_mode and context.object is not None:
-                bpy.ops.object.mode_set(mode="EDIT")
-            return {"CANCELLED"}
-        plan = build_assignment_plan(
-            report,
-            mixed_policy=self.mixed_policy,
-            suppressed_policy=self.suppressed_policy,
-            unsupported_policy=self.unsupported_policy,
-            conflict_policy=self.derived_conflict_policy,
-        )
-        plan_payload = plan.public_payload()
-        current_review_signature = review_signature(
-            report.analysis_id,
-            self.mixed_policy,
-            self.suppressed_policy,
-            self.unsupported_policy,
-            self.derived_conflict_policy,
-            plan_payload,
-        )
-        if (
-            self.expected_review_signature
-            and current_review_signature != self.expected_review_signature
-        ):
-            runtime.clear_review(context.window_manager)
-            self._status(
-                context,
-                "REVIEW_CHANGED",
-                "The material plan changed after preview; preview the faces again",
-                plan=plan_payload,
-            )
-            if restore_edit_mode and context.object is not None:
-                bpy.ops.object.mode_set(mode="EDIT")
-            return {"CANCELLED"}
+        _report, plan, plan_payload = prepared
         if (
             self._confirmation_plan_signature
             and assignment_plan_signature(plan_payload)
