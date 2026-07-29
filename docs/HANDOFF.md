@@ -11,6 +11,10 @@ generated failing regression.
 
 ## Completed work
 
+- Strengthened `AGENTS.md` development guidance so Superpowers explicitly owns
+  the investigate → design → approval → plan → approval → TDD → review →
+  verification → commit lifecycle. Ponytail now minimizes scope inside those
+  phases and cannot bypass them.
 - Added a memory-bounded Blender-native `Image.pixels.foreach_get` path.
   The complete temporary working estimate must be at most 384 MiB.
 - Retained the existing complete-row chunked path for explicit chunking,
@@ -40,6 +44,11 @@ generated failing regression.
 
 ## Important decisions and constraints
 
+- Production defects require systematic debugging before edits. Product,
+  architecture, UX, API, cache, assignment, resolver, and performance changes
+  require an approved design and test-first plan before implementation.
+- Inline `executing-plans` is the default. Subagent or parallel execution
+  requires an explicit user request and safely isolated independent work.
 - Version remains `0.1.0`; API remains `1.2`.
 - Exact positive-area rasterization, deterministic budgets, classifications,
   preview/apply behavior, and public payloads are unchanged.
@@ -67,7 +76,8 @@ generated failing regression.
 - `docs/testing.md`: reader-path and single-pass test contracts.
 - `PLAN.md`: completed Analyze-throughput milestone.
 - `AGENTS.md`: durable development guidance now also requires regular scoped
-  commits and staged-diff inspection.
+  commits, staged-diff inspection, and the full proportional Superpowers
+  lifecycle with Ponytail constrained to scope reduction inside each phase.
 - `docs/HANDOFF.md`: current milestone state and evidence.
 - Ignored only: rebuilt `.packaged-releases/alpha_material_separator-0.1.0.zip`
   and benchmark/test output under `.test-output/`.

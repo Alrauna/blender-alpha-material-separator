@@ -22,25 +22,46 @@ material slot without changing topology.
 
 ## Development approach
 
-- Superpowers governs the development process. Use the applicable skill for the
-  current phase: brainstorming for new or unclear behavior, systematic
-  debugging for defects, test-driven development for production changes,
-  writing plans for multi-step work, and verification before completion.
-- Apply only the phases relevant to the request. Read-only status checks and
-  straightforward documentation edits do not need speculative design,
-  implementation, or testing artifacts.
-- Ponytail governs solution scope throughout design, planning, implementation,
-  and review. First reuse existing code and Blender or Python functionality,
-  then choose the smallest correct change with the fewest dependencies,
-  abstractions, and files.
-- Superpowers answers how to work safely; Ponytail answers how much to build.
-  When they pull in different directions, keep the Superpowers correctness and
-  verification requirements while using the smallest solution that satisfies
-  them.
-- Neither approach may weaken explicit user requirements, repository
-  invariants, safety checks, preservation guarantees, compatibility, or
-  required tests. Do not add lifecycle ceremony or code merely to demonstrate
-  use of either approach.
+- Superpowers owns the development lifecycle. Use its phases in this order when
+  they apply: investigate, design, obtain design approval, write a test-first
+  plan, obtain plan approval, implement, review, verify, and commit.
+- Begin every defect or unexpected result with systematic debugging. Establish
+  a reproduction and root cause before proposing or editing production code.
+- Treat new or changed behavior—including UX, API, architecture, cache,
+  assignment, material resolution, and performance behavior—as design work.
+  Use brainstorming, present the design, and obtain user approval before
+  production edits.
+- Convert an approved design or other multi-step production request into a
+  written implementation plan with explicit files, RED/GREEN tests, validation,
+  preservation checks, and commit boundaries. Obtain user approval before
+  execution. A plan may be concise for a narrow change, but a small expected
+  diff is not a reason to omit it.
+- Execute approved plans with `executing-plans` by default.
+  `subagent-driven-development` or parallel dispatch requires an explicit user
+  request and independent work that can be safely isolated.
+- Use test-driven development for every production behavior change: demonstrate
+  the generated or synthetic regression before the production edit, implement
+  the smallest fix, and run the applicable change gate. Track plan progress and
+  record any material deviation; stop for approval when findings change the
+  agreed behavior, scope, risk, or architecture.
+- Review material production changes for correctness before completion. Use
+  `requesting-code-review` for major or risky milestones and
+  `receiving-code-review` before acting on review feedback. Use
+  `verification-before-completion` before success claims or commits, and
+  `finishing-a-development-branch` only when integration is actually requested.
+- Ponytail governs scope inside every Superpowers phase. Use it during
+  investigation, design, planning, implementation, and review to prefer reuse,
+  Blender/Python-native behavior, minimal dependencies, minimal abstractions,
+  and the smallest correct diff. Ponytail may recommend deleting or deferring
+  work, but it may not skip investigation, design or plan approval, TDD,
+  review, verification, preservation checks, or required acceptance gates.
+- Read-only inspection, status reporting, and mechanical documentation
+  corrections that do not create or change product/process policy may proceed
+  without design, plan, or implementation artifacts. They still require
+  evidence for factual claims and `git diff --check` when files change.
+- Direct user instructions and repository safety invariants take precedence
+  over both toolsets. Do not create ceremony merely to demonstrate a skill, but
+  do not relabel required reasoning, approval, or verification as ceremony.
 
 ## Compatibility and invariants
 
