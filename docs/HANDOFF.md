@@ -4,110 +4,138 @@ Updated: 2026-07-29
 
 ## Current objective
 
-Finish Blender Alpha Material Separator 0.1 release acceptance. The optional
-Preview workflow is implemented: any current actionable analysis enables Apply,
-while guided Apply without an exact matching Preview always opens the existing
-confirmation dialog.
+The Analyze-throughput milestone is complete and committed locally. The next
+behavior investigation is the established private 1,176-face `OPAQUE`
+lower-bound discrepancy; do not broaden resolver or raster behavior without a
+generated failing regression.
 
 ## Completed work
 
-- `bc631e6 feat: make face preview optional`
-  - Apply availability no longer depends on a review token.
-  - The panel describes Preview as optional.
-  - Confirmation presentation can add `Faces have not been previewed.`
-- `a6ee3f0 feat: confirm unpreviewed material assignment`
-  - Guided unpreviewed Apply always confirms, including clean supported plans.
-  - Exact reviewed plans retain the existing warning-only behavior.
-  - Scripted invocation/execution compatibility and authoritative mutation
-    validation remain unchanged.
-- README, integration API, testing documentation, and generated documentation
-  contracts now describe the optional workflow.
-- The ignored private multi-object helper now checks unpreviewed availability,
-  confirmation cancellation with zero mutation, exact Preview/Apply agreement,
-  preservation, and the established semantic lower bound.
-- The extension ZIP was rebuilt, validated, installed into an isolated Blender
-  profile, and exercised against the lawful 48-mesh stress example.
+- Added a memory-bounded Blender-native `Image.pixels.foreach_get` path.
+  The complete temporary working estimate must be at most 384 MiB.
+- Retained the existing complete-row chunked path for explicit chunking,
+  oversized images, memory failure, or unavailable/rejected native reads.
+- Preserved identical participating-channel digests, affected-texel grids, and
+  non-finite-value rejection across both reader paths.
+- Removed the duplicate modal `_prepare` pass after deferred image reads.
+  Completed snapshots are attached to the already prepared objects and combined
+  with the authoritative structural signature.
+- Removed duplicate geometry/UV/signature work from `_prepare`; the existing
+  structural signature remains authoritative for mesh, slot, resolver, UV,
+  addressing, image state, and configuration inputs.
+- Reused one material fingerprint per material datablock in an assignment
+  signature.
+- Added generated regressions for bulk/chunk parity and fallback, supported
+  component/channel combinations, non-finite pixels, one modal preparation
+  pass, one UV traversal, and shared-material fingerprint reuse.
+- Tested an allocation-reduced exact raster row implementation. It preserved
+  the clipping-oracle output but improved the representative polygon phase by
+  only 4.8 percent, below the approved 20 percent threshold, so it was removed.
+- Deferred multiprocessing. Four pure-core workers reached 2.14x in isolation,
+  but the original whole-workflow projection was about 1.29x and became less
+  compelling after the retained single-process improvements.
+- Updated performance/testing documentation and `PLAN.md`.
+- Rebuilt and validated the ignored extension ZIP.
+- Created local commit `9264fec perf: reduce analyze preparation overhead`.
 
 ## Important decisions and constraints
 
-- Preview is recommended but optional.
-- Apply without a matching exact-plan Preview always asks for confirmation.
-- Stale, running, non-actionable, or no-change reports still disable Apply.
-- The review token affects confirmation only; it is not an assignment
-  authorization boundary.
-- Assignment still revalidates authoritative inputs and the complete plan
-  fingerprint before mutation.
-- Preserve version `0.1.0`, API `1.2`, operator IDs, public payloads, undo,
-  rollback, idempotence, and the no-topology-change guarantee.
-- Keep the branch as-is. Do not push or alter the gone upstream without user
-  approval.
-- The user approved the clarified `AGENTS.md` repository workflow guidance,
-  including proportional plugin use, testing scope, private-path handling, and
-  change-versus-release completion gates.
+- Version remains `0.1.0`; API remains `1.2`.
+- Exact positive-area rasterization, deterministic budgets, classifications,
+  preview/apply behavior, and public payloads are unchanged.
+- Full participating-pixel digests remain authoritative. No timestamp or
+  `Image.is_dirty` shortcut was added.
+- The bulk reader is a bounded optimization, not a separate semantic path.
+- The 8K case intentionally uses row chunks under the 384 MiB cap.
+- Do not add multiprocessing unless a future post-profile demonstrates at
+  least 20 percent complete-workflow improvement with acceptable memory,
+  cancellation, and Blender lifecycle behavior.
+- Preserve the current branch. `AGENTS.md` now requires explicit-path staging
+  and regular coherent commits after verified units; do not push without
+  explicit approval.
 
 ## Files changed and why
 
-- `addon/presentation.py`: optional-Preview Apply state and confirmation copy.
-- `addon/panel.py`: optional Preview guidance.
-- `addon/operators/assign_materials.py`: detect exact reviewed plans during
-  guided invocation and force confirmation otherwise.
-- `tests/unit/test_presentation.py`: workflow and confirmation-copy regressions.
-- `tests/blender/test_assignment_policies.py`: generated clean-plan
-  unpreviewed/reviewed/scripted confirmation behavior.
-- `tests/blender/test_revalidation_matrix.py`: assignment-only changes retain
-  analysis but invalidate exact review.
-- `README.md`, `docs/integration-api.md`, `docs/testing.md`: end-user,
-  integration, and acceptance behavior.
-- `tests/unit/test_readme_contract.py`: exact documentation contract.
-- `docs/superpowers/specs/2026-07-29-optional-preview-confirmation-design.md` and
-  `docs/superpowers/plans/2026-07-29-optional-preview-confirmation.md`: approved
-  design, execution plan, and progress evidence.
-- Ignored only: `.local-references/default-example/_validate_analysis.py`,
-  `.packaged-releases/alpha_material_separator-0.1.0.zip`, and isolated test
-  profile/output.
+- `addon/adapters/image_data.py`: bounded native bulk read with existing
+  chunked fallback.
+- `addon/adapters/analysis.py`: one preparation pass, authoritative combined
+  input signature, and per-signature material fingerprint reuse.
+- `tests/blender/test_analysis_preview.py`: generated reader and pass-count
+  regressions.
+- `docs/performance.md`: measured medians, memory, private diagnostic, discarded
+  raster experiment, and multiprocessing decision.
+- `docs/testing.md`: reader-path and single-pass test contracts.
+- `PLAN.md`: completed Analyze-throughput milestone.
+- `AGENTS.md`: durable development guidance now also requires regular scoped
+  commits and staged-diff inspection.
+- `docs/HANDOFF.md`: current milestone state and evidence.
+- Ignored only: rebuilt `.packaged-releases/alpha_material_separator-0.1.0.zip`
+  and benchmark/test output under `.test-output/`.
 
 ## Validation commands and results
 
 RED evidence:
 
 ```powershell
-& $Python52 -m unittest tests.unit.test_presentation -v
+python -m unittest `
+  tests.unit.test_rasterization.RasterizationTests.test_scanlines_do_not_allocate_clipped_polygons `
+  -v
 ```
 
-Failed as intended because unreviewed actionable state disabled Apply and
-`assignment_confirmation_lines()` did not accept `previewed`.
+Failed as intended with 104 `_clip_y` calls. The exact candidate later passed
+the oracle but was removed for insufficient measured gain.
+
+The Blender regression suite also failed as intended before each retained
+production edit:
+
+- native bulk reader constant/path absent;
+- modal inputs prepared twice;
+- UV layers traversed four times instead of two;
+- one shared material fingerprinted twice.
+
+GREEN correctness:
+
+```powershell
+python -m unittest discover -s tests/unit -t . -v
+```
+
+Result: 51/51 passed.
 
 ```powershell
 & $Blender52 --factory-startup --background --disable-autoexec `
   --python-exit-code 1 --python tests/blender/run_all.py
 ```
 
-Failed as intended because the generated clean unpreviewed plan executed
-without opening a dialog.
+Result: passed through `ALPHA_MATERIAL_SEPARATOR_BLENDER_TESTS_OK`, including
+analysis/preview, assignment, identity, FBX, preservation, UX, revalidation,
+characterization, and lifecycle tests.
 
 ```powershell
-& $Python52 -m unittest tests.unit.test_readme_contract -v
+.\scripts\run_benchmarks.ps1 -Blender $Blender52
 ```
 
-Failed as intended because the approved optional-Preview phrases were absent.
+Result: passed one discarded warm-up plus five measured runs. Current cold
+medians were 0.723s small, 8.538s typical, 82.812s high, and 2.028s tiled.
+Compared with the prior recorded run, changes were -8.5%, -32.1%, +4.7%, and
++0.9%. High-tier peak working set was about 2.90 GiB, within 2% of the prior
+record. Digest medians were 0.073s at 1K, 0.291s at 2K, 1.242s at 4K, and
+47.094s at 8K. Structural revalidation remained below both targets at 0.0385s,
+4.89% of cold analysis, with zero digest rows and zero rasterized polygons.
 
-GREEN gate:
+Private diagnostic re-profile:
 
 ```powershell
-& $Python52 -m unittest discover -s tests/unit -t . -v
 & $Blender52 --factory-startup --background --disable-autoexec `
-  --python-exit-code 1 --python tests/blender/run_all.py
-& $Blender52 --factory-startup --command extension validate addon
-git diff --check
+  --python-exit-code 1 --python .test-output\profile_current_analysis.py -- `
+  .local-references\default-example\before.blend
 ```
 
-Results: 51/51 unit tests passed. The complete headless Blender suite passed
-through `BLENDER_TESTS_OK`, including analysis/preview, assignment policy,
-identity, FBX, preservation, UX, revalidation, characterization, lifecycle, and
-simplification contracts. Source validation passed. `git diff --check` found no
-whitespace errors; only established LF/CRLF notices were emitted.
+The ignored profiler was deleted after use. The anonymous aggregate
+classifications were unchanged. Total diagnostic time fell from 82.48s to
+46.09s; image preparation fell from 38.76s to 10.20s; preparation was 2.91s,
+polygon analysis 31.28s, and publication 1.70s.
 
-Private smoke:
+Private required smoke:
 
 ```powershell
 & $Blender52 --factory-startup --background --disable-autoexec `
@@ -117,62 +145,51 @@ Private smoke:
   .local-references\default-example\after.blend
 ```
 
-The unpreviewed cancel, exact Preview/Apply plan, addressing, and preservation
-checks passed. The command ended nonzero only on the established lower-bound
-discrepancy: 1,176 reference-alpha faces still classify as `OPAQUE`. The planned
-and applied set remained 65,773 faces, so this patch introduced no regression.
-Neither private file was saved or modified.
+Analyze, Preview/Apply equivalence, out-of-range addressing, mutation
+allowlist, preservation, and immutable-reference checks passed. The command
+ended nonzero only for the established 1,176-face semantic lower-bound
+discrepancy: those reference-alpha faces still classify `OPAQUE`. Planned and
+applied faces remained 65,773; no new mismatch was introduced.
 
-Packaging:
+Source and archive:
 
 ```powershell
-& $Blender52 --factory-startup --command extension build `
-  --source-dir addon --output-dir .packaged-releases
+& $Blender52 --factory-startup --command extension validate addon
+.\scripts\build_extension.ps1 -Blender $Blender52
+$Archive = (Resolve-Path `
+  .\.packaged-releases\alpha_material_separator-0.1.0.zip).Path
 & $Blender52 --factory-startup --command extension validate $Archive
-Get-Item -LiteralPath $Archive | Select-Object FullName,Length
-Get-FileHash -Algorithm SHA256 $Archive
 ```
 
-Archive validation passed. Ignored package:
-`.packaged-releases/alpha_material_separator-0.1.0.zip`, 65,225 bytes,
-SHA-256 `59E4400FEABE680CD60C4019A0BB7C6F7ADFE73347B62AC259813BAE120C5B1F`.
-
-Installed-ZIP acceptance used an isolated Blender profile with config, scripts,
-extensions, and datafiles redirected under `.test-output`. Installation and
-enablement passed. On the 48-mesh private example, Analyze completed; Preview
-and Apply were both enabled before review; the panel displayed the optional
-guidance; unpreviewed Apply opened a dialog beginning `Faces have not been
-previewed.` with matching aggregate counts; Cancel returned to the same active
-report. No Apply mutation or save was performed in that interactive session.
+All passed. The ignored archive is 65,586 bytes with SHA-256
+`CF4C3E39B2CD6A401E4261DCAFAF25D6051FBF19ADC4808C8FBBEE0C7D4F33A4`.
 
 ## Known failures, warnings, and unverified assumptions
 
-- The 1,176-face private semantic lower-bound discrepancy remains open and is
-  unrelated to optional Preview.
-- Confirmed unpreviewed Apply, Ctrl+Z, and exact-Preview Apply were covered by
-  generated tests and the private helper but were not all manually repeated
-  from this rebuilt installed ZIP.
-- The generated interactive two-material partial-apply check and distinct final
-  Apply-preflight timing remain open.
+- The established 1,176-face private `OPAQUE` lower-bound discrepancy remains
+  open and is unrelated to this performance milestone.
+- The private 82.48s-to-46.09s comparison is a single diagnostic run. The
+  generated warm-up-plus-five benchmark is the regression authority.
+- No clean-profile installed-ZIP interaction was repeated because this
+  milestone changes Analyze internals rather than registration or UI behavior.
 - Ordinary Unity material/submesh validation remains a release requirement.
-  VRChat evidence applies only to the exact tested stack.
-- Expected warnings remain limited to Blender's bundled Grease Pencil
-  brush-path warning, deliberately exercised stale-input warnings, and Git
-  line-ending notices.
+- Expected warnings remain Blender's bundled Grease Pencil brush-path warning,
+  the deliberately exercised stale-input warning, and Git LF/CRLF notices.
 
 ## Remaining tasks
 
-1. Investigate the private `OPAQUE` lower-bound misses using ignored anonymized
-   diagnostics and a generated failing regression before any production fix.
-2. Complete the remaining installed-ZIP interaction checks if strict release
-   sign-off is desired: confirm unpreviewed Apply, Ctrl+Z, and exact-Preview
-   Apply.
-3. Complete the interactive two-material partial-apply and final-preflight
-   timing checks.
-4. Record user-performed ordinary Unity material/submesh acceptance.
+1. Investigate the private 1,176-face `OPAQUE` lower-bound misses separately,
+   using ignored diagnostics and a generated failing regression before any
+   production change.
+2. Complete the remaining installed-ZIP interaction checks in
+   `docs/testing.md` if strict release sign-off is desired.
+3. Record the distinct final Apply-preflight timing and the interactive
+   two-material partial-apply check.
+4. Complete the 150% UI-scale pass and user-performed ordinary Unity
+   material/submesh acceptance.
 
 ## Recommended next action
 
-Investigate the 1,176 private reference-alpha faces that still classify as
-`OPAQUE`, starting with ignored anonymized diagnostics and then a generated
-failing regression before changing production code.
+Investigate the private `OPAQUE` lower-bound misses with ignored anonymized
+diagnostics, then create a generated failing regression before proposing any
+production change.

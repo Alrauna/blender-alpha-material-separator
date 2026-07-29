@@ -20,29 +20,27 @@ material slot without changing topology.
 - `.local-references/`: lawful private inputs; never commit its contents.
 - `.packaged-releases/`: generated ZIPs; never commit.
 
-## Plugin coordination
+## Development approach
 
-- Superpowers governs applicable development-lifecycle phases such as design,
-  planning, TDD, review, verification, and branch completion. Keep the depth
-  proportional to the change's risk and complexity.
-- Ponytail full applies to solution scope and implementation: prefer reuse,
-  native functionality, minimal dependencies, minimal abstractions, and the
-  smallest correct diff.
-- Superpowers governs correctness and verification; Ponytail keeps the solution
-  proportional. Do not create speculative abstractions or heavyweight design
-  artifacts for trivial or documentation-only changes. Direct user
-  instructions take precedence over both.
-- Ultracode is opt-in. Do not invoke it unless I explicitly request Ultracode
-  or explicitly request an exhaustive, adversarial, repository-wide,
-  multi-perspective investigation.
-- When Ultracode is invoked, it replaces Superpowers parallel-agent dispatch
-  for that specific phase. Do not nest one orchestration system inside the other.
-- Default Ultracode workers to read-only. Do not allow parallel edits unless I
-  explicitly request implementation and each writer uses an isolated worktree.
-- Superpowers TDD and verification requirements remain authoritative for any
-  production changes, including changes produced by Ultracode workers.
-- Do not assume Ultracode workers inherit parent-thread context or plugin
-  instructions. Include all necessary constraints in their worker prompts.
+- Superpowers governs the development process. Use the applicable skill for the
+  current phase: brainstorming for new or unclear behavior, systematic
+  debugging for defects, test-driven development for production changes,
+  writing plans for multi-step work, and verification before completion.
+- Apply only the phases relevant to the request. Read-only status checks and
+  straightforward documentation edits do not need speculative design,
+  implementation, or testing artifacts.
+- Ponytail governs solution scope throughout design, planning, implementation,
+  and review. First reuse existing code and Blender or Python functionality,
+  then choose the smallest correct change with the fewest dependencies,
+  abstractions, and files.
+- Superpowers answers how to work safely; Ponytail answers how much to build.
+  When they pull in different directions, keep the Superpowers correctness and
+  verification requirements while using the smallest solution that satisfies
+  them.
+- Neither approach may weaken explicit user requirements, repository
+  invariants, safety checks, preservation guarantees, compatibility, or
+  required tests. Do not add lifecycle ceremony or code merely to demonstrate
+  use of either approach.
 
 ## Compatibility and invariants
 
@@ -220,6 +218,10 @@ SDK/shader results apply only to the exact tested stack.
 ## Git policy
 
 Work on `feat/alpha-material-separator-0.1`. Create coherent local commits only
-at approved milestone boundaries. Do not initialize another repository, rewrite
-history, alter remotes, commit ignored/private/generated outputs, or push without
-separate approval.
+at approved milestone boundaries. During implementation, commit each coherent,
+verified unit before starting a materially different task; do not accumulate
+unrelated completed work until the end of a long turn. Stage explicit paths and
+inspect the staged diff so each commit contains only its stated scope. Preserve
+unrelated user changes, and never commit ignored/private/generated outputs.
+Do not initialize another repository, rewrite history, alter remotes, or push
+without separate approval.
