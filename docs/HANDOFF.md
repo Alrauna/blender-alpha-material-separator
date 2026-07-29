@@ -4,12 +4,16 @@ Updated: 2026-07-29
 
 ## Current objective
 
-Obtain approval for the Preview component-selection fix design. Preview
-currently replaces polygon selection correctly but can retain stale edge and
-vertex flags from earlier Edit Mode work, making opaque regions look selected.
+Obtain approval to execute the written test-first Preview component-selection
+plan in `docs/superpowers/plans/2026-07-29-preview-component-selection-normalization.md`.
+No production fix has been applied.
 
 ## Completed work
 
+- Prepared the approved design's inline, test-first implementation plan with
+  generated REPLACE/ADD/SUBTRACT, repeated/multi-object Preview,
+  `enter_edit_mode=False`, non-target preservation, timing, private smoke,
+  packaging, installed-ZIP, documentation, and scoped-commit gates.
 - Reproduced the Preview visual-noise defect through the real Analyze and
   Preview operators with a generated three-face mesh. The target face set was
   correct, but every preselected edge and vertex survived.
@@ -218,5 +222,5 @@ All passed. The ignored archive is 65,586 bytes with SHA-256
 
 ## Recommended next action
 
-Approve the minimal Preview selection-normalization design, then prepare its
-test-first implementation plan before editing production code.
+Review and approve the written Preview component-selection normalization plan,
+then execute it inline with `superpowers:executing-plans`.
