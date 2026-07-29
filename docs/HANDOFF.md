@@ -41,8 +41,9 @@ confirmation dialog.
   rollback, idempotence, and the no-topology-change guarantee.
 - Keep the branch as-is. Do not push or alter the gone upstream without user
   approval.
-- `AGENTS.md` contains a pre-existing user-review modification and remains
-  deliberately unstaged.
+- The user approved the clarified `AGENTS.md` repository workflow guidance,
+  including proportional plugin use, testing scope, private-path handling, and
+  change-versus-release completion gates.
 
 ## Files changed and why
 
@@ -169,8 +170,6 @@ report. No Apply mutation or save was performed in that interactive session.
 3. Complete the interactive two-material partial-apply and final-preflight
    timing checks.
 4. Record user-performed ordinary Unity material/submesh acceptance.
-5. Review the separate uncommitted `AGENTS.md` clarification and commit it only
-   if accepted.
 
 ## Recommended next action
 
