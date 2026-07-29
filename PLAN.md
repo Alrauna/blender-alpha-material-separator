@@ -229,6 +229,23 @@ The authoritative hardening matrix includes:
   complete. The private aggregate retains 1,176 `OPAQUE` differences from the
   hand-made reference partition; these are diagnostic only.
 
+## Milestone 4D: Analyze responsiveness
+
+- [x] Measure modal initialization, native-image post-processing, polygon
+  callbacks, timer scheduling, and publication validation on the generated and
+  lawful private stress cases.
+- [x] Approve the balanced design: resumable native-image post-processing, a
+  1 ms modal timer, a 12 ms between-polygon target, a 4,096-polygon cap, and
+  truthful progress stages.
+- [ ] Add failing generated regressions for image chunking, buffer cleanup,
+  deadline scheduling, progress stages, and prior-report preservation.
+- [ ] Implement the approved image, engine, operator, and private progress-state
+  changes without altering public API `1.2` or analysis semantics.
+- [ ] Pass unit, headless Blender, private workflow/preservation, source/archive,
+  generated performance, and installed-ZIP interactive gates.
+- [ ] Record five-run callback and end-to-end responsiveness medians. Block an
+  unexplained established same-machine regression above 25 percent.
+
 ## Milestone 5: release validation
 
 - [x] Record small, typical-avatar, high-complexity, repeated-UV, and pathological

@@ -4,10 +4,11 @@ Updated: 2026-07-29
 
 ## Current objective
 
-The balanced Analyze responsiveness design is approved and written in
-`docs/superpowers/specs/2026-07-29-balanced-analyze-responsiveness-design.md`.
-No production change has begun. The next gate is user review of the written
-specification before preparing the test-first implementation plan.
+The balanced Analyze responsiveness design is approved. Its test-first
+implementation plan is written in
+`docs/superpowers/plans/2026-07-29-balanced-analyze-responsiveness.md`.
+No production change has begun. The next gate is user review of that plan and
+selection of inline or subagent-driven execution.
 
 ## Completed work
 
@@ -52,6 +53,9 @@ specification before preparing the test-first implementation plan.
 - Selected the balanced target: retain exact algorithms, split bulk image
   post-processing, use a 1 ms timer and 12 ms polygon deadline, improve progress
   stages, and accept rare single-polygon stalls.
+- Wrote a four-task test-first implementation plan covering image chunking,
+  polygon scheduling, progress/cancellation, private acceptance, performance,
+  packaging, and durable documentation.
 
 ## Important decisions and constraints
 
@@ -247,15 +251,15 @@ Both ignored profilers and their raw output were deleted after use.
 
 ## Remaining tasks
 
-1. Obtain user review of the written balanced-responsiveness specification.
-2. Write and approve the test-first implementation plan.
-3. Implement generated cadence/cancellation regressions before production
+1. Obtain user review and execution approval for the written test-first plan.
+2. Implement generated cadence/cancellation regressions before production
    changes.
-4. Re-run unit, Blender, private smoke, performance, package, and installed-ZIP
+3. Re-run unit, Blender, private smoke, performance, package, and installed-ZIP
    interactive gates.
-5. Complete the remaining release-validation checklist.
+4. Complete the remaining release-validation checklist.
 
 ## Recommended next action
 
-Review the written balanced Analyze responsiveness specification and approve or
-request changes before implementation planning begins.
+Review
+`docs/superpowers/plans/2026-07-29-balanced-analyze-responsiveness.md`, then
+approve inline execution or request changes.
