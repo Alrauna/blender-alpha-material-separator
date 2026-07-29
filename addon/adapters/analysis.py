@@ -77,9 +77,11 @@ class MaterialGroupAnalysis:
     face_indices: dict[FaceClass, list[int]] = field(
         default_factory=lambda: defaultdict(list)
     )
-    counts: Counter = field(default_factory=Counter)
     affected_texels: int = 0
     covered_texels: int = 0
+
+    def public_count(self, face_class: FaceClass) -> int:
+        return len(self.face_indices[face_class])
 
 
 @dataclass(slots=True)
@@ -154,7 +156,7 @@ class AnalysisReport:
                 if not group.resolution.supported:
                     default_disposition = "LEAVE_UNCHANGED"
                     default_planned_action = "LEAVE_UNCHANGED_NO_ALPHA_SOURCE"
-                elif group.counts[FaceClass.SUPPRESSED]:
+                elif group.public_count(FaceClass.SUPPRESSED):
                     default_disposition = "REVIEW_REQUIRED"
                     default_planned_action = "SKIP_GROUP"
                 elif move_count:
@@ -187,7 +189,7 @@ class AnalysisReport:
                         "alpha_material": f"{group.material.name}__AMS_ALPHA",
                         "channel": resolution.channel,
                         "counts": {
-                            face_class.value: int(group.counts[face_class])
+                            face_class.value: group.public_count(face_class)
                             for face_class in FaceClass
                         },
                         "covered_texels": group.covered_texels,
@@ -1003,7 +1005,6 @@ class AnalysisEngine:
                 )
                 prepared.result.groups[pointer] = group
             group.face_indices[FaceClass.UNSUPPORTED].append(polygon.index)
-            group.counts[FaceClass.UNSUPPORTED] += 1
 
     def _analyze_polygon(self, prepared: _PreparedObject, polygon) -> None:
         object_ = prepared.object
@@ -1118,7 +1119,6 @@ class AnalysisEngine:
             )
             prepared.result.groups[pointer] = group
         group.face_indices[classified.classification].append(polygon.index)
-        group.counts[classified.classification] += 1
         group.affected_texels += classified.affected_texels
         group.covered_texels += classified.covered_texels
         self.counts[classified.classification] += 1

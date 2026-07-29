@@ -97,3 +97,13 @@ def status_payload(code: str, message: str, **details: Any) -> dict[str, Any]:
 def dumps(payload: dict[str, Any]) -> str:
     """Serialize public payloads deterministically."""
     return json.dumps(payload, ensure_ascii=True, separators=(",", ":"), sort_keys=True)
+
+
+def publish_status(
+    state, code: str, message: str, **details: Any
+) -> dict[str, Any]:
+    """Publish one status payload to Blender's duck-typed API state."""
+    payload = status_payload(code, message, **details)
+    state.last_status_code = code
+    state.last_status_json = dumps(payload)
+    return payload

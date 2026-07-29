@@ -22,21 +22,17 @@ class ALPHA_MATERIAL_SEPARATOR_OT_clear_results(bpy.types.Operator):
     def execute(self, context: bpy.types.Context) -> set[str]:
         state = context.window_manager.alpha_material_separator_api
         if self.api_major != api_contract.API_VERSION[0]:
-            status = api_contract.status_payload(
+            api_contract.publish_status(
+                state,
                 "API_INCOMPATIBLE",
                 "Requested API major is not supported",
                 requested_api_major=self.api_major,
                 supported_api_major=api_contract.API_VERSION[0],
             )
-            state.last_status_code = status["code"]
-            state.last_status_json = api_contract.dumps(status)
             return {"CANCELLED"}
 
         runtime.clear()
         state.analysis_id = ""
         state.report_json = "{}"
-        state.last_status_code = "CLEARED"
-        state.last_status_json = api_contract.dumps(
-            api_contract.status_payload("CLEARED", "Transient results cleared")
-        )
+        api_contract.publish_status(state, "CLEARED", "Transient results cleared")
         return {"FINISHED"}

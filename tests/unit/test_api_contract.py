@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import sys
 import unittest
+from types import SimpleNamespace
 
 from addon import api_contract
 from addon.overrides import ADDRESS_MODES as OVERRIDE_ADDRESS_MODES
@@ -78,6 +79,15 @@ class ApiContractTests(unittest.TestCase):
             encoded,
             '{"a_value":2,"api_version":"1.2","code":"OK","message":"done","z_value":1}',
         )
+
+    def test_publish_status_updates_state_and_returns_payload(self) -> None:
+        state = SimpleNamespace(last_status_code="", last_status_json="")
+        payload = api_contract.publish_status(
+            state, "EXAMPLE", "Example message", count=3
+        )
+        self.assertEqual(state.last_status_code, "EXAMPLE")
+        self.assertEqual(json.loads(state.last_status_json), payload)
+        self.assertEqual(payload["count"], 3)
 
 
 if __name__ == "__main__":

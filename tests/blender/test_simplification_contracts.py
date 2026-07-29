@@ -85,7 +85,7 @@ def _assert_group_counts_match_face_indices() -> None:
     )
     group = next(iter(object_result.groups.values()))
     for face_class in FaceClass:
-        assert group.counts[face_class] == len(group.face_indices[face_class])
+        assert group.public_count(face_class) == len(group.face_indices[face_class])
 
 
 def run() -> None:

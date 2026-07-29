@@ -101,8 +101,7 @@ class ALPHA_MATERIAL_SEPARATOR_OT_select_faces(bpy.types.Operator):
     def _fail(self, context, code: str, message: str) -> set[str]:
         runtime.clear_review(context.window_manager)
         state = context.window_manager.alpha_material_separator_api
-        state.last_status_code = code
-        state.last_status_json = api_contract.dumps(api_contract.status_payload(code, message))
+        api_contract.publish_status(state, code, message)
         self.report({"WARNING"}, message)
         return {"CANCELLED"}
 
@@ -231,7 +230,8 @@ class ALPHA_MATERIAL_SEPARATOR_OT_select_faces(bpy.types.Operator):
                 )
 
         state = context.window_manager.alpha_material_separator_api
-        status = api_contract.status_payload(
+        api_contract.publish_status(
+            state,
             "PREVIEW_COMPLETE",
             "Face-selection preview completed",
             analysis_id=report.analysis_id,
@@ -241,8 +241,6 @@ class ALPHA_MATERIAL_SEPARATOR_OT_select_faces(bpy.types.Operator):
             ),
             selected_face_count=selected_count,
         )
-        state.last_status_code = status["code"]
-        state.last_status_json = api_contract.dumps(status)
         exact_plan_preview = self.preview_assignment_plan and self.selection_mode == "REPLACE"
         if exact_plan_preview:
             signature = review_signature(

@@ -282,14 +282,14 @@ def build_assignment_plan(
                     pointer, (group.material, "FACE_LOCAL_UNSUPPORTED_FACES")
                 )
             elif (
-                group.counts[FaceClass.SUPPRESSED]
+                group.public_count(FaceClass.SUPPRESSED)
                 and suppressed_policy == "CANCEL_SOURCE_MATERIAL"
             ):
                 policy_blocks.setdefault(
                     pointer, (group.material, "SUPPRESSED_FACES")
                 )
             elif (
-                group.counts[FaceClass.MIXED]
+                group.public_count(FaceClass.MIXED)
                 and mixed_policy == "CANCEL_SOURCE_MATERIAL"
             ):
                 policy_blocks.setdefault(pointer, (group.material, "MIXED_FACES"))
@@ -330,7 +330,7 @@ def build_assignment_plan(
             )
         for group in object_result.groups.values():
             object_name = object_result.object.name
-            total_faces = sum(int(group.counts[face_class]) for face_class in FaceClass)
+            total_faces = sum(group.public_count(face_class) for face_class in FaceClass)
             state = inspect_metadata(group.material)
             if state.kind == "DERIVED":
                 source = state.source

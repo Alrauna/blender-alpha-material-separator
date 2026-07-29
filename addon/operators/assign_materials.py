@@ -161,9 +161,7 @@ class ALPHA_MATERIAL_SEPARATOR_OT_assign_materials(bpy.types.Operator):
 
     def _status(self, context, code: str, message: str, **details) -> None:
         state = context.window_manager.alpha_material_separator_api
-        payload = api_contract.status_payload(code, message, **details)
-        state.last_status_code = code
-        state.last_status_json = api_contract.dumps(payload)
+        api_contract.publish_status(state, code, message, **details)
 
     def invoke(self, context: bpy.types.Context, _event) -> set[str]:
         """Show a warning summary only when the reviewed plan needs attention."""

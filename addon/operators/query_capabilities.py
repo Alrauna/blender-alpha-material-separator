@@ -27,18 +27,18 @@ class ALPHA_MATERIAL_SEPARATOR_OT_query_capabilities(bpy.types.Operator):
         state.capabilities_json = api_contract.dumps(capabilities)
 
         if self.requested_api_major != api_contract.API_VERSION[0]:
-            status = api_contract.status_payload(
+            api_contract.publish_status(
+                state,
                 "API_INCOMPATIBLE",
                 "Requested API major is not supported",
                 requested_api_major=self.requested_api_major,
                 supported_api_major=api_contract.API_VERSION[0],
             )
         else:
-            status = api_contract.status_payload(
+            api_contract.publish_status(
+                state,
                 "OK",
                 "Capability query completed",
             )
 
-        state.last_status_code = status["code"]
-        state.last_status_json = api_contract.dumps(status)
         return {"FINISHED"}
