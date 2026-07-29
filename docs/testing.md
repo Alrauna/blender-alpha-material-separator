@@ -124,6 +124,10 @@ by the corresponding headless regression test.
   explanations and remedies. Raw codes and analysis IDs remain Expert-only.
 - [x] Preview affected and mixed classes and confirm selected faces are visible.
 - [x] Preview multiple eligible objects in multi-object Edit Mode.
+- [x] Preselect edges and vertices on adjacent and disconnected opaque faces,
+  run Preview, and confirm only components belonging to selected faces remain
+  highlighted. Confirm a shared selected/unselected boundary edge remains
+  highlighted normally.
 - [x] Start Analyze from multi-object Mesh Edit Mode and confirm it switches to
   Object Mode before reading base-mesh UV/loop data, completes successfully,
   and preserves mesh contents.

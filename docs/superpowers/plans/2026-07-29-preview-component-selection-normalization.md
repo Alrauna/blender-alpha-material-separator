@@ -43,7 +43,7 @@ the user explicitly requests subagent or parallel execution.
 - Produces: selected Edit Mode edges and vertices that each belong to at least one selected face
 - Produces: no selected component belonging exclusively to an unselected face
 
-- [ ] **Step 1: Add the generated three-face fixture and selection inspector**
+- [x] **Step 1: Add the generated three-face fixture and selection inspector**
 
 Add `import bmesh` to `tests/blender/test_analysis_preview.py`.
 
@@ -119,7 +119,7 @@ def _assert_face_derived_component_selection(object_, expected_faces):
     )
 ```
 
-- [ ] **Step 2: Add the failing real-operator regression**
+- [x] **Step 2: Add the failing real-operator regression**
 
 Add `_preview_component_selection_test()` and call it from `run()` before the
 existing analysis fixture:
@@ -171,7 +171,7 @@ Repeat the same plan-derived Preview once from Edit Mode and assert the same
 face-derived component state, unchanged `state.analysis_id`, and unchanged
 `reviewed` tuple afterward.
 
-- [ ] **Step 3: Add selection-mode and compatibility regressions**
+- [x] **Step 3: Add selection-mode and compatibility regressions**
 
 Use fresh one-object fixtures for these cases:
 
@@ -194,7 +194,7 @@ In the existing safe-plan Preview test, seed stale component flags on skipped
 `first` and `shared` meshes and assert they remain unchanged while the target
 `safe` object enters Edit Mode.
 
-- [ ] **Step 4: Run the headless suite and verify RED**
+- [x] **Step 4: Run the headless suite and verify RED**
 
 Run:
 
@@ -209,7 +209,7 @@ current operator leaves selected edges or vertices whose linked faces are all
 unselected. The reported polygon face sets must already match expectations,
 proving the defect is component-only.
 
-- [ ] **Step 5: Record the pre-fix Preview timing**
+- [x] **Step 5: Record the pre-fix Preview timing**
 
 Create ignored `.test-output/profile_preview_selection.py`. Generate a
 50,000-polygon mesh with alternating alpha/opaque UV regions, seed all vertex
@@ -217,7 +217,7 @@ and edge flags, analyze once, then measure one discarded Preview warm-up and
 five `REPLACE` Preview runs. Record the median locally without committing the
 script or raw output.
 
-- [ ] **Step 6: Implement the minimal target-only normalization**
+- [x] **Step 6: Implement the minimal target-only normalization**
 
 In `ALPHA_MATERIAL_SEPARATOR_OT_select_faces.execute()`, immediately after
 obtaining `mesh` and before writing polygon selection, add:
@@ -237,7 +237,7 @@ Do not clear components on non-target objects or when
 `enter_edit_mode=False`. Leave all existing polygon selection logic and
 `mesh.update()` placement unchanged.
 
-- [ ] **Step 7: Run the generated regression and complete headless suite**
+- [x] **Step 7: Run the generated regression and complete headless suite**
 
 Run:
 
@@ -251,14 +251,14 @@ Expected: `ALPHA_MATERIAL_SEPARATOR_ANALYSIS_PREVIEW_TESTS_OK` and
 repeat Preview, multi-object Edit Mode, non-target preservation, and
 `enter_edit_mode=False` compatibility pass.
 
-- [ ] **Step 8: Re-run the Preview timing**
+- [x] **Step 8: Re-run the Preview timing**
 
 Run the same ignored profiler with one discarded warm-up and five measurements.
 Record the new median and component counts. If the same-machine Preview median
 regresses by more than 25 percent, stop and present the evidence before trying
 `foreach_set`, BMesh, or another implementation.
 
-- [ ] **Step 9: Commit the independently verified behavior**
+- [x] **Step 9: Commit the independently verified behavior**
 
 Run:
 
@@ -289,7 +289,7 @@ commit.
 - Documents: shared alpha/opaque boundary edges still highlight normally
 - Preserves: private semantic lower-bound policy and immutable references
 
-- [ ] **Step 1: Extend the ignored private Preview smoke**
+- [x] **Step 1: Extend the ignored private Preview smoke**
 
 Before its Preview call, seed selected vertex and edge flags on every eligible
 target mesh. After Preview enters multi-object Edit Mode, inspect each target
@@ -312,7 +312,7 @@ Continue asserting that the selected face set equals assignment plan `P`.
 Do not emit object/material names, raw component sets, private paths, or graph
 details.
 
-- [ ] **Step 2: Run the private before/after smoke**
+- [x] **Step 2: Run the private before/after smoke**
 
 Run:
 
@@ -329,7 +329,7 @@ assignment, preservation, and immutable-reference checks pass. The command may
 end nonzero only for the already recorded 1,176-face `OPAQUE` semantic
 lower-bound discrepancy; any additional mismatch is a regression.
 
-- [ ] **Step 3: Update end-user and testing documentation**
+- [x] **Step 3: Update end-user and testing documentation**
 
 In `README.md`, add:
 
@@ -351,7 +351,7 @@ In `docs/testing.md`, add and execute an interactive checklist item:
 
 Mark it complete only after running the installed-ZIP interaction.
 
-- [ ] **Step 4: Run the complete change gate**
+- [x] **Step 4: Run the complete change gate**
 
 Run:
 
@@ -368,7 +368,7 @@ Expected: every unit test passes, the Blender runner reaches
 `ALPHA_MATERIAL_SEPARATOR_BLENDER_TESTS_OK`, source validation succeeds, and
 `git diff --check` reports no whitespace errors.
 
-- [ ] **Step 5: Build and validate the installable ZIP**
+- [x] **Step 5: Build and validate the installable ZIP**
 
 Run:
 
@@ -384,7 +384,7 @@ Get-FileHash -Algorithm SHA256 -LiteralPath $Archive
 Expected: source and archive validation pass. Record the ignored archive size
 and SHA-256 in `docs/HANDOFF.md`.
 
-- [ ] **Step 6: Perform installed-ZIP visual acceptance**
+- [x] **Step 6: Perform installed-ZIP visual acceptance**
 
 Using an isolated Blender 5.2 profile and generated three-face fixture:
 
@@ -401,7 +401,7 @@ Using an isolated Blender 5.2 profile and generated three-face fixture:
 Record the interaction in `docs/testing.md`; do not mark it complete from a
 headless test alone.
 
-- [ ] **Step 7: Update the handoff and commit documentation**
+- [x] **Step 7: Update the handoff and commit documentation**
 
 Update `docs/HANDOFF.md` with the root cause, implementation commit, RED/GREEN
 commands, Preview medians, private-smoke status, archive hash, installed-ZIP
@@ -411,13 +411,13 @@ Run:
 
 ```powershell
 git add -- README.md docs/testing.md docs/HANDOFF.md `
+  docs/superpowers/plans/2026-07-29-preview-component-selection-normalization.md
 git diff --cached --check
 git diff --cached --name-only
 git commit -m "docs: document normalized face preview"
 git status --short
 ```
 
-Expected: only public documentation and handoff are in the documentation
-commit. The approved plan was committed at its approval checkpoint. The
-working tree is clean; private helpers, generated outputs, and the ZIP remain
-ignored and uncommitted.
+Expected: only public documentation, the completed plan record, and handoff are
+in the documentation commit. The working tree is clean; private helpers,
+generated outputs, and the ZIP remain ignored and uncommitted.

@@ -38,10 +38,12 @@ Blender Undo, but a saved file is still the safest starting point.
    path; no settings are required for supported materials.
 4. Preview is recommended but optional. Click **Preview Faces to Move** when
    you want Blender to enter multi-object Edit Mode and select the exact faces
-   that would use alpha. Press `Tab` when you finish inspecting them. Tabbing
-   out, changing face selection, or changing the active object does not require
-   another analysis when the mesh, UVs, materials, images, and settings are
-   unchanged.
+   that would use alpha. Preview clears unrelated edge and vertex selections,
+   so highlighted components come from those faces. An edge shared with an
+   opaque neighbor still highlights because it belongs to the selected face.
+   Press `Tab` when you finish inspecting them. Tabbing out, changing face
+   selection, or changing the active object does not require another analysis
+   when the mesh, UVs, materials, images, and settings are unchanged.
 5. Click **Apply Material Separation**. Apply without Preview always asks for confirmation.
    A clean plan that exactly matches a completed Preview applies immediately.
    Mixed or uncertain faces, unchanged/skipped material groups, suppressed
@@ -147,7 +149,9 @@ not have to be resolved merely to let another material proceed.
   reads selected base meshes, materials, UVs, and image pixels. It makes no
   persistent mesh or material change.
 - **Preview** changes face selection and normally enters multi-object Edit Mode.
-  It does not change topology or material assignments.
+  It clears unrelated edge and vertex selections but does not change topology
+  or material assignments. Shared selected/unselected boundary edges remain
+  highlighted normally.
 - **Apply** creates or reuses local `<source>__AMS_ALPHA` materials, appends
   planned material slots, and changes only the intended polygons' material
   indices. Without a matching Preview, it asks for confirmation first.
