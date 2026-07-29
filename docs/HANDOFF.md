@@ -82,6 +82,7 @@ private-example heuristics.
   - `7a48eb0 fix:analyze-selected-meshes-from-edit-mode`
   - `b6087aa docs:design-collapsible-material-details`
   - `2c75c6f feat:collapse-material-review-details`
+  - `b62ae03 docs:design-compact-apply-confirmation`
 - Nothing was pushed.
 
 ## Important decisions and constraints
