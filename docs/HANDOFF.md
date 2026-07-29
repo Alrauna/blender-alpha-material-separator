@@ -4,9 +4,11 @@ Updated: 2026-07-29
 
 ## Current objective
 
-Investigate the remaining private semantic lower-bound faces whose decoded
-participating alpha evidence currently classifies them `OPAQUE`. The UI
-milestone is accepted by the user and no longer requires immediate attention.
+Obtain user review of the optional-preview confirmation design in
+`docs/superpowers/specs/2026-07-29-optional-preview-confirmation-design.md`.
+The approved direction enables Apply after a valid actionable analysis while
+requiring confirmation when the exact current assignment plan was not
+previewed. No production implementation has begun.
 
 ## Repository state
 
@@ -159,15 +161,17 @@ immediate usability blocker.
 
 ## Remaining tasks
 
-1. Review the uncommitted `AGENTS.md` clarification and commit it separately if
+1. Review and approve the optional-preview confirmation design, then prepare a
+   test-first implementation plan.
+2. Review the uncommitted `AGENTS.md` clarification and commit it separately if
    accepted.
-2. Investigate private `OPAQUE` lower-bound misses with ignored anonymized
+3. Investigate private `OPAQUE` lower-bound misses with ignored anonymized
    diagnostics and a generated failing regression before any production fix.
-3. Complete the interactive partial-apply check and Apply-preflight timing.
-4. Record user-performed ordinary Unity material/submesh acceptance.
+4. Complete the interactive partial-apply check and Apply-preflight timing.
+5. Record user-performed ordinary Unity material/submesh acceptance.
 
 ## Recommended next action
 
-Investigate the private `OPAQUE` lower-bound misses using ignored anonymized
-diagnostics, then establish a generated failing regression before changing
-production behavior.
+Review the optional-preview confirmation design with the user. After approval,
+prepare its detailed test-first implementation plan without changing production
+code.
