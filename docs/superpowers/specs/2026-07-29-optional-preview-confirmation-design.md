@@ -1,6 +1,6 @@
 # Optional Preview with Confirmation Design
 
-**Status:** Proposed for user review  
+**Status:** Proposed for user review
 **Date:** 2026-07-29
 
 ## Goal
@@ -160,4 +160,3 @@ Update the README and testing documentation so they state:
 - No change to classification, rasterization, material resolution, assignment
   policies, or mutation scope.
 - No topology or shader changes.
-
