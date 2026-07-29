@@ -156,20 +156,6 @@ class ALPHA_MATERIAL_SEPARATOR_PG_settings(bpy.types.PropertyGroup):
         update=_settings_changed,
     )
 
-    # Legacy selection-wide properties remain for API compatibility but are no
-    # longer shown in the end-user UI.
-    image_override: PointerProperty(
-        name="Legacy Analysis Image", type=bpy.types.Image, update=_settings_changed
-    )
-    uv_map_name: StringProperty(
-        name="Legacy UV Map Override", default="", update=_settings_changed
-    )
-    image_channel: EnumProperty(
-        name="Legacy Image Channel",
-        items=CHANNEL_ITEMS,
-        default="ALPHA",
-        update=_settings_changed,
-    )
     address_mode: EnumProperty(
         name="Default Addressing",
         description="Addressing used by automatic sources unless a material override replaces it",

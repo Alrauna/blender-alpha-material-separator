@@ -67,6 +67,11 @@ def _assert_legacy_analyze_arguments() -> None:
         "material_overrides_json",
     ):
         assert properties.get(name) is not None, name
+    settings_properties = (
+        bpy.context.window_manager.alpha_material_separator_settings.bl_rna.properties
+    )
+    for name in ("image_override", "uv_map_name", "image_channel"):
+        assert settings_properties.get(name) is None, name
 
 
 def _assert_group_counts_match_face_indices() -> None:
