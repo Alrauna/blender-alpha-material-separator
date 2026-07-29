@@ -4,11 +4,9 @@ Updated: 2026-07-29
 
 ## Current objective
 
-Obtain user review of the optional-preview confirmation design in
-`docs/superpowers/specs/2026-07-29-optional-preview-confirmation-design.md`.
-The approved direction enables Apply after a valid actionable analysis while
-requiring confirmation when the exact current assignment plan was not
-previewed. No production implementation has begun.
+Obtain user approval of the test-first optional-preview implementation plan in
+`docs/superpowers/plans/2026-07-29-optional-preview-confirmation.md`. The design
+is approved. No production implementation has begun.
 
 ## Repository state
 
@@ -161,8 +159,8 @@ immediate usability blocker.
 
 ## Remaining tasks
 
-1. Review and approve the optional-preview confirmation design, then prepare a
-   test-first implementation plan.
+1. Review and approve the optional-preview confirmation implementation plan,
+   then execute it test-first.
 2. Review the uncommitted `AGENTS.md` clarification and commit it separately if
    accepted.
 3. Investigate private `OPAQUE` lower-bound misses with ignored anonymized
@@ -172,6 +170,6 @@ immediate usability blocker.
 
 ## Recommended next action
 
-Review the optional-preview confirmation design with the user. After approval,
-prepare its detailed test-first implementation plan without changing production
-code.
+Review the optional-preview confirmation implementation plan with the user.
+After approval, execute its generated RED/GREEN presentation and Blender
+regressions before changing production behavior.
