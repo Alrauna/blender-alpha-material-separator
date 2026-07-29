@@ -6,8 +6,11 @@ by real-file testing is complete in commits `a09593b`, `4c26dfd`, and
 `1e61993`: safe groups apply independently, exact-plan preview survives
 harmless selection/mode changes, and the installed-ZIP Analyze → Preview →
 Tab → Apply workflow no longer requires redundant analysis. Milestone 5 is
-partially complete. Manual Unity material/submesh validation remains a release
-gate; VRChat validation remains optional stack-specific evidence.
+partially complete. The compact count-only Apply confirmation is implemented
+and automated/private smoke coverage passes; installed-ZIP visual acceptance
+at narrow/wide layouts and 100%/150% UI scale remains open. Manual Unity
+material/submesh validation remains a release gate; VRChat validation remains
+optional stack-specific evidence.
 
 ## Product outcome
 

@@ -43,7 +43,9 @@ Blender Undo, but a saved file is still the safest starting point.
    mesh, UVs, materials, images, and settings are unchanged.
 5. Click **Apply Material Separation**. Clean results apply immediately. A
    warning dialog appears for mixed or uncertain faces, unchanged/skipped
-   material groups, suppressed evidence, or conflicts.
+   material groups, suppressed evidence, or conflicts. It reports only
+   aggregate assignment outcomes. Object, material, image, UV, and destination
+   details remain under **Review → Material Details**.
 6. Check the object's material slots. The original material remains the opaque
    candidate and `<source>__AMS_ALPHA` is the alpha candidate.
 

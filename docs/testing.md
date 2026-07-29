@@ -150,6 +150,11 @@ by the corresponding headless regression test.
   narrow and wide sidebars and confirm all existing cards and **Set Manual
   Alpha Source** actions remain usable. Cancellation must preserve the prior
   report and disclosure state.
+- [ ] Confirm the warning popup after **Apply Material Separation** contains
+  only aggregate plan-outcome counts, stays bounded without material/object
+  lists, and uses the native **Apply Material Separation** title and **Apply**
+  confirmation action. Check narrow/wide layouts and 100%/150% UI scale;
+  cancel with zero mutation, then reopen, apply, and undo with Ctrl+Z.
 - [x] Assign directly from the Edit Mode preview and verify the intended material
   partition.
 - [ ] Process a generated two-material case where one resolved source has

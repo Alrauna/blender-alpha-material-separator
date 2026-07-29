@@ -31,7 +31,7 @@
 - Consumes: existing `MaterialGroupAnalysis.face_indices`, active assignment policies, and final derived-material decisions.
 - Produces: additive plan payload integers `mixed_faces_to_alpha` and `suppressed_faces_to_alpha`.
 
-- [ ] **Step 1: Add failing suppressed-outcome assertions**
+- [x] **Step 1: Add failing suppressed-outcome assertions**
 
 Immediately after the generated suppressed analysis in `run()`, build both policy plans and assert that only the plan moving the face reports it:
 
@@ -55,7 +55,7 @@ assert suppressed_blocked_plan.public_payload()["suppressed_faces_to_alpha"] == 
 assert suppressed_move_plan.public_payload()["suppressed_faces_to_alpha"] == 1
 ```
 
-- [ ] **Step 2: Add failing mixed-outcome assertions**
+- [x] **Step 2: Add failing mixed-outcome assertions**
 
 In the generated partial-material scenario, assert the actionable plan counts its one moved mixed face while the source-wide blocked plan does not:
 
@@ -66,7 +66,7 @@ blocked_payload = blocked_plan.public_payload()
 assert blocked_payload["mixed_faces_to_alpha"] == 0, blocked_payload
 ```
 
-- [ ] **Step 3: Run the Blender suite and verify RED**
+- [x] **Step 3: Run the Blender suite and verify RED**
 
 Run:
 
@@ -78,7 +78,7 @@ $Blender52 = 'C:\Program Files\Blender Foundation\Blender 5.2\blender.exe'
 
 Expected: fail with `KeyError: 'suppressed_faces_to_alpha'` or `KeyError: 'mixed_faces_to_alpha'`.
 
-- [ ] **Step 4: Store the two counts on each group disposition**
+- [x] **Step 4: Store the two counts on each group disposition**
 
 Add fields and public payload entries to `GroupDisposition`:
 
@@ -114,7 +114,7 @@ Pass `mixed_to_alpha` and `suppressed_to_alpha` into the actionable
 `GroupDisposition`. Leave them at zero for unchanged, already-separated, and
 initially blocked dispositions.
 
-- [ ] **Step 5: Clear action counts when derived-material preflight blocks a source**
+- [x] **Step 5: Clear action counts when derived-material preflight blocks a source**
 
 Extend the existing decision-block reconciliation:
 
@@ -127,7 +127,7 @@ disposition.faces_left_source = disposition.total_faces
 disposition.retained_by_policy = 0
 ```
 
-- [ ] **Step 6: Aggregate the additive plan fields**
+- [x] **Step 6: Aggregate the additive plan fields**
 
 Add to `AssignmentPlan.public_payload()`:
 
@@ -140,7 +140,7 @@ Add to `AssignmentPlan.public_payload()`:
 ),
 ```
 
-- [ ] **Step 7: Run the Blender suite and verify GREEN**
+- [x] **Step 7: Run the Blender suite and verify GREEN**
 
 Run the command from Step 3. Expected: the complete Blender suite prints
 `ALPHA_MATERIAL_SEPARATOR_BLENDER_TESTS_OK` and exits zero.
@@ -155,7 +155,7 @@ Run the command from Step 3. Expected: the complete Blender suite prints
 - Consumes: the JSON-compatible `AssignmentPlan.public_payload()` dictionary.
 - Produces: `assignment_confirmation_lines(plan_payload: dict) -> tuple[str, ...]`.
 
-- [ ] **Step 1: Add the failing representative-copy test**
+- [x] **Step 1: Add the failing representative-copy test**
 
 Import `assignment_confirmation_lines` and add:
 
@@ -188,7 +188,7 @@ def test_compact_assignment_confirmation_representative_copy(self) -> None:
     )
 ```
 
-- [ ] **Step 2: Add failing adaptive and privacy tests**
+- [x] **Step 2: Add failing adaptive and privacy tests**
 
 Add:
 
@@ -251,7 +251,7 @@ def test_compact_assignment_confirmation_omits_zero_clauses(self) -> None:
     self.assertNotIn("0", "\n".join(lines))
 ```
 
-- [ ] **Step 3: Run the focused unit test and verify RED**
+- [x] **Step 3: Run the focused unit test and verify RED**
 
 Run:
 
@@ -262,7 +262,7 @@ $Python52 = 'C:\Program Files\Blender Foundation\Blender 5.2\5.2\python\bin\pyth
 
 Expected: fail because `assignment_confirmation_lines` does not exist.
 
-- [ ] **Step 4: Implement the pure sentence generator**
+- [x] **Step 4: Implement the pure sentence generator**
 
 Add to `addon/presentation.py`:
 
@@ -338,7 +338,7 @@ def assignment_confirmation_lines(plan_payload: dict) -> tuple[str, ...]:
     return tuple(lines)
 ```
 
-- [ ] **Step 5: Run focused and full unit tests**
+- [x] **Step 5: Run focused and full unit tests**
 
 Run:
 
@@ -360,7 +360,7 @@ Expected: all tests pass.
 - Consumes: `assignment_confirmation_lines(plan_payload)`.
 - Produces: a native dialog with `width=420`, title `Apply Material Separation`, and confirm text `Apply`.
 
-- [ ] **Step 1: Add failing dialog-contract assertions**
+- [x] **Step 1: Add failing dialog-contract assertions**
 
 In `tests/blender/test_assignment_policies.py`, import the operator and constants:
 
@@ -404,7 +404,7 @@ def test_apply_confirmation_is_bounded_and_count_only(self) -> None:
         self.assertNotIn(removed, source)
 ```
 
-- [ ] **Step 2: Run focused tests and verify RED**
+- [x] **Step 2: Run focused tests and verify RED**
 
 Run:
 
@@ -418,7 +418,7 @@ Run:
 Expected: the unit source contract fails and Blender import fails because the
 confirmation constants do not exist.
 
-- [ ] **Step 3: Replace the dialog drawing code**
+- [x] **Step 3: Replace the dialog drawing code**
 
 In `addon/operators/assign_materials.py`:
 
@@ -471,7 +471,7 @@ Delete the old report counts, object warnings, blocked-material list,
 unchanged-material list, destination list, per-object/material face list, and
 four-line footer.
 
-- [ ] **Step 4: Add a real-plan cancel-boundary test**
+- [x] **Step 4: Add a real-plan cancel-boundary test**
 
 Create a recording `WindowManager` proxy inside
 `tests/blender/test_assignment_policies.py`:
@@ -517,7 +517,7 @@ Use the existing `review_signature(..., plan.public_payload())` helper to set
 validation, plan construction, and review equivalence before the native dialog
 boundary.
 
-- [ ] **Step 5: Run focused and complete automated tests**
+- [x] **Step 5: Run focused and complete automated tests**
 
 Run:
 
@@ -543,7 +543,7 @@ preservation, and registration checks.
 - Documents: the count-only confirmation and where detailed names remain.
 - Produces locally: validated `.packaged-releases/alpha_material_separator-0.1.0.zip`.
 
-- [ ] **Step 1: Update end-user documentation**
+- [x] **Step 1: Update end-user documentation**
 
 In the README's Simple workflow and troubleshooting sections, state:
 
@@ -557,7 +557,7 @@ Update `docs/testing.md` with unchecked manual acceptance items for the compact
 popup at narrow/wide layouts and 100%/150% UI scale. Do not mark an interaction
 complete until it has actually been performed.
 
-- [ ] **Step 2: Extend the ignored before/after smoke**
+- [x] **Step 2: Extend the ignored before/after smoke**
 
 Update the ignored helper to call `assignment_confirmation_lines(plan_payload)`
 for both private files, collect all private object/material names internally,
@@ -575,7 +575,7 @@ assert plan.public_payload()["faces_to_reassign"] == sum(
 Print only anonymous counts such as `summary_rows`, `faces_to_reassign`,
 `unchanged_groups`, `skipped_groups`, and `skipped_objects`.
 
-- [ ] **Step 3: Run both private smokes**
+- [x] **Step 3: Run both private smokes**
 
 Run:
 
@@ -594,7 +594,7 @@ Expected: both analyze all eligible meshes, emit only anonymized aggregates,
 keep the summary at seven or fewer semantic rows, and leave both files
 unchanged.
 
-- [ ] **Step 4: Validate and rebuild the extension**
+- [x] **Step 4: Validate and rebuild the extension**
 
 Run:
 
@@ -627,7 +627,7 @@ In a clean Blender 5.2 configuration:
 6. Cancel and verify zero changes.
 7. Open again, Apply, verify exact reviewed changes, then press Ctrl+Z.
 
-- [ ] **Step 6: Update the handoff and create local commits**
+- [x] **Step 6: Update the handoff and create local commits**
 
 Record the RED/GREEN evidence, exact commands, private aggregate status, manual
 visual status, package hash, known warnings, and next action in

@@ -5,18 +5,11 @@ Updated: 2026-07-28
 ## Current objective
 
 Continue release hardening for Blender Alpha Material Separator 0.1 on
-`feat/alpha-material-separator-0.1`. The user accepted the collapsed
-material-details UI and requested a design to simplify the warning confirmation
-shown after **Apply Material Separation**. The user chose an entirely
-count-based popup: material names and detailed destinations remain in Review
-and Material Details. The user selected the ultra-compact paragraph layout
-(Option B), approved the full interaction/data/testing design, and the written
-spec is ready for user review at
-`docs/superpowers/specs/2026-07-28-compact-apply-confirmation-design.md`.
-The spec is approved and the detailed test-first implementation plan is ready
-for review at
-`docs/superpowers/plans/2026-07-28-compact-apply-confirmation.md`. No popup
-implementation has started. The next classification objective remains explaining private
+`feat/alpha-material-separator-0.1`. The approved count-only **Apply Material
+Separation** confirmation is implemented and automated/private verification
+passes. Its one remaining acceptance item is an installed-ZIP visual check at
+narrow/wide layouts and 100%/150% UI scale, including Cancel, Apply, and Undo.
+After that, the next classification objective remains explaining private
 before/after lower-bound faces that the extension classifies `OPAQUE`, without
 broadening the approved resolver, changing raster margin zero, or adding
 private-example heuristics.
@@ -71,6 +64,19 @@ private-example heuristics.
 - Added unit and Blender regressions for card deduplication, advisory copy,
   successful reset, cancellation preservation, and review-token stability.
 - Rebuilt and validated the ignored local extension ZIP with this UI change.
+- Replaced the unbounded assignment warning with a native 420-pixel
+  **Apply Material Separation** dialog whose positive action is **Apply**.
+  Its copy contains at most seven aggregate outcome rows and never lists
+  object, material, image, UV, or destination names.
+- Added exact `mixed_faces_to_alpha` and `suppressed_faces_to_alpha` plan
+  counts, including zeroing them when derived-material preflight blocks a
+  group. The dialog therefore describes the actual mutation plan rather than
+  broad analysis totals.
+- Added a real-plan cancellation-boundary regression proving that native-dialog
+  cancellation changes neither polygon material indices nor material slots.
+- Updated README and testing guidance so detailed identities remain under
+  **Review → Material Details**, while the confirmation reports only aggregate
+  outcomes.
 - Upgraded the ignored private helper to validate every mesh, semantic
   before/after roles, multi-image Base Color resolution, out-of-range UVs,
   exact Preview/Apply equivalence, derived destinations, source/image/mesh/rig
@@ -86,6 +92,7 @@ private-example heuristics.
   - `2c75c6f feat:collapse-material-review-details`
   - `b62ae03 docs:design-compact-apply-confirmation`
   - `db4ca47 docs:plan-compact-apply-confirmation`
+  - `f74012d feat:compact-the-apply-confirmation`
 - Nothing was pushed.
 
 ## Important decisions and constraints
@@ -121,12 +128,14 @@ private-example heuristics.
 - `addon/adapters/analysis.py`: classification-focused structural signatures,
   participating-image-only state, and separate assignment-plan invalidation.
 - `addon/adapters/assignment.py`: current source fingerprints and exact plan
-  fingerprinting.
+  fingerprinting, plus exact mixed/suppressed-to-alpha outcome counts.
 - `addon/presentation.py`: actionable automatic/manual alpha-source remedies,
   the state-specific already-separated tooltip copy, and the pure deduplicated
-  material-card/advisory presentation rules.
+  material-card/advisory presentation rules, plus bounded count-only assignment
+  confirmation copy.
 - `addon/operators/select_faces.py`, `addon/operators/assign_materials.py`:
-  transient contextual Blender operator descriptions.
+  transient contextual Blender operator descriptions and the bounded native
+  count-only assignment dialog.
 - `addon/panel.py`: supplies contextual button descriptions and renders the
   material advisory plus one native disclosure around existing cards.
 - `addon/properties.py`: transient, non-saved disclosure Boolean.
@@ -144,7 +153,10 @@ private-example heuristics.
   outside 0–1.
 - `tests/unit/test_presentation.py`,
   `tests/unit/test_readme_contract.py`: preserved and extended UX/documentation
-  contracts.
+  contracts, including count adaptation, privacy, zero-clause omission, and
+  removal of unbounded dialog content.
+- `tests/blender/test_assignment_policies.py`: exact mixed/suppressed plan
+  outcomes and native-dialog cancellation with zero mutation.
 - `tests/blender/test_ux_overrides.py`: operator-description coverage and
   disclosure state-transition/review-preservation coverage.
 - `README.md`, `docs/material-support.md`, `docs/integration-api.md`,
@@ -155,8 +167,9 @@ private-example heuristics.
 - `.local-references/default-example/_validate_analysis.py`: ignored private
   acceptance helper; never commit it or its output.
 - `.local-references/default-example/_diagnose_rerun_tooltip.py`: ignored
-  aggregate smoke helper extended locally with material-card, advisory, and
-  collapsed-state assertions; never commit it or its output.
+  aggregate smoke helper extended locally with material-card, advisory,
+  collapsed-state, count-only confirmation privacy, and exact-plan assertions;
+  never commit it or its output.
 - `docs/superpowers/specs/2026-07-28-collapsible-material-details-design.md`,
   `docs/superpowers/plans/2026-07-28-collapsible-material-details.md`: approved
   design and test-first implementation record.
@@ -387,6 +400,46 @@ All commands used Blender 5.2.0 LTS from
    skipped objects and retained actionable supported groups. Only anonymized
    aggregate counts were emitted; neither private file was saved.
 
+15. Compact assignment-confirmation TDD, private smoke, and package:
+
+   ```powershell
+   $Python52 = 'C:\Program Files\Blender Foundation\Blender 5.2\5.2\python\bin\python.exe'
+   & $Python52 -m unittest tests.unit.test_presentation -v
+   & $Python52 -m unittest discover -s tests/unit -t . -v
+   & $Blender52 --factory-startup --background --disable-autoexec `
+     --python-exit-code 1 --python tests/blender/run_all.py
+   & $Blender52 --factory-startup --background --disable-autoexec `
+     --python-exit-code 1 `
+     --python .local-references\default-example\_diagnose_rerun_tooltip.py -- `
+     .local-references\default-example\before.blend
+   & $Blender52 --factory-startup --background --disable-autoexec `
+     --python-exit-code 1 `
+     --python .local-references\default-example\_diagnose_rerun_tooltip.py -- `
+     .local-references\default-example\after.blend
+   & $Blender52 --factory-startup --command extension validate addon
+   & $Blender52 --factory-startup --command extension build `
+     --source-dir addon --output-dir .packaged-releases
+   & $Blender52 --factory-startup --command extension validate `
+     .packaged-releases\alpha_material_separator-0.1.0.zip
+   Get-FileHash -Algorithm SHA256 `
+     .packaged-releases\alpha_material_separator-0.1.0.zip
+   git diff --check
+   ```
+
+   RED evidence: the Blender policy suite first failed because the plan payload
+   lacked `suppressed_faces_to_alpha`; the focused presentation test then
+   failed because `assignment_confirmation_lines` did not exist; and the source
+   contract/Blender imports failed because the bounded-dialog helper and
+   constants did not exist. After the minimal implementation, 50/50 unit tests
+   and the complete Blender suite passed. Both private files analyzed all 48
+   selected meshes and passed exact-plan/count-only privacy checks with four
+   semantic summary rows, 65,773 faces to reassign, 23 unchanged groups, and
+   zero skipped groups/objects. Only anonymized aggregates were emitted and
+   neither file was saved. Source and archive validation passed. The ignored
+   archive is 64,549 bytes with SHA-256
+   `F86BE735CC4D121D4F010A6CA8B40DD95D06519F3420D928FB449C60FE2C74BA`.
+   `git diff --check` reported only expected LF-to-CRLF working-copy warnings.
+
 ## Known failures, warnings, and unverified assumptions
 
 - Release acceptance remains open because the private semantic lower-bound has
@@ -413,15 +466,20 @@ All commands used Blender 5.2.0 LTS from
 - The rebuilt ZIP has not yet received the visual disclosure check in narrow
   and wide 3D View sidebars. Automated tests prove state/copy contracts but do
   not prove Blender's actual layout, wrapping, or click target.
+- The rebuilt ZIP has not yet received the compact confirmation check at
+  narrow/wide layouts and 100%/150% UI scale. Automated tests prove exact
+  counts, privacy, bounded prose, cancellation safety, and the native dialog
+  options, but not Blender's rendered wrapping or click targets.
 - VRChat validation remains optional evidence for the exact tested stack only.
 
 ## Remaining tasks in priority order
 
-1. Obtain user approval of
-   `docs/superpowers/plans/2026-07-28-compact-apply-confirmation.md`, then execute
-   it test-first. The design spec is already approved.
+1. Install the rebuilt ZIP in a clean Blender 5.2 configuration and visually
+   verify the compact confirmation at narrow/wide layouts and 100%/150% UI
+   scale. Cancel with zero mutation, reopen and Apply the exact reviewed plan,
+   then verify Ctrl+Z undo.
 2. Complete any still-unverified wide-sidebar and 150% UI-scale checks for the
-   accepted **Material Details (N)** disclosure.
+   accepted **Material Details (N)** disclosure during the same session.
 3. Investigate the remaining private `OPAQUE` lower-bound faces by comparing
    their supported authority, resolved UV/address mode, positive-area coverage,
    addressed texels, and decoded A values. Keep diagnostics ignored and
@@ -438,6 +496,7 @@ All commands used Blender 5.2.0 LTS from
 
 ## Recommended next action
 
-Have the user review the compact-confirmation implementation plan. After
-approval, execute it test-first without parallel orchestration unless the user
-explicitly requests delegation.
+Install the rebuilt ZIP in a clean Blender 5.2 configuration and perform the
+compact confirmation's narrow/wide, 100%/150%, Cancel, Apply, and Undo visual
+acceptance. Do not mark the checklist complete until those interactions have
+actually been observed.
