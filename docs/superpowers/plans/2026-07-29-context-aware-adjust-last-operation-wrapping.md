@@ -221,12 +221,15 @@ Get-FileHash -Algorithm SHA256 $Archive
 Expected: build and archive validation succeed. Record the exact byte size and
 SHA-256 in `docs/HANDOFF.md`; never stage the ZIP.
 
-- [ ] **Step 2: Perform a focused Blender 5.2 visual acceptance**
+- [x] **Step 2: Perform a focused Blender 5.2 visual acceptance**
 
 Partially complete: the installed ZIP passed Analyze → Preview → Apply, the
 adaptive confirmation, normal-width HUD readability without ellipses,
 sidebar/HUD fact equivalence, and undo. Blender did not respond to the attempted
 native-HUD resize, so steps 6 and 7 remain unverified.
+
+The user subsequently accepted the resulting UI as the desired version. The
+unverified native-HUD resize interaction is not a milestone blocker.
 
 Using the rebuilt ZIP in an isolated Blender 5.2 configuration:
 

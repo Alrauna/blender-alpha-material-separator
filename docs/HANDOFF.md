@@ -4,11 +4,9 @@ Updated: 2026-07-29
 
 ## Current objective
 
-Finish the remaining isolated installed-ZIP visual matrix. Context-aware
-wrapping for Blender's bottom-left Adjust Last Operation HUD is implemented,
-tested, packaged, and confirmed at its normal width. Narrowing and widening the
-native HUD could not be exercised because Blender did not respond to the
-attempted resize interaction.
+Investigate the remaining private semantic lower-bound faces whose decoded
+participating alpha evidence currently classifies them `OPAQUE`. The UI
+milestone is accepted by the user and no longer requires immediate attention.
 
 ## Repository state
 
@@ -146,13 +144,14 @@ widened and increased wrapping when narrowed were not counted as visually
 verified. The generated Blender test covers positive 220-pixel HUD width, zero
 width fallback, non-HUD width isolation, and missing context.
 
+The user reviewed the resulting UI and accepted it as the desired version on
+2026-07-29. The incomplete native-HUD resize interaction is therefore not an
+immediate usability blocker.
+
 ## Open failures and assumptions
 
 - The private semantic lower bound still includes reference-alpha faces whose
   participating decoded A evidence classifies them `OPAQUE`.
-- The isolated installed ZIP still needs a narrow/wide native-HUD resize check
-  and the remaining 100%/150% panel matrix. Normal-width installed-ZIP
-  confirmation, HUD readability, fact equivalence, and undo passed.
 - The generated interactive two-material partial-apply check and distinct
   final Apply-preflight timing remain open.
 - Ordinary Unity material/submesh validation remains a release requirement.
@@ -160,18 +159,15 @@ width fallback, non-HUD width isolation, and missing context.
 
 ## Remaining tasks
 
-1. Complete the isolated installed-ZIP narrow/wide 100%/150% panel and
-   Apply-dialog visual checklist; the ZIP is already installed in the ignored
-   profile. Include a native-HUD resize check if Blender exposes a workable
-   resize interaction.
-2. Review the uncommitted `AGENTS.md` clarification and commit it separately if
+1. Review the uncommitted `AGENTS.md` clarification and commit it separately if
    accepted.
-3. Investigate private `OPAQUE` lower-bound misses with ignored anonymized
+2. Investigate private `OPAQUE` lower-bound misses with ignored anonymized
    diagnostics and a generated failing regression before any production fix.
-4. Complete the interactive partial-apply check and Apply-preflight timing.
-5. Record user-performed ordinary Unity material/submesh acceptance.
+3. Complete the interactive partial-apply check and Apply-preflight timing.
+4. Record user-performed ordinary Unity material/submesh acceptance.
 
 ## Recommended next action
 
-Complete the remaining isolated installed-ZIP narrow/wide 100%/150% visual
-matrix, including native-HUD resize behavior if Blender permits resizing it.
+Investigate the private `OPAQUE` lower-bound misses using ignored anonymized
+diagnostics, then establish a generated failing regression before changing
+production behavior.
