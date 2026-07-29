@@ -4,11 +4,10 @@ Updated: 2026-07-29
 
 ## Current objective
 
-The Preview component-selection normalization milestone is complete. The
-private 1,176-face `OPAQUE` difference is also resolved as a test-expectation
-issue: the user confirmed that it comes from broad, hand-made material
-separation in an early-development after example, not an extension defect.
-The next objective is the remaining release-validation checklist.
+Investigate and design a safe continuation of Analyze performance work,
+including the loading-percentage stutter introduced by the bounded native image
+reader. Root-cause measurement is complete; no production change has begun.
+The next gate is choosing balanced responsiveness or a strict per-frame budget.
 
 ## Completed work
 
@@ -38,6 +37,18 @@ The next objective is the remaining release-validation checklist.
   addressing, assignment, and preservation checks.
 - Updated the ignored private helper so the 1,176 opaque reference-only faces
   are reported diagnostically while the authoritative smoke gates pass.
+- Profiled the real 247,718-polygon stress example twice without timer sleeps.
+  The two runs produced stable callback counts and stage timings.
+- Confirmed that commit `9264fec` improved total image throughput but made each
+  eligible image's native transfer and Python post-processing one indivisible
+  modal callback.
+- Isolated the generated 2K bulk callback: allocation took 5.9 ms, native
+  `foreach_get` 2.2 ms, alpha extraction 11.2 ms, digesting 17.9 ms, and the
+  Python threshold loop 563.2 ms. The native transfer is not the stutter;
+  chunkable post-processing is.
+- Quantified the pre-existing 20 ms modal timer cost. About 55 seconds of
+  callback work projects to 103 seconds in the current schedule because 3,870
+  polygon callbacks frequently finish before the next timer event.
 
 ## Important decisions and constraints
 
@@ -53,6 +64,16 @@ The next objective is the remaining release-validation checklist.
 - The fix uses ordinary Blender RNA loops. The measured Preview regression is
   below the approved 25 percent same-machine limit, so no bulk-selection
   abstraction or BMesh production path was added.
+- Analyze correctness still requires main-thread Blender datablock access,
+  exact rasterization, authoritative image digests, cancellation without a
+  partial report, and publication-time validation.
+- The safest performance direction retains native full pixel transfer but
+  time-slices digest/threshold work from the retained buffer. Reverting the
+  modal path to Blender pixel slices removes stutter but made a generated 2K
+  read about 3.2 times slower.
+- Multiprocessing remains deferred unless a measured implementation clears the
+  complete-workflow threshold after serialization, memory, cancellation, and
+  Blender lifecycle costs.
 - Private reference files and raw results remain ignored and uncommitted.
 - Keep the current branch and do not push without explicit approval.
 
@@ -164,11 +185,56 @@ three-face interaction verified clean visual Preview, the expected shared
 boundary, no disconnected opaque component highlight, repeat stability, and
 the exact one-face Apply result.
 
+### Analyze cadence investigation
+
+Ignored aggregate profiler:
+
+```powershell
+& $Blender52 --factory-startup --background --disable-autoexec `
+  --python-exit-code 1 `
+  --python .test-output\profile_analyze_cadence.py -- `
+  .local-references\default-example\before.blend
+```
+
+Both runs completed successfully. Representative second-run results:
+
+- Initialization: 3.836 s, including 3.448 s in the structural signature.
+- Image work: 12 bulk callbacks, median 1.560 s, maximum 1.630 s; eight exceeded
+  one second.
+- Polygon work: 3,870 callbacks, 41.780 s total, median 3.6 ms, maximum
+  279.3 ms; 105 exceeded 50 ms.
+- Publication validation: 2.230 s.
+- Total callback work: 55.032 s.
+- Estimated timer phase: 103.262 s at 20 ms, 74.298 s at 10 ms, 61.748 s at
+  5 ms, and 55.434 s at 1 ms.
+- Generated 2K bulk read: one 384.8 ms callback.
+- Generated 2K 32-row Blender-slice read: 64 callbacks, maximum 24.7 ms, but
+  1.217 s total.
+
+Generated phase breakdown:
+
+```powershell
+& $Blender52 --factory-startup --background --disable-autoexec `
+  --python-exit-code 1 --python .test-output\profile_bulk_phases.py
+```
+
+Result: the threshold loop dominated the callback; native transfer was 2.2 ms.
+Both ignored profilers and their raw output were deleted after use.
+
 ## Known failures, warnings, and unverified assumptions
 
 - The 1,176 private `OPAQUE` differences are not a known extension failure.
   They reflect broad, hand-made alpha sections in the early-development after
   example and remain visible only as a diagnostic.
+- Current modal image callbacks freeze Blender for up to about 1.63 seconds.
+- Analyze spends an estimated 48 seconds waiting on the 20 ms timer in the
+  private stress case. This is scheduling overhead, not classification work.
+- Progress has unrepresented stalls: about 3.8 seconds while showing 0 percent
+  during initialization and about 2.2 seconds at completion during publication
+  validation.
+- Rare expensive 64-polygon batches still take up to about 279 ms. A balanced
+  fix can reduce typical stalls but cannot guarantee a strict frame budget
+  without making single-polygon rasterization resumable.
 - Expected Blender warnings remain the bundled Grease Pencil brush-path warning
   and the deliberately exercised stale-input warning.
 - Git reports expected LF-to-CRLF working-copy notices on this Windows checkout.
@@ -178,14 +244,16 @@ the exact one-face Apply result.
 
 ## Remaining tasks
 
-1. Complete the remaining installed-ZIP checklist items in `docs/testing.md`
-   needed for release sign-off.
-2. Record the distinct final Apply-preflight timing and interactive
-   two-material partial-apply check.
-3. Complete the 150 percent UI-scale pass and user-performed ordinary Unity
-   material/submesh acceptance.
+1. Choose balanced responsiveness or strict frame-budget behavior.
+2. Write and approve the Analyze cadence design specification.
+3. Write the test-first implementation plan.
+4. Implement generated cadence/cancellation regressions before production
+   changes.
+5. Re-run unit, Blender, private smoke, performance, package, and installed-ZIP
+   interactive gates.
+6. Complete the remaining release-validation checklist.
 
 ## Recommended next action
 
-Complete the generated two-material installed-ZIP partial-apply interaction
-and record its result in `docs/testing.md`.
+Choose whether Analyze should target balanced responsiveness—recommended—or a
+strict callback frame budget that requires resumable per-polygon rasterization.
