@@ -4,10 +4,10 @@ Updated: 2026-07-29
 
 ## Current objective
 
-Investigate and design a safe continuation of Analyze performance work,
-including the loading-percentage stutter introduced by the bounded native image
-reader. Root-cause measurement is complete; no production change has begun.
-The next gate is choosing balanced responsiveness or a strict per-frame budget.
+The balanced Analyze responsiveness design is approved and written in
+`docs/superpowers/specs/2026-07-29-balanced-analyze-responsiveness-design.md`.
+No production change has begun. The next gate is user review of the written
+specification before preparing the test-first implementation plan.
 
 ## Completed work
 
@@ -49,6 +49,9 @@ The next gate is choosing balanced responsiveness or a strict per-frame budget.
 - Quantified the pre-existing 20 ms modal timer cost. About 55 seconds of
   callback work projects to 103 seconds in the current schedule because 3,870
   polygon callbacks frequently finish before the next timer event.
+- Selected the balanced target: retain exact algorithms, split bulk image
+  post-processing, use a 1 ms timer and 12 ms polygon deadline, improve progress
+  stages, and accept rare single-polygon stalls.
 
 ## Important decisions and constraints
 
@@ -244,16 +247,15 @@ Both ignored profilers and their raw output were deleted after use.
 
 ## Remaining tasks
 
-1. Choose balanced responsiveness or strict frame-budget behavior.
-2. Write and approve the Analyze cadence design specification.
-3. Write the test-first implementation plan.
-4. Implement generated cadence/cancellation regressions before production
+1. Obtain user review of the written balanced-responsiveness specification.
+2. Write and approve the test-first implementation plan.
+3. Implement generated cadence/cancellation regressions before production
    changes.
-5. Re-run unit, Blender, private smoke, performance, package, and installed-ZIP
+4. Re-run unit, Blender, private smoke, performance, package, and installed-ZIP
    interactive gates.
-6. Complete the remaining release-validation checklist.
+5. Complete the remaining release-validation checklist.
 
 ## Recommended next action
 
-Choose whether Analyze should target balanced responsiveness—recommended—or a
-strict callback frame budget that requires resumable per-polygon rasterization.
+Review the written balanced Analyze responsiveness specification and approve or
+request changes before implementation planning begins.
