@@ -74,6 +74,7 @@ resolver, changing raster margin zero, or adding private-example heuristics.
   - `041c4cc fix:show-rerun-tooltip-after-partial-apply`
   - `7a48eb0 fix:analyze-selected-meshes-from-edit-mode`
   - `b6087aa docs:design-collapsible-material-details`
+  - `2c75c6f feat:collapse-material-review-details`
 - Nothing was pushed.
 
 ## Important decisions and constraints
