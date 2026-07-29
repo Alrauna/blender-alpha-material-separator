@@ -499,7 +499,10 @@ class ALPHA_MATERIAL_SEPARATOR_PT_main(bpy.types.Panel):
                         available_width=available_width,
                     )
             if not reviewed and actionable and not stale:
-                assignment.label(text="Preview the faces before applying.", icon="INFO")
+                assignment.label(
+                    text="Preview is optional; use it to inspect faces before applying.",
+                    icon="INFO",
+                )
             if already_separated:
                 assignment.label(text="Already separated — no additional changes", icon="CHECKMARK")
             elif not actionable and current_plan and current_plan.blocked:

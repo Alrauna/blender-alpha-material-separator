@@ -40,19 +40,18 @@ class PresentationTests(unittest.TestCase):
         self.assertEqual(ui_text_lines(long_word, 80), (long_word,))
 
     def test_compact_assignment_confirmation_representative_copy(self) -> None:
-        lines = assignment_confirmation_lines(
-            {
-                "faces_to_reassign": 65_775,
-                "planned_additional_slots": 29,
-                "mixed_faces_to_alpha": 57_731,
-                "face_local_unsupported_to_alpha": 2_577,
-                "suppressed_faces_to_alpha": 0,
-                "retained_faces_by_policy": 0,
-                "material_source_groups_left_unchanged": 23,
-                "skipped_material_groups": 0,
-                "skipped_object_count": 0,
-            }
-        )
+        plan = {
+            "faces_to_reassign": 65_775,
+            "planned_additional_slots": 29,
+            "mixed_faces_to_alpha": 57_731,
+            "face_local_unsupported_to_alpha": 2_577,
+            "suppressed_faces_to_alpha": 0,
+            "retained_faces_by_policy": 0,
+            "material_source_groups_left_unchanged": 23,
+            "skipped_material_groups": 0,
+            "skipped_object_count": 0,
+        }
+        lines = assignment_confirmation_lines(plan)
         self.assertEqual(
             lines,
             (
@@ -67,6 +66,14 @@ class PresentationTests(unittest.TestCase):
                     "or source shader changes. Ctrl+Z to undo."
                 ),
             ),
+        )
+        self.assertEqual(
+            assignment_confirmation_lines(plan, previewed=False),
+            ("Faces have not been previewed.", *lines),
+        )
+        self.assertEqual(
+            assignment_confirmation_lines(plan, previewed=True),
+            lines,
         )
 
     def test_compact_assignment_confirmation_adapts_and_omits_names(self) -> None:
@@ -274,6 +281,18 @@ class PresentationTests(unittest.TestCase):
         )
         self.assertEqual(reviewed["state"], "REVIEWED")
         self.assertTrue(reviewed["can_apply"])
+        ready_without_preview = workflow_view(
+            eligible_objects=1,
+            running=False,
+            has_report=True,
+            stale=False,
+            reviewed=False,
+            actionable=True,
+            completed=False,
+        )
+        self.assertEqual(ready_without_preview["state"], "READY_TO_REVIEW")
+        self.assertTrue(ready_without_preview["can_preview"])
+        self.assertTrue(ready_without_preview["can_apply"])
 
         cases = (
             ("READY_TO_ANALYZE", dict(eligible_objects=1)),

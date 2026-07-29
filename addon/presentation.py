@@ -187,7 +187,11 @@ def _counted(count: int, singular: str, plural: str | None = None) -> str:
     return f"{count:,} {word}"
 
 
-def assignment_confirmation_lines(plan_payload: dict) -> tuple[str, ...]:
+def assignment_confirmation_lines(
+    plan_payload: dict,
+    *,
+    previewed: bool = True,
+) -> tuple[str, ...]:
     """Describe only the aggregate consequences of an assignment plan."""
 
     faces = int(plan_payload.get("faces_to_reassign", 0))
@@ -201,7 +205,7 @@ def assignment_confirmation_lines(plan_payload: dict) -> tuple[str, ...]:
     )
     skipped_groups = int(plan_payload.get("skipped_material_groups", 0))
     skipped_objects = int(plan_payload.get("skipped_object_count", 0))
-    lines = []
+    lines = [] if previewed else ["Faces have not been previewed."]
 
     action = ""
     if faces:
@@ -363,5 +367,5 @@ def workflow_view(
         "state": state,
         "can_analyze": not running and eligible_objects > 0,
         "can_preview": has_report and actionable and not running and not stale,
-        "can_apply": has_report and reviewed and actionable and not running and not stale,
+        "can_apply": has_report and actionable and not running and not stale,
     }
