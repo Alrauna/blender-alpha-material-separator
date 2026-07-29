@@ -264,7 +264,7 @@ In `docs/HANDOFF.md`:
 In this plan, mark only steps backed by the exact command or interaction as
 complete. Do not modify `AGENTS.md`.
 
-- [ ] **Step 4: Commit the validation record**
+- [x] **Step 4: Commit the validation record**
 
 Run:
 
@@ -278,7 +278,7 @@ git commit -m "docs: record Blender HUD wrapping validation"
 Expected: only the handoff and this tracked plan are committed. Private files,
 the ZIP, test output, and `AGENTS.md` remain uncommitted or ignored.
 
-- [ ] **Step 5: Report the final local state**
+- [x] **Step 5: Report the final local state**
 
 Run:
 
