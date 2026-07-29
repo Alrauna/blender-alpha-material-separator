@@ -15,11 +15,30 @@ from addon.presentation import (
     requires_confirmation,
     review_material_cards,
     review_signature,
+    ui_text_lines,
     workflow_view,
 )
 
 
 class PresentationTests(unittest.TestCase):
+    def test_width_aware_ui_text_keeps_and_wraps_sentences(self) -> None:
+        sentence = "Open Material Details below to review it."
+
+        wide = ui_text_lines(sentence, 560)
+        ordinary = ui_text_lines(sentence, 420)
+        narrow = ui_text_lines(sentence, 180)
+
+        self.assertEqual(wide, (sentence,))
+        self.assertEqual(ordinary, (sentence,))
+        self.assertGreater(len(narrow), 1)
+        self.assertEqual(" ".join(narrow), sentence)
+        self.assertGreaterEqual(len(narrow), len(ordinary))
+        self.assertGreaterEqual(len(ordinary), len(wide))
+        self.assertEqual(ui_text_lines("", 180), ("",))
+
+        long_word = "AlphaMaterialSeparatorIdentifier"
+        self.assertEqual(ui_text_lines(long_word, 80), (long_word,))
+
     def test_compact_assignment_confirmation_representative_copy(self) -> None:
         lines = assignment_confirmation_lines(
             {

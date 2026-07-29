@@ -5,6 +5,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import textwrap
+
+_UI_AVERAGE_CHARACTER_WIDTH = 7
+_UI_HORIZONTAL_PADDING = 32
+_UI_MIN_LINE_CHARACTERS = 12
 
 CLASS_COPY = {
     "OPAQUE": ("Stay on opaque material", "No covered image pixel is below the threshold."),
@@ -125,6 +130,24 @@ _MATERIAL_CARD_FIELDS = (
     "source_method",
     "alpha_material",
 )
+
+
+def ui_text_lines(text: str, available_width: int) -> tuple[str, ...]:
+    """Wrap UI copy conservatively for the available Blender layout width."""
+
+    usable_width = max(1, int(available_width) - _UI_HORIZONTAL_PADDING)
+    line_characters = max(
+        _UI_MIN_LINE_CHARACTERS,
+        usable_width // _UI_AVERAGE_CHARACTER_WIDTH,
+    )
+    return tuple(
+        textwrap.wrap(
+            str(text),
+            width=line_characters,
+            break_long_words=False,
+            break_on_hyphens=False,
+        )
+    ) or ("",)
 
 
 def review_material_cards(report_payload: dict) -> tuple[dict, ...]:
