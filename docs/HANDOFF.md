@@ -5,12 +5,19 @@ Updated: 2026-07-28
 ## Current objective
 
 Continue release hardening for Blender Alpha Material Separator 0.1 on
-`feat/alpha-material-separator-0.1`. The collapsed material-details
-implementation is complete and locally packaged. Its remaining immediate gate
-is an installed-ZIP visual check in narrow and wide sidebars. The next
-classification objective remains explaining private before/after lower-bound
-faces that the extension classifies `OPAQUE`, without broadening the approved
-resolver, changing raster margin zero, or adding private-example heuristics.
+`feat/alpha-material-separator-0.1`. The user accepted the collapsed
+material-details UI and requested a design to simplify the warning confirmation
+shown after **Apply Material Separation**. The user chose an entirely
+count-based popup: material names and detailed destinations remain in Review
+and Material Details. The user selected the ultra-compact paragraph layout
+(Option B), approved the full interaction/data/testing design, and the written
+spec is ready for user review at
+`docs/superpowers/specs/2026-07-28-compact-apply-confirmation-design.md`.
+No popup implementation has started. The next classification objective remains
+explaining private
+before/after lower-bound faces that the extension classifies `OPAQUE`, without
+broadening the approved resolver, changing raster margin zero, or adding
+private-example heuristics.
 
 ## Completed work
 
@@ -406,25 +413,27 @@ All commands used Blender 5.2.0 LTS from
 
 ## Remaining tasks in priority order
 
-1. Install the rebuilt ZIP in a clean Blender 5.2 profile and verify the native
-   **Material Details (N)** row in narrow and wide sidebars: collapsed after
-   analysis, one advisory above it when needed, cards/actions visible when
-   expanded, and another successful analysis collapses it again.
-2. Investigate the remaining private `OPAQUE` lower-bound faces by comparing
+1. Obtain user review of
+   `docs/superpowers/specs/2026-07-28-compact-apply-confirmation-design.md`.
+   After approval, write the test-first implementation plan; do not implement
+   before that plan is approved.
+2. Complete any still-unverified wide-sidebar and 150% UI-scale checks for the
+   accepted **Material Details (N)** disclosure.
+3. Investigate the remaining private `OPAQUE` lower-bound faces by comparing
    their supported authority, resolved UV/address mode, positive-area coverage,
    addressed texels, and decoded A values. Keep diagnostics ignored and
    anonymized.
-3. If a genuine general defect is found, reproduce it with a generated failing
+4. If a genuine general defect is found, reproduce it with a generated failing
    test before changing production code. Do not change resolver scope or margin
    merely to match the private after file.
-4. Complete the generated two-material interactive partial-apply checklist and
+5. Complete the generated two-material interactive partial-apply checklist and
    150% UI-scale pass.
-5. Have the user perform ordinary Unity material/submesh acceptance and record
+6. Have the user perform ordinary Unity material/submesh acceptance and record
    the result.
-6. Rerun the complete gate for any production follow-up. Do not push without
+7. Rerun the complete gate for any production follow-up. Do not push without
    separate approval.
 
 ## Recommended next action
 
-Install the rebuilt ZIP and perform the narrow/wide-sidebar disclosure check;
-record the result before returning to the private lower-bound investigation.
+Have the user review the written compact-confirmation spec. If approved, create
+the detailed test-first implementation plan; otherwise revise the spec first.
