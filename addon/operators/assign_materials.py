@@ -176,6 +176,7 @@ class ALPHA_MATERIAL_SEPARATOR_OT_assign_materials(bpy.types.Operator):
 
     _confirmation_plan_json = "{}"
     _confirmation_plan_signature = ""
+    _confirmation_previewed = True
     _confirmation_draw_width = _CONFIRMATION_MIN_WIDTH
 
     @classmethod
@@ -202,13 +203,27 @@ class ALPHA_MATERIAL_SEPARATOR_OT_assign_materials(bpy.types.Operator):
         if prepared is None:
             return {"CANCELLED"}
         report, plan, plan_payload = prepared
+        previewed = (
+            not self.expected_review_signature
+            or runtime.review_matches(
+                context.window_manager,
+                report.analysis_id,
+                self.expected_review_signature,
+            )
+        )
+        self._confirmation_previewed = previewed
         actionable = plan.actionable
         if not actionable:
             return self.execute(context)
-        report_payload = report.public_payload()
-        if not requires_confirmation(report_payload, plan_payload):
+        if previewed and not requires_confirmation(
+            report.public_payload(),
+            plan_payload,
+        ):
             return self.execute(context)
-        lines = assignment_confirmation_lines(plan_payload)
+        lines = assignment_confirmation_lines(
+            plan_payload,
+            previewed=previewed,
+        )
         self._confirmation_draw_width = _confirmation_dialog_width(
             lines,
             context.window.width,
@@ -224,7 +239,10 @@ class ALPHA_MATERIAL_SEPARATOR_OT_assign_materials(bpy.types.Operator):
 
     def draw(self, context) -> None:
         plan = json.loads(self._confirmation_plan_json)
-        lines = assignment_confirmation_lines(plan)
+        lines = assignment_confirmation_lines(
+            plan,
+            previewed=self._confirmation_previewed,
+        )
         draw_width = self._confirmation_draw_width
         region = getattr(context, "region", None)
         if getattr(region, "type", "") == "HUD":

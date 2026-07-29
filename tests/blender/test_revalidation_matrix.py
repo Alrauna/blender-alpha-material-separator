@@ -247,6 +247,11 @@ def run() -> None:
     snapshot = runtime.snapshot()
     assert runtime.report(analysis_id) is report
     assert not ui.reviewed_analysis_id
+    assert not runtime.review_matches(
+        bpy.context.window_manager,
+        analysis_id,
+        reviewed_signature,
+    )
     assert snapshot["last_validation_image_digest_rows"] == 0, snapshot
 
     preview = bpy.ops.alpha_material_separator.select_faces(

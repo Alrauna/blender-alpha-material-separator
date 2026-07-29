@@ -55,6 +55,12 @@ class _DialogRecordingLayout:
         self.separators += 1
 
 
+def _fully_alpha_image(name):
+    image = bpy.data.images.new(name, width=1, height=1, alpha=True)
+    image.pixels.foreach_set((1.0, 1.0, 1.0, 0.0))
+    return image
+
+
 def _partial_support_object(name, source, unresolved):
     mesh = bpy.data.meshes.new(f"{name}_MESH")
     vertices = tuple(
@@ -118,6 +124,145 @@ def run() -> None:
     assert _confirmation_dialog_width(long_lines, 500) == 436
     assert _CONFIRMATION_TITLE == "Apply Material Separation"
     assert _CONFIRMATION_TEXT == "Apply"
+
+    _clear_scene()
+    clean_image = _fully_alpha_image("AMS_UNPREVIEWED_IMAGE")
+    clean_material, _tree, _principled, _texture = _material(
+        "AMS_UNPREVIEWED_SOURCE",
+        clean_image,
+    )
+    clean_object = _quad("AMS_UNPREVIEWED_OBJECT", clean_material)
+    clean_analysis_id = _analyze(clean_object)
+    clean_report = runtime.report(clean_analysis_id)
+    clean_plan = build_assignment_plan(
+        clean_report,
+        mixed_policy="TO_ALPHA",
+        suppressed_policy="CANCEL_SOURCE_MATERIAL",
+        unsupported_policy="TO_ALPHA",
+        conflict_policy="CANCEL_SOURCE_MATERIAL",
+    )
+    clean_payload = clean_plan.public_payload()
+    assert clean_payload["faces_to_reassign"] == 1, clean_payload
+    assert not clean_plan.has_skips, clean_payload
+    clean_signature = review_signature(
+        clean_analysis_id,
+        "TO_ALPHA",
+        "CANCEL_SOURCE_MATERIAL",
+        "TO_ALPHA",
+        "CANCEL_SOURCE_MATERIAL",
+        clean_payload,
+    )
+
+    runtime.clear_review(bpy.context.window_manager)
+    clean_dialog_manager = _CancelledDialogWindowManager(
+        bpy.context.window_manager
+    )
+    clean_operator = SimpleNamespace(
+        api_major=1,
+        expected_analysis_id=clean_analysis_id,
+        mixed_policy="TO_ALPHA",
+        suppressed_policy="CANCEL_SOURCE_MATERIAL",
+        unsupported_policy="TO_ALPHA",
+        derived_conflict_policy="CANCEL_SOURCE_MATERIAL",
+        expected_review_signature=clean_signature,
+        _confirmation_plan_signature="",
+        _confirmation_plan_json="{}",
+        _confirmation_previewed=True,
+        _confirmation_draw_width=420,
+        execute=lambda _context: {"EXECUTED_WITHOUT_DIALOG"},
+    )
+    cancelled = ALPHA_MATERIAL_SEPARATOR_OT_assign_materials.invoke(
+        clean_operator,
+        SimpleNamespace(
+            window_manager=clean_dialog_manager,
+            object=bpy.context.object,
+            window=SimpleNamespace(width=1920),
+        ),
+        None,
+    )
+    assert cancelled == {"CANCELLED"}, cancelled
+    assert clean_dialog_manager.options is not None
+    assert clean_operator._confirmation_previewed is False
+    assert tuple(
+        polygon.material_index for polygon in clean_object.data.polygons
+    ) == (0,)
+
+    clean_draw = _DialogRecordingLayout()
+    clean_operator.layout = clean_draw
+    ALPHA_MATERIAL_SEPARATOR_OT_assign_materials.draw(
+        clean_operator,
+        SimpleNamespace(region=SimpleNamespace(type="WINDOW", width=420)),
+    )
+    clean_draw_text = [text for text, _icon in clean_draw.labels]
+    assert clean_draw_text[0] == "Faces have not been previewed."
+
+    runtime.set_review(
+        bpy.context.window_manager,
+        clean_analysis_id,
+        clean_signature,
+    )
+    reviewed_operator = SimpleNamespace(
+        api_major=1,
+        expected_analysis_id=clean_analysis_id,
+        mixed_policy="TO_ALPHA",
+        suppressed_policy="CANCEL_SOURCE_MATERIAL",
+        unsupported_policy="TO_ALPHA",
+        derived_conflict_policy="CANCEL_SOURCE_MATERIAL",
+        expected_review_signature=clean_signature,
+        _confirmation_plan_signature="",
+        _confirmation_plan_json="{}",
+        _confirmation_previewed=False,
+        _confirmation_draw_width=420,
+        execute=lambda _context: {"FINISHED"},
+    )
+    reviewed = ALPHA_MATERIAL_SEPARATOR_OT_assign_materials.invoke(
+        reviewed_operator,
+        SimpleNamespace(
+            window_manager=bpy.context.window_manager,
+            object=bpy.context.object,
+            window=SimpleNamespace(width=1920),
+        ),
+        None,
+    )
+    assert reviewed == {"FINISHED"}, reviewed
+
+    runtime.clear_review(bpy.context.window_manager)
+    scripted_operator = SimpleNamespace(
+        api_major=1,
+        expected_analysis_id=clean_analysis_id,
+        mixed_policy="TO_ALPHA",
+        suppressed_policy="CANCEL_SOURCE_MATERIAL",
+        unsupported_policy="TO_ALPHA",
+        derived_conflict_policy="CANCEL_SOURCE_MATERIAL",
+        expected_review_signature="",
+        _confirmation_plan_signature="",
+        _confirmation_plan_json="{}",
+        _confirmation_previewed=False,
+        _confirmation_draw_width=420,
+        execute=lambda _context: {"FINISHED"},
+    )
+    scripted = ALPHA_MATERIAL_SEPARATOR_OT_assign_materials.invoke(
+        scripted_operator,
+        SimpleNamespace(
+            window_manager=bpy.context.window_manager,
+            object=bpy.context.object,
+            window=SimpleNamespace(width=1920),
+        ),
+        None,
+    )
+    assert scripted == {"FINISHED"}, scripted
+
+    confirmed = bpy.ops.alpha_material_separator.assign_materials(
+        expected_analysis_id=clean_analysis_id,
+        mixed_policy="TO_ALPHA",
+        suppressed_policy="CANCEL_SOURCE_MATERIAL",
+        unsupported_policy="TO_ALPHA",
+        derived_conflict_policy="CANCEL_SOURCE_MATERIAL",
+    )
+    assert confirmed == {"FINISHED"}, confirmed
+    assert tuple(
+        polygon.material_index for polygon in clean_object.data.polygons
+    ) == (1,)
 
     _clear_scene()
     image = _image("AMS_POLICY_IMAGE")
@@ -271,6 +416,7 @@ def run() -> None:
         expected_review_signature="",
         _confirmation_plan_signature="",
         _confirmation_plan_json="{}",
+        _confirmation_previewed=True,
     )
     operator.expected_review_signature = review_signature(
         analysis_id,
@@ -279,6 +425,11 @@ def run() -> None:
         operator.unsupported_policy,
         operator.derived_conflict_policy,
         public_plan,
+    )
+    runtime.set_review(
+        bpy.context.window_manager,
+        analysis_id,
+        operator.expected_review_signature,
     )
     cancelled = ALPHA_MATERIAL_SEPARATOR_OT_assign_materials.invoke(
         operator,
