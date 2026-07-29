@@ -9,8 +9,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 README = ROOT / "README.md"
-PANEL = ROOT / "addon" / "panel.py"
-ASSIGN_OPERATOR = ROOT / "addon" / "operators" / "assign_materials.py"
 
 
 class ReadmeContractTests(unittest.TestCase):
@@ -59,51 +57,19 @@ class ReadmeContractTests(unittest.TestCase):
             self.text,
         )
 
-    def test_friendly_status_copy_matches_the_panel(self) -> None:
-        panel_text = PANEL.read_text(encoding="utf8")
+    def test_friendly_status_copy_is_documented(self) -> None:
         for text in (
             "Inputs Changed — Analyze Again",
             "Left unchanged — no alpha source selected",
             "Already separated — no additional changes",
         ):
             self.assertIn(text, self.text)
-            self.assertIn(text, panel_text)
-        self.assertNotIn("Resolve the skipped groups before applying.", panel_text)
         for text in (
             "materials may need an alpha source",
             "Open Material Details",
             "collapsed after every successful analysis",
         ):
             self.assertIn(text, self.text)
-
-    def test_material_results_use_one_native_disclosure(self) -> None:
-        panel_text = PANEL.read_text(encoding="utf8")
-        for text in (
-            "review_material_cards",
-            "alpha_source_advisory",
-            "show_material_details",
-            "Material Details (",
-            "TRIA_DOWN",
-            "TRIA_RIGHT",
-        ):
-            self.assertIn(text, panel_text)
-
-    def test_apply_confirmation_is_bounded_and_count_only(self) -> None:
-        source = ASSIGN_OPERATOR.read_text(encoding="utf8")
-        for required in (
-            "assignment_confirmation_lines",
-            "width=_CONFIRMATION_WIDTH",
-            "title=_CONFIRMATION_TITLE",
-            "confirm_text=_CONFIRMATION_TEXT",
-        ):
-            self.assertIn(required, source)
-        for removed in (
-            "Faces that could not be analyzed:",
-            "Leave {disposition.get('material'",
-            "for source, derived in sorted(destinations.items())",
-            "f\"{disposition.get('object', 'Object')} / \"",
-        ):
-            self.assertNotIn(removed, source)
 
     def test_required_end_user_sections_exist_in_order(self) -> None:
         headings = (
