@@ -9,7 +9,7 @@ Restore the Windows and Linux validation jobs on draft pull request
 
 ## Completed work
 
-- The approved `ci/automation` branch was pushed at `250a986`.
+- The version-banner correction was pushed on `ci/automation` at `8d741b6`.
 - Hosted run
   [30701872660](https://github.com/Alrauna/blender-alpha-material-separator/actions/runs/30701872660)
   verified and extracted the fixed Blender archives on both platforms, then
@@ -76,18 +76,15 @@ Blender 5.2.0 LTS
 
 ## Known failures, warnings, and unverified assumptions
 
-- The correction has not been committed or pushed.
-- Windows and Linux hosted validation remain red until the corrected branch is
-  pushed and rerun.
+- The corrected branch has been pushed, but its Windows and Linux hosted
+  validation results have not yet been observed.
 - Expected local output includes LF-to-CRLF Git notices.
 
 ## Remaining tasks in priority order
 
-1. Review and commit the focused correction.
-2. Obtain push authorization, push `ci/automation`, and observe both hosted
-   validation jobs.
-3. Address only any newly demonstrated hosted failure.
+1. Observe both hosted validation jobs for `8d741b6`.
+2. Address only any newly demonstrated hosted failure.
 
 ## Recommended next action
 
-Commit the focused Blender version-banner correction locally.
+Observe the Windows and Linux hosted validation jobs.
