@@ -4,11 +4,11 @@ Updated: 2026-08-01
 
 ## Current objective
 
-The release-validation checklist is complete. The extension version is now
-`1.0.0` in source and current documentation, with public API `1.2` unchanged.
-The full source/package gate passed; the local release commit remains next.
-Afterward, fast-forward `feat/alpha-material-separator-0.1` into local `main`
-and create `ci/automation`. Do not push without separate approval.
+The `1.0.0` release transition is complete locally. Local `main` was
+fast-forwarded to the verified release commit, the feature branch remains as a
+recovery reference, and the current branch is `ci/automation`. The next
+objective is to design GitHub Actions integration; no workflow implementation
+or push is authorized yet.
 
 ## Completed work
 
@@ -21,6 +21,16 @@ and create `ci/automation`. Do not push without separate approval.
   - Archive size: 66,294 bytes.
   - Archive SHA-256:
     `1123BA95DC307ABBB3F12F9D5815AC19763B3CA12DEAD8B5116BA407C79EFE6C`.
+- `eeb79b1 chore: release version 1.0.0`
+  - Contains the synchronized manifest/runtime release identity, current
+    documentation, and RED/GREEN release contracts.
+  - Local `main` fast-forwarded from the initial commit to this verified tip.
+  - The merged result passed 52 unit tests, the complete Blender suite, and
+    source manifest validation.
+- Created local `ci/automation` from verified `main`.
+- Retained `feat/alpha-material-separator-0.1` at `eeb79b1`.
+- `origin/main` remains
+  `5c91b7eb1ef6ab7c68dc4a2bdb11555458146864`; no remote operation occurred.
 - `695b4a7 test: benchmark final Apply preflight`
   - Adds a generated contract for a distinct final Apply-preflight measurement.
   - Reuses the 4,900-polygon, 1K-image structural fixture with one generated
@@ -74,6 +84,13 @@ and create `ci/automation`. Do not push without separate approval.
 - `docs/testing.md`: measurement method and completed manual/automated checks.
 - `PLAN.md`: completed release-validation status.
 - `docs/HANDOFF.md`: current evidence and next action.
+- `addon/blender_manifest.toml`, `addon/api_contract.py`: extension version
+  `1.0.0` while API remains `1.2`.
+- `tests/unit/test_api_contract.py`: manifest/runtime version agreement.
+- `tests/unit/test_readme_contract.py`: current installable release identity.
+- `README.md`, `docs/integration-api.md`, `docs/material-support.md`,
+  `docs/testing.md`, `PLAN.md`, and `AGENTS.md`: current `1.0.0` release and
+  post-transition branch instructions.
 
 ## Validation commands and results
 
@@ -151,6 +168,9 @@ Result: 52/52 unit tests passed; Blender printed
 `ALPHA_MATERIAL_SEPARATOR_BLENDER_TESTS_OK`; source and archive validation
 succeeded; `git diff --check` reported no errors.
 
+The same 52-test, complete Blender, and source-validation gate passed again
+after `git merge --ff-only feat/alpha-material-separator-0.1` on local `main`.
+
 ## Known warnings and unverified assumptions
 
 - Expected Blender output includes bundled Grease Pencil brush-path warnings,
@@ -162,20 +182,19 @@ succeeded; `git diff --check` reported no errors.
 - Installed-ZIP Escape cancellation passed. The cursor and sidebar progress
   percentages can briefly disagree; root cause and desired synchronization
   behavior have not been investigated.
-- The local merge to `main` and `ci/automation` branch creation have not
-  started.
 - `.packaged-releases/alpha_material_separator-1.0.0.zip` is validated and
   remains ignored.
+- GitHub Actions behavior, runner matrix, caching, artifacts, and permissions
+  are not designed or implemented yet.
 
 ## Remaining tasks in priority order
 
-1. Commit the verified `1.0.0` release identity.
-2. Fast-forward the verified feature branch into local `main`.
-3. Create `ci/automation` without adding workflow files.
-4. Design and approve the Actions workflow before implementation.
-5. Separately reproduce and design a fix for cursor/sidebar progress
+1. Design and approve the GitHub Actions workflow.
+2. Prepare and approve its test-first implementation plan.
+3. Implement and locally validate workflow contracts before any push.
+4. Separately reproduce and design a fix for cursor/sidebar progress
    desynchronization if the user prioritizes it.
 
 ## Recommended next action
 
-Commit the verified `1.0.0` identity.
+Design the minimal GitHub Actions workflow for Blender extension validation.
