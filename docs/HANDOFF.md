@@ -5,11 +5,10 @@ Updated: 2026-08-01
 ## Current objective
 
 The `1.0.0` release transition is complete locally and the current branch is
-`ci/automation`. The GitHub Actions architecture, security trust model,
-resolver-consensus download checks, two-platform merge gate, and manual
-draft-first publication design are approved. The next objective is written-spec
-review followed by a separate test-first implementation plan. No workflow
-implementation or push is authorized yet.
+`ci/automation`. The GitHub Actions architecture and written specification are
+approved. A test-first implementation plan now defines the local workflow,
+security contracts, standard-library trust helper, review gates, and separately
+approved remote rollout. No workflow implementation or push is authorized yet.
 
 ## Completed work
 
@@ -32,6 +31,10 @@ implementation or push is authorized yet.
 - Retained `feat/alpha-material-separator-0.1` at `eeb79b1`.
 - `origin/main` remains
   `5c91b7eb1ef6ab7c68dc4a2bdb11555458146864`; no remote operation occurred.
+- Approved CI/CD specification:
+  `docs/superpowers/specs/2026-08-01-github-actions-ci-cd-design.md`.
+- Test-first CI/CD implementation plan:
+  `docs/superpowers/plans/2026-08-01-github-actions-ci-cd.md`.
 - `695b4a7 test: benchmark final Apply preflight`
   - Adds a generated contract for a distinct final Apply-preflight measurement.
   - Reuses the 4,900-polygon, 1K-image structural fixture with one generated
@@ -172,6 +175,19 @@ succeeded; `git diff --check` reported no errors.
 The same 52-test, complete Blender, and source-validation gate passed again
 after `git merge --ff-only feat/alpha-material-separator-0.1` on local `main`.
 
+### CI/CD planning gate
+
+```powershell
+Select-String -Path `
+  docs/superpowers/plans/2026-08-01-github-actions-ci-cd.md `
+  -Pattern 'TBD|TODO|implement later|fill in|similar to'
+git diff --check
+```
+
+Result: the plan's required placeholder scan returned no matches; its
+specification coverage and interface names were reviewed; `git diff --check`
+reported no errors. No workflow, helper, test, or remote state was created.
+
 ## Known warnings and unverified assumptions
 
 - Expected Blender output includes bundled Grease Pencil brush-path warnings,
@@ -185,20 +201,20 @@ after `git merge --ff-only feat/alpha-material-separator-0.1` on local `main`.
   behavior have not been investigated.
 - `.packaged-releases/alpha_material_separator-1.0.0.zip` is validated and
   remains ignored.
-- GitHub Actions behavior, runner matrix, caching, artifacts, and permissions
-  are not implemented yet. The approved design is
-  `docs/superpowers/specs/2026-08-01-github-actions-ci-cd-design.md`.
+- GitHub Actions behavior, runner validation, and publication are not
+  implemented yet. The approved design and test-first plan are documentation
+  only.
 
 ## Remaining tasks in priority order
 
-1. Review the written GitHub Actions design specification.
-2. Prepare and approve its test-first implementation plan.
-3. Implement and locally validate workflow contracts before any push.
-4. Run the approved Windows/Linux GitHub bootstrap only after push approval.
-5. Separately reproduce and design a fix for cursor/sidebar progress
+1. Review and approve the test-first CI/CD implementation plan.
+2. Implement and locally validate workflow contracts before any push.
+3. Run the approved Windows/Linux GitHub bootstrap only after push approval.
+4. Separately reproduce and design a fix for cursor/sidebar progress
    desynchronization if the user prioritizes it.
 
 ## Recommended next action
 
-Review the committed GitHub Actions design, then prepare its test-first
-implementation plan after approval.
+Review the test-first CI/CD implementation plan. After approval, execute its
+local tasks on `ci/automation`; stop again before the first push or any GitHub
+settings change.
