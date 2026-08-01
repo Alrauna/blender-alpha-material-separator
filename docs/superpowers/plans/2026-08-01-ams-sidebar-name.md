@@ -43,7 +43,7 @@ README wording with the existing Blender lifecycle and README contract tests.
 - Produces: registered main and Expert child panels in the `AMS` sidebar tab;
   README instructions that direct users to that exact tab.
 
-- [ ] **Step 1: Write the failing README contract**
+- [x] **Step 1: Write the failing README contract**
 
 Replace the standalone `"Alpha Material"` location expectation in
 `test_guided_workflow_labels_and_location_are_exact` with the exact current
@@ -55,7 +55,7 @@ instruction fragment:
 
 Keep the existing workflow-label expectations unchanged.
 
-- [ ] **Step 2: Run the README contract and verify RED**
+- [x] **Step 2: Run the README contract and verify RED**
 
 Run:
 
@@ -68,7 +68,7 @@ Run:
 Expected: FAIL because the README still says
 `open the **Alpha Material** tab`.
 
-- [ ] **Step 3: Write the failing registered-panel contract**
+- [x] **Step 3: Write the failing registered-panel contract**
 
 In `tests/blender/run_all.py`, immediately after the existing registration
 assertion for `ALPHA_MATERIAL_SEPARATOR_PT_main`, add:
@@ -86,7 +86,7 @@ assert (
 The main assertion checks the top-level panel declaration. The child assertion
 checks that Expert panels inherit the same category.
 
-- [ ] **Step 4: Run the Blender lifecycle test and verify RED**
+- [x] **Step 4: Run the Blender lifecycle test and verify RED**
 
 Run:
 
@@ -97,7 +97,7 @@ Run:
 
 Expected: FAIL because the registered category is still `Alpha Material`.
 
-- [ ] **Step 5: Make the minimal production and README changes**
+- [x] **Step 5: Make the minimal production and README changes**
 
 In both category declarations in `addon/panel.py`, use:
 
@@ -117,7 +117,7 @@ In `README.md`, change only the two standalone sidebar references:
 
 Do not change any occurrence of **Alpha Material Separator**.
 
-- [ ] **Step 6: Run focused GREEN checks**
+- [x] **Step 6: Run focused GREEN checks**
 
 Run:
 
@@ -132,7 +132,7 @@ Run:
 Expected: the focused README test passes and Blender prints
 `ALPHA_MATERIAL_SEPARATOR_BLENDER_TESTS_OK`.
 
-- [ ] **Step 7: Run the complete change gate**
+- [x] **Step 7: Run the complete change gate**
 
 Run:
 
@@ -152,7 +152,7 @@ Expected: 51 unit tests pass, Blender prints
 `ALPHA_MATERIAL_SEPARATOR_BLENDER_TESTS_OK`, source and archive validation
 succeed, and `git diff --check` reports no errors.
 
-- [ ] **Step 8: Review and commit the scoped implementation**
+- [x] **Step 8: Review and commit the scoped implementation**
 
 Inspect only the intended implementation paths:
 
@@ -176,7 +176,7 @@ git diff --cached --check
 git commit -m "ui: rename sidebar tab to AMS"
 ```
 
-- [ ] **Step 9: Update handoff status without mixing commit scopes**
+- [x] **Step 9: Update handoff status without mixing commit scopes**
 
 Update `docs/HANDOFF.md` to record:
 
