@@ -5,10 +5,10 @@ Updated: 2026-08-01
 ## Current objective
 
 The balanced Analyze responsiveness implementation is complete, committed,
-packaged, and verified through automated, private, and instrumented performance
-gates. The remaining immediate objective is a clean-profile foreground check of
-progress stages and Escape cancellation; Windows automation could not bind to
-the isolated Blender window.
+packaged, and verified. The user confirmed the installed UI works. The current
+objective is to decide whether to reduce Analyze's pre-existing retained
+coverage-cache memory; the responsiveness implementation did not measurably
+regress post-analysis memory.
 
 ## Completed work
 
@@ -31,6 +31,17 @@ the isolated Blender window.
     rejects the hybrid run as `INPUTS_CHANGED`.
 - Rebuilt and validated
   `.packaged-releases/alpha_material_separator-0.1.0.zip`.
+- `5ce5dd7 ui: rename sidebar tab to AMS`
+  - Changes the 3D View sidebar category from `Alpha Material` to `AMS`.
+  - Keeps the panel heading and full Alpha Material Separator product name.
+  - Updates current README location instructions and registered-panel tests.
+- Compared current `075a4cb` with pre-responsiveness `5e33c0e` using the same
+  ignored memory probe and private multi-object input:
+  - Peak working set was 3.274 GiB for both revisions.
+  - Post-analysis working set differed by only 0.03 percent.
+  - The current retained native pixel buffer was zero bytes after completion.
+  - The existing coverage cache held 93,194 entries and approximately 856 MiB
+    of Python objects in both revisions.
 
 ## Important decisions and constraints
 
@@ -43,6 +54,13 @@ the isolated Blender window.
 - Multiprocessing remains deferred. The main-thread design is safer and the
   complete-workflow evidence does not justify serialization, memory,
   cancellation, or Blender lifecycle complexity.
+- Reset Results, successful Apply, file load, and extension unregister already
+  drop extension-owned report and coverage-cache references. Python and
+  Blender may keep the freed arenas committed, so Task Manager need not fall
+  immediately even after garbage collection.
+- Do not add a Windows-only working-set trim. It makes the displayed resident
+  set fall without reducing committed private memory, and the operating system
+  can reclaim those pages under pressure.
 - Private files, helper scripts, raw results, and packaged ZIPs remain ignored.
 - Do not push without explicit approval.
 
@@ -62,6 +80,9 @@ the isolated Blender window.
   completion, and prior-report preservation.
 - `docs/performance.md`, `PLAN.md`, and the approved Superpowers plan: measured
   results and accurate milestone status.
+- `addon/panel.py`, `README.md`, `tests/blender/run_all.py`, and
+  `tests/unit/test_readme_contract.py`: native `AMS` sidebar name, matching
+  instructions, and boundary contracts.
 
 ## Validation commands and results
 
@@ -90,6 +111,13 @@ the isolated Blender window.
 
 Result: 51/51 unit tests passed, Blender printed
 `ALPHA_MATERIAL_SEPARATOR_BLENDER_TESTS_OK`, and source validation succeeded.
+
+The AMS sidebar rename additionally demonstrated focused RED failures for the
+old README instruction and registered `Alpha Material` panel category, then
+passed both focused GREEN checks and the same complete gate. The private
+before/after smoke was intentionally not rerun because this presentation-only
+change does not alter resolution, rasterization, classification, cache,
+preview-plan, assignment-plan, or mutation data.
 
 ### Private workflow and preservation
 
@@ -135,6 +163,29 @@ The ignored profiler was run and then deleted. Five-run medians/maxima:
 - Generated 2K/4K image callback maxima: 10.9/31.6 ms.
 - Polygon callback maximum: 196.8 ms.
 
+### Post-analysis memory comparison
+
+An ignored diagnostic loaded the same private multi-object input, ran deferred
+Analyze, released the engine, cleared coverage, cleared all extension state,
+forced garbage collection, and finally asked Windows to trim reclaimable
+working-set pages. It was run once against current `075a4cb` and once against
+an ignored export of `5e33c0e`; the probe and export were then deleted.
+
+```powershell
+& $Blender52 --factory-startup --background --disable-autoexec `
+  --python-exit-code 1 --python .test-output\_memory_retention_probe.py
+& $Blender52 --factory-startup --background --disable-autoexec `
+  --python-exit-code 1 --python .test-output\_memory_retention_probe.py -- `
+  .test-output\pre_responsiveness
+```
+
+Result: no responsiveness regression was detected. Current/pre-change
+post-engine working sets were 2.946/2.946 GiB. Clearing all extension state
+reduced current working set to 1.851 GiB; a diagnostic working-set trim reduced
+resident pages to 42 MiB while committed private bytes remained about 2.08
+GiB. This distinguishes released-but-reserved allocator memory from a live
+reference leak.
+
 ### Package and installed lifecycle
 
 ```powershell
@@ -146,19 +197,20 @@ $Archive = (Resolve-Path `
 
 Result: build and validation passed.
 
-- Size: 66,296 bytes.
+- Size: 66,297 bytes.
 - SHA-256:
-  `39E95AEEAC9A5BE9AA4EC5DA48BB3B9825F5A427B0A8E8F5C9C6541BE0D220D6`.
+  `68E09A198DEC8C1B97752C085F080F2770609F0480F60C0EB37CB1A87044A867`.
 - Isolated installation and `tests/blender/verify_installed_zip.py` passed.
 
 ## Known failures, warnings, and unverified assumptions
 
-- Foreground installed-ZIP visual interaction is not verified. Computer Use
-  twice returned:
-  `window id 68920 no longer belongs to blender.5.2; current owner is blender.5.2`.
-  The isolated process was closed without modifying user data.
+- Foreground automation previously could not bind to the isolated Blender
+  window, but the user subsequently confirmed the installed UI works.
 - The 51.544 s result is an instrumented modal estimate, not a foreground UI
   wall-clock measurement.
+- The memory comparison used one run per revision because it compared retained
+  structure sizes and lifecycle checkpoints, not timing. It does not yet
+  establish a release regression limit for post-analysis retained memory.
 - Expected Blender warnings remain the bundled Grease Pencil brush-path
   warning, the deliberate stale-input warning, and a Blender 6.0
   `Material.use_nodes` deprecation warning in generated fixtures.
@@ -169,14 +221,17 @@ Result: build and validation passed.
 
 ## Remaining tasks in priority order
 
-1. Run the rebuilt ZIP in the isolated profile and verify the five progress
-   stages, continuous texture/face progress, Escape cancellation during texture
-   and face work, prior-report preservation, and status-text cleanup.
-2. Record actual foreground Analyze wall-clock timing for the private or
+1. Obtain design approval for either retaining cross-run coverage reuse as-is
+   or reducing its memory through a compact representation or changed cache
+   lifetime.
+2. If memory reduction is approved, write a TDD plan with generated retention
+   checkpoints, cache-reuse timing, cancellation cleanup, and the existing
+   25-percent performance gate before production edits.
+3. Record actual foreground Analyze wall-clock timing for the private or
    generated stress workflow.
-3. Complete the remaining release-validation items listed above.
+4. Complete the remaining release-validation items listed above.
 
 ## Recommended next action
 
-Manually run the clean-profile installed ZIP and report whether progress stages
-and Escape cancellation behave as specified.
+Review the memory findings and choose whether the cross-run coverage cache
+should prioritize repeat-analysis speed or lower retained live memory.
