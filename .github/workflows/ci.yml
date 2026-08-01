@@ -66,10 +66,12 @@ jobs:
 
       - name: Build extension ZIP
         shell: pwsh
-        run: >-
-          & '${{ steps.blender.outputs.blender }}'
-          --factory-startup --command extension build
-          --source-dir addon --output-dir '${{ runner.temp }}/release'
+        run: |
+          New-Item -ItemType Directory -Force `
+            -Path '${{ runner.temp }}/release' | Out-Null
+          & '${{ steps.blender.outputs.blender }}' `
+            --factory-startup --command extension build `
+            --source-dir addon --output-dir '${{ runner.temp }}/release'
 
       - name: Validate extension ZIP
         shell: pwsh
@@ -170,10 +172,12 @@ jobs:
 
       - name: Build fresh extension ZIP
         shell: pwsh
-        run: >-
-          & '${{ steps.blender.outputs.blender }}'
-          --factory-startup --command extension build
-          --source-dir addon --output-dir '${{ runner.temp }}/release'
+        run: |
+          New-Item -ItemType Directory -Force `
+            -Path '${{ runner.temp }}/release' | Out-Null
+          & '${{ steps.blender.outputs.blender }}' `
+            --factory-startup --command extension build `
+            --source-dir addon --output-dir '${{ runner.temp }}/release'
 
       - name: Validate fresh extension ZIP
         shell: pwsh

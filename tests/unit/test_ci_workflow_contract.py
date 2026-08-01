@@ -128,6 +128,19 @@ class CiWorkflowContractTests(unittest.TestCase):
         self.assertIn("$Archives.Count -ne 1", validate)
         self.assertIn("$Archives[0].FullName", validate)
 
+    def test_build_steps_create_their_output_directory_first(self) -> None:
+        for name in ("Build extension ZIP", "Build fresh extension ZIP"):
+            with self.subTest(name=name):
+                step = self.text.split(
+                    f"\n      - name: {name}\n",
+                    1,
+                )[1].split("\n      - name:", 1)[0]
+                self.assertIn("New-Item -ItemType Directory", step)
+                self.assertLess(
+                    step.index("New-Item -ItemType Directory"),
+                    step.index("--command extension build"),
+                )
+
     def test_release_is_draft_first_and_rehashes_downloaded_asset(self) -> None:
         positions = [
             self.text.index("gh release create"),
