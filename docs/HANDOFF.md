@@ -4,11 +4,12 @@ Updated: 2026-08-01
 
 ## Current objective
 
-Await separate approval to push the locally corrected Blender bootstrap for
-draft pull request
+Obtain user review of the approved human-first README design in
+`docs/superpowers/specs/2026-08-01-readme-human-first-design.md`, then prepare
+its test-first implementation plan. The README rewrite has not begun.
+Separately, the locally corrected Blender bootstrap still requires explicit
+approval before it may be pushed to draft pull request
 [#2](https://github.com/Alrauna/blender-alpha-material-separator/pull/2).
-The user approved Quad9 over DNS-over-TLS (DoT), but nothing from the correction
-may be pushed without separate approval.
 
 ## Completed work
 
@@ -40,6 +41,9 @@ may be pushed without separate approval.
   direct A owner to the question, accepts compression only at validated label
   boundaries, enforces the DNS 255-byte name limit, and caps distinct
   addresses at 16.
+- `095fc2c` (`docs: design human-first README`) records the approved
+  end-user-only, renderer-agnostic README structure. No README content or
+  contract test has changed yet.
 - No workflow YAML, extension code, remote, or GitHub setting was changed.
 - Nothing from this local correction has been pushed.
 
@@ -233,13 +237,16 @@ succeeded; the rebuilt ignored ZIP is 66,755 bytes; diff check was clean.
 
 ## Remaining tasks in priority order
 
-1. Obtain separate approval to push `ci/automation`.
-2. Observe both required hosted checks and address only demonstrated failures.
-3. Separately approve repository visibility, required-check protection,
+1. Obtain user review of the written README design specification.
+2. Prepare and approve a test-first README implementation plan.
+3. Rewrite the README and its contract tests, then verify and commit them.
+4. Obtain separate approval to push `ci/automation`.
+5. Observe both required hosted checks and address only demonstrated failures.
+6. Separately approve repository visibility, required-check protection,
    release-environment protection, merge, and the first `1.0.0` publication.
-4. Plan Blender native extension-repository hosting as a separate milestone.
+7. Plan Blender native extension-repository hosting as a separate milestone.
 
 ## Recommended next action
 
-Approve pushing the locally committed correction, then observe both hosted
-validation jobs.
+Review and approve the written human-first README specification so its
+test-first implementation plan can be prepared.
