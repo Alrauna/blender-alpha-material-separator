@@ -209,6 +209,24 @@ tempCodeRunnerFile.py
 # PyPI configuration file
 .pypirc
 
+# Project-local private inputs and generated outputs
+/.local-references/
+/.packaged-releases/
+/.test-output/
+
+# Blender backup files (do not ignore deliberate generated .blend fixtures)
+*.blend1
+*.blend2
+
+# Explicit project cache/editor patterns
+**/__pycache__/
+*.py[cod]
+.idea/
+.vscode/
+*.code-workspace
+.DS_Store
+Thumbs.db
+
 # Marimo
 marimo/_static/
 marimo/_lsp/

@@ -1,0 +1,269 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version in X.Y.Z form
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: CI / ${{ matrix.label }} — Blender 5.2
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-2025
+            label: Windows
+            platform: windows
+          - runner: ubuntu-24.04
+            label: Linux
+            platform: linux
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Verify and extract Blender 5.2.0
+        id: blender
+        shell: pwsh
+        run: >-
+          python scripts/ci.py prepare-blender
+          --platform '${{ matrix.platform }}'
+          --output-dir '${{ runner.temp }}/blender-5.2.0'
+          --github-output $env:GITHUB_OUTPUT
+
+      - name: Run unit tests
+        shell: pwsh
+        run: >-
+          & '${{ steps.blender.outputs.python }}'
+          -m unittest discover -s tests/unit -t . -v
+
+      - name: Run headless Blender tests
+        shell: pwsh
+        run: >-
+          & '${{ steps.blender.outputs.blender }}'
+          --factory-startup --background --disable-autoexec
+          --python-exit-code 1 --python tests/blender/run_all.py
+
+      - name: Validate extension source
+        shell: pwsh
+        run: >-
+          & '${{ steps.blender.outputs.blender }}'
+          --factory-startup --command extension validate addon
+
+      - name: Build extension ZIP
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force `
+            -Path '${{ runner.temp }}/release' | Out-Null
+          & '${{ steps.blender.outputs.blender }}' `
+            --factory-startup --command extension build `
+            --source-dir addon --output-dir '${{ runner.temp }}/release'
+
+      - name: Validate extension ZIP
+        shell: pwsh
+        run: |
+          $Archives = @(
+            Get-ChildItem `
+              -LiteralPath '${{ runner.temp }}/release' `
+              -Filter 'alpha_material_separator-*.zip' `
+              -File
+          )
+          if ($Archives.Count -ne 1) {
+            throw "Expected one AMS ZIP, found $($Archives.Count)."
+          }
+          & '${{ steps.blender.outputs.blender }}' `
+            --factory-startup --command extension validate `
+            $Archives[0].FullName
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+
+  release_gate:
+    name: Release input gate
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' &&
+      github.event.repository.visibility == 'public'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Require manifest release version
+        shell: pwsh
+        run: >-
+          python scripts/ci.py check-release
+          --version $env:RELEASE_VERSION
+          --manifest addon/blender_manifest.toml
+
+  release:
+    name: Publish immutable release
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' &&
+      github.event.repository.visibility == 'public'
+    needs: [validate, release_gate]
+    runs-on: windows-2025
+    timeout-minutes: 45
+    environment: release
+    permissions:
+      contents: write
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+    steps:
+      - name: Fetch exact public source without credentials
+        shell: pwsh
+        env:
+          SOURCE_REPOSITORY: https://github.com/${{ github.repository }}.git
+          SOURCE_SHA: ${{ github.sha }}
+          GIT_TERMINAL_PROMPT: 0
+        run: |
+          git init .
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Could not initialize the release workspace.'
+          }
+          git remote add origin $env:SOURCE_REPOSITORY
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Could not configure the public source remote.'
+          }
+          git fetch --no-tags --depth=1 origin $env:SOURCE_SHA
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Could not fetch the exact release commit.'
+          }
+          git checkout --detach FETCH_HEAD
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Could not check out the exact release commit.'
+          }
+          $Actual = git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Could not read the checked-out release commit.'
+          }
+          if ($Actual.Trim() -ne $env:SOURCE_SHA) {
+            throw 'Checked-out release commit does not match GITHUB_SHA.'
+          }
+
+      - name: Verify and extract Blender 5.2.0
+        id: blender
+        shell: pwsh
+        run: >-
+          python scripts/ci.py prepare-blender
+          --platform windows
+          --output-dir '${{ runner.temp }}/blender-5.2.0'
+          --github-output $env:GITHUB_OUTPUT
+
+      - name: Build fresh extension ZIP
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force `
+            -Path '${{ runner.temp }}/release' | Out-Null
+          & '${{ steps.blender.outputs.blender }}' `
+            --factory-startup --command extension build `
+            --source-dir addon --output-dir '${{ runner.temp }}/release'
+
+      - name: Validate fresh extension ZIP
+        shell: pwsh
+        run: >-
+          & '${{ steps.blender.outputs.blender }}'
+          --factory-startup --command extension validate
+          "${{ runner.temp }}/release/alpha_material_separator-${env:RELEASE_VERSION}.zip"
+
+      - name: Prepare release identity and checksum
+        id: release
+        shell: pwsh
+        run: >-
+          python scripts/ci.py prepare-release
+          --version $env:RELEASE_VERSION
+          --manifest addon/blender_manifest.toml
+          --archive "${{ runner.temp }}/release/alpha_material_separator-${env:RELEASE_VERSION}.zip"
+          --checksum-output '${{ runner.temp }}/release/SHA256SUMS.txt'
+          --github-output $env:GITHUB_OUTPUT
+
+      - name: Refuse an existing tag or release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $Owner, $Name = $env:GITHUB_REPOSITORY.Split('/', 2)
+          $Query = @'
+          query($owner:String!, $name:String!, $ref:String!, $tag:String!) {
+            repository(owner:$owner, name:$name) {
+              ref(qualifiedName:$ref) { name }
+              release(tagName:$tag) { id }
+            }
+          }
+          '@
+          $Tag = '${{ steps.release.outputs.tag }}'
+          $State = gh api graphql -f query=$Query `
+            -f owner=$Owner -f name=$Name -f ref="refs/tags/$Tag" -f tag=$Tag |
+            ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Could not verify tag and release absence.'
+          }
+          if ($State.data.repository.ref) {
+            throw 'Release tag already exists.'
+          }
+          if ($State.data.repository.release) {
+            throw 'Release already exists.'
+          }
+
+      - name: Create draft release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create '${{ steps.release.outputs.tag }}'
+          --draft --generate-notes
+          --title '${{ steps.release.outputs.tag }}'
+          --target '${{ github.sha }}'
+
+      - name: Upload release assets
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release upload '${{ steps.release.outputs.tag }}'
+          '${{ runner.temp }}/release/${{ steps.release.outputs.archive_name }}'
+          '${{ runner.temp }}/release/SHA256SUMS.txt'
+
+      - name: Download stored ZIP
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          New-Item -ItemType Directory '${{ runner.temp }}/downloaded-release'
+          gh release download '${{ steps.release.outputs.tag }}' `
+            --pattern '${{ steps.release.outputs.archive_name }}' `
+            --dir '${{ runner.temp }}/downloaded-release'
+
+      - name: Verify stored ZIP hash
+        shell: pwsh
+        run: >-
+          python scripts/ci.py verify-file
+          --file '${{ runner.temp }}/downloaded-release/${{ steps.release.outputs.archive_name }}'
+          --expected-sha256 '${{ steps.release.outputs.sha256 }}'
+
+      - name: Publish verified draft
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release edit '${{ steps.release.outputs.tag }}' --draft=false
