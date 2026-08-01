@@ -47,7 +47,7 @@ expressions, Git.
   extension.
 - Produces: a concise public README and a semantic documentation contract.
 
-- [ ] **Step 1: Replace the old README structure contract with a failing concise contract**
+- [x] **Step 1: Replace the old README structure contract with a failing concise contract**
 
 In `tests/unit/test_readme_contract.py`, keep the existing relative-link
 validation and the essential release, workflow, safety, partial-apply,
@@ -132,7 +132,7 @@ Left unchanged — no alpha source selected
 Already separated — no additional changes
 ```
 
-- [ ] **Step 2: Run the focused contract and verify RED**
+- [x] **Step 2: Run the focused contract and verify RED**
 
 Run:
 
@@ -145,7 +145,7 @@ Expected: FAIL because the old README uses the old headings, contains
 renderer-specific names and repository-local paths, and embeds four
 screenshots.
 
-- [ ] **Step 3: Rewrite `README.md` with the approved compact structure**
+- [x] **Step 3: Rewrite `README.md` with the approved compact structure**
 
 Use these exact section headings in order:
 
@@ -216,7 +216,7 @@ Delete:
 - repository-local path conventions;
 - three nonessential screenshots.
 
-- [ ] **Step 4: Run the focused contract and verify GREEN**
+- [x] **Step 4: Run the focused contract and verify GREEN**
 
 Run:
 
@@ -226,7 +226,7 @@ Run:
 
 Expected: all README contract tests pass.
 
-- [ ] **Step 5: Run the complete documentation change gate**
+- [x] **Step 5: Run the complete documentation change gate**
 
 Run:
 
@@ -237,7 +237,7 @@ git diff --check
 
 Expected: all unit tests pass and Git reports no whitespace errors.
 
-- [ ] **Step 6: Review the rendered source and commit the rewrite**
+- [x] **Step 6: Review the rendered source and commit the rewrite**
 
 Check:
 
@@ -255,7 +255,7 @@ git diff --cached --check
 git commit -m "docs: simplify the end-user README"
 ```
 
-- [ ] **Step 7: Update the handoff and commit it separately**
+- [x] **Step 7: Update the handoff and commit it separately**
 
 Update `docs/HANDOFF.md` with:
 
