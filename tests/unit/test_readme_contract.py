@@ -40,7 +40,6 @@ class ReadmeContractTests(unittest.TestCase):
             "one object",
             "does not cut geometry",
             "Ctrl+Z",
-            "Unity",
             "draw call",
             "per-material",
             "UV coordinates may be below 0 or above 1",
@@ -82,25 +81,42 @@ class ReadmeContractTests(unittest.TestCase):
         ):
             self.assertIn(text, self.text)
 
-    def test_required_end_user_sections_exist_in_order(self) -> None:
+    def test_end_user_sections_exist_in_order(self) -> None:
         headings = (
             "What it does",
-            "Requirements and installation",
-            "60-second Simple workflow",
-            "What the results mean",
-            "Simple and Expert interfaces",
-            "Manual alpha sources",
-            "What each step changes",
-            "Undo, rerun, and stale results",
-            "Unity and VRChat handoff",
+            "Install",
+            "Quick start",
+            "Understanding the results",
+            "When a material needs help",
+            "Safety, undo, and reruns",
+            "After export",
             "Troubleshooting",
-            "Supported and unsupported material setups",
-            "Glossary",
-            "Developer documentation",
+            "More documentation",
             "License",
         )
         positions = [self.text.index(f"## {heading}") for heading in headings]
         self.assertEqual(positions, sorted(positions))
+
+    def test_readme_excludes_renderer_and_repository_specific_copy(self) -> None:
+        for text in (
+            "Unity",
+            "VRChat",
+            ".packaged-releases/",
+            ".local-references/",
+            "## Developer documentation",
+        ):
+            self.assertNotIn(text, self.text)
+
+    def test_readme_uses_one_screenshot_and_links_deeper_docs(self) -> None:
+        images = re.findall(r"!\[[^\]]*\]\(([^)]+)\)", self.text)
+        self.assertEqual(images, ["docs/images/01-panel-simple.png"])
+        for target in (
+            "docs/material-support.md",
+            "docs/testing.md",
+            "docs/integration-api.md",
+            "docs/performance.md",
+        ):
+            self.assertIn(f"]({target})", self.text)
 
     def test_relative_links_resolve_inside_repository(self) -> None:
         links = re.findall(r"!?\[[^\]]*\]\(([^)]+)\)", self.text)
