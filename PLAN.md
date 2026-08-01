@@ -292,7 +292,7 @@ The authoritative hardening matrix includes:
   discovery.
 - [x] Remove actions and credentials from the write-authorized release source
   fetch; use unauthenticated native Git and verify the exact `GITHUB_SHA`.
-- [ ] Push `ci/automation` after separate approval.
+- [x] Push `ci/automation` after separate approval.
 - [ ] Observe both hosted validation checks.
 - [ ] Make the repository public after separate approval.
 - [ ] Configure required checks, the `release` environment, and immutable

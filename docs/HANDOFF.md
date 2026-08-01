@@ -4,9 +4,10 @@ Updated: 2026-08-01
 
 ## Current objective
 
-Finish the local, pre-push GitHub Actions hardening on `ci/automation`, then
-stop for explicit approval before any push, pull request, repository-setting
-change, tag, release, or publication.
+Observe and inspect the required hosted checks on draft pull request
+[#2](https://github.com/Alrauna/blender-alpha-material-separator/pull/2).
+Repository-setting changes, merge, tags, releases, and publication remain
+separately approval-gated.
 
 ## Completed work
 
@@ -31,7 +32,10 @@ change, tag, release, or publication.
 - Durable CI rules and milestone status now describe these boundaries.
 - Inline correctness/security review found no accepted code finding.
 - Ponytail minimalism review result: `Lean already. Ship.`
-- No remote operation occurred.
+- `ci/automation` was pushed to `origin` after explicit approval.
+- Draft pull request
+  [#2](https://github.com/Alrauna/blender-alpha-material-separator/pull/2)
+  targets `main`.
 
 ## Important decisions and constraints
 
@@ -49,7 +53,8 @@ change, tag, release, or publication.
 - Blender native extension-repository hosting and `index.json` publication are
   a separate milestone. AMS has no custom updater.
 - The private before/after smoke is not required for this CI-only change.
-- Do not push or mutate GitHub state without explicit approval.
+- Do not change repository settings, merge, tag, release, or publish without
+  explicit approval.
 
 ## Files changed and why
 
@@ -183,15 +188,14 @@ repository-documentation entries.
 
 ## Remaining tasks in priority order
 
-1. Obtain explicit approval to push `ci/automation` and create a pull request.
-2. Inspect both required hosted checks:
+1. Inspect both required hosted checks:
    `CI / Windows — Blender 5.2` and `CI / Linux — Blender 5.2`.
-3. Use the RFC 8484 contingency only if hosted runners reproduce the Quad9
+2. Use the RFC 8484 contingency only if hosted runners reproduce the Quad9
    failure.
-4. Separately approve repository visibility, required-check protection,
+3. Separately approve repository visibility, required-check protection,
    release-environment protection, merge, and the first `1.0.0` publication.
-5. Plan Blender native extension-repository hosting as a separate milestone.
+4. Plan Blender native extension-repository hosting as a separate milestone.
 
 ## Recommended next action
 
-Request explicit approval to push `ci/automation` and create its pull request.
+Inspect the Windows and Linux checks on draft pull request #2.
