@@ -4,10 +4,11 @@ Updated: 2026-08-01
 
 ## Current objective
 
-Finish the local correction for the failed Blender bootstrap jobs on draft pull
-request [#2](https://github.com/Alrauna/blender-alpha-material-separator/pull/2).
-The user approved Quad9 over DNS-over-TLS (DoT). The corrected branch must not
-be pushed until separate approval.
+Await separate approval to push the locally corrected Blender bootstrap for
+draft pull request
+[#2](https://github.com/Alrauna/blender-alpha-material-separator/pull/2).
+The user approved Quad9 over DNS-over-TLS (DoT), but nothing from the correction
+may be pushed without separate approval.
 
 ## Completed work
 
@@ -29,6 +30,8 @@ be pushed until separate approval.
 - Durable CI documentation now describes Quad9 DoT and exact-root discovery.
 - `7c9db1c` (`fix: make Blender bootstrap portable`) contains the focused
   production and generated-test changes.
+- `704e3e7` (`docs: record portable Blender bootstrap`) contains the durable
+  guidance, plan status, and validation record.
 - No workflow YAML, extension code, remote, or GitHub setting was changed.
 - Nothing from this local correction has been pushed.
 
