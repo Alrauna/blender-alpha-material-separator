@@ -112,6 +112,20 @@ rechecks were measured.
 The recheck passes both provisional targets. Raw per-run machine output remains
 ignored in `.test-output/benchmarks/revalidation-current.json`.
 
+The same generated fixture was rerun on 2026-08-01 to isolate the real final
+Apply preflight. This measures authoritative validation, assignment-plan
+rebuilding, public-plan creation, and review-signature comparison before
+mutation; it excludes dialog response, assignment, and Undo.
+
+| Apply-preflight metric | Result |
+| --- | ---: |
+| Apply preflight median | 0.0353 s |
+| Apply preflight / cold ratio | 4.89% |
+| Component hashes | 1 |
+| Participating image-digest rows | 0 |
+| Rasterized polygons | 0 |
+| Mutation-free | yes |
+
 ## Main Base Color fallback regression check
 
 Repeated on 2026-07-26 after separating classification authority from

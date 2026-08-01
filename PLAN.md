@@ -5,14 +5,14 @@ Status: milestones 0-4A are implemented and verified locally on
 by real-file testing is complete in commits `a09593b`, `4c26dfd`, and
 `1e61993`: safe groups apply independently, exact-plan preview survives
 harmless selection/mode changes, and the installed-ZIP Analyze → Preview →
-Tab → Apply workflow no longer requires redundant analysis. Milestone 5 is
-partially complete. The compact count-only Apply confirmation is implemented
-and automated/private smoke coverage passes; installed-ZIP visual acceptance
-at narrow/wide layouts and 100%/150% UI scale remains open. Manual Unity
-material/submesh validation remains a release gate; VRChat validation remains
-optional stack-specific evidence. The approved repository-simplification pass
-is complete in commits `4138236` through `f330192`; public API 1.2 and tested
-workflow behavior are unchanged.
+Tab → Apply workflow no longer requires redundant analysis. The listed
+Milestone 5 checks are complete: the compact count-only confirmation,
+optional-preview flows, partial apply, 150% UI scale, Unity material/submesh
+handoff, and final Apply-preflight measurement have passed. The installed-ZIP
+visual progress and Escape-cancellation interaction in Milestone 4D remains
+unverified. VRChat validation remains optional stack-specific evidence. The
+approved repository-simplification pass is complete in commits `4138236`
+through `f330192`; public API 1.2 and tested workflow behavior are unchanged.
 
 ## Product outcome
 
@@ -263,18 +263,18 @@ The authoritative hardening matrix includes:
   and mode-exit component recheck. Mode-only rechecks rasterize zero polygons
   and digest zero image rows. The recorded same-machine structural median is
   0.0345 seconds, 4.13 percent of cold analysis.
-- [ ] Record a distinct final Apply-preflight timing row. Correctness and
-  instrumentation are covered, but the released performance table does not yet
-  isolate that timing.
+- [x] Record a distinct final Apply-preflight timing row. The 2026-08-01
+  generated median is 0.0353 seconds, 4.89 percent of cold analysis, with zero
+  image-digest rows, zero rasterized polygons, and no mutation.
 - [x] Complete installed-ZIP Analyze → Preview → Tab → Apply at default UI
   scale without a second analysis.
-- [ ] Complete the generated two-material interactive partial-apply case in
+- [x] Complete the generated two-material interactive partial-apply case in
   `docs/testing.md`.
 - [x] Pass the required ignored multi-object before/after smoke for workflow,
   out-of-range UV addressing, exact-plan assignment, and preservation. The
   hand-made after partition is retained as an aggregate diagnostic only.
-- [ ] Complete the 150 percent UI-scale visual pass.
-- [ ] Complete required ordinary Unity material/submesh validation.
+- [x] Complete the 150 percent UI-scale visual pass.
+- [x] Complete required ordinary Unity material/submesh validation.
 - Optional: record VRChat SDK/shader validation only as a reference for the
   exact tested versions.
 

@@ -142,17 +142,17 @@ by the corresponding headless regression test.
   applied. The installed-ZIP walkthrough kept Apply enabled after a face
   selection change and the Object Mode transition; the instrumented headless
   matrix confirmed zero digest and rasterization work.
-- [ ] Confirm Apply is enabled immediately after a current actionable analysis,
+- [x] Confirm Apply is enabled immediately after a current actionable analysis,
   before Preview.
-- [ ] Apply an unpreviewed clean plan and confirm the dialog begins with
+- [x] Apply an unpreviewed clean plan and confirm the dialog begins with
   **Faces have not been previewed.**
-- [ ] Cancel the unpreviewed dialog and confirm zero changes to faces, material
+- [x] Cancel the unpreviewed dialog and confirm zero changes to faces, material
   slots, materials, and metadata.
-- [ ] Confirm the same unpreviewed plan, verify the exact planned assignment,
+- [x] Confirm the same unpreviewed plan, verify the exact planned assignment,
   then undo it completely with Ctrl+Z.
-- [ ] Preview the exact clean plan and confirm Apply retains its immediate
-  no-warning behavior.
-- [ ] Change only assignment preflight, confirm no reanalysis is required, and
+- [x] Preview the exact clean plan and confirm Apply retains its immediate
+  no-warning behavior through the generated Blender workflow test.
+- [x] Change only assignment preflight, confirm no reanalysis is required, and
   verify Apply forces confirmation until the revised plan is previewed.
 - [x] Repeat Object/Edit toggles, face selection changes, active-object changes,
   and multi-object Edit Mode transitions without a false stale message.
@@ -161,20 +161,20 @@ by the corresponding headless regression test.
 - [x] Review analyzed objects, source material, resolved image/UV/channel,
   destination material, skips, faces to move, and estimated slot/section
   increase before assignment.
-- [ ] Confirm each successful analysis automatically collapses the native
+- [x] Confirm each successful analysis automatically collapses the native
   **Material Details (N)** disclosure, duplicate material results count once,
   and a single advisory above it points to unsupported materials. Expand it in
   narrow and wide sidebars and confirm all existing cards and **Set Manual
   Alpha Source** actions remain usable. Cancellation must preserve the prior
   report and disclosure state.
-- [ ] Confirm the warning popup after **Apply Material Separation** contains
+- [x] Confirm the warning popup after **Apply Material Separation** contains
   only aggregate plan-outcome counts, stays bounded without material/object
   lists, and uses the native **Apply Material Separation** title and **Apply**
   confirmation action. Check narrow/wide layouts and 100%/150% UI scale;
   cancel with zero mutation, then reopen, apply, and undo with Ctrl+Z.
 - [x] Assign directly from the Edit Mode preview and verify the intended material
   partition.
-- [ ] Process a generated two-material case where one resolved source has
+- [x] Process a generated two-material case where one resolved source has
   collapsed-UV faces and another material has no traceable alpha source. Confirm
   uncertain faces move to alpha, the unresolved material stays unchanged, and
   useful work is not globally blocked.
@@ -186,16 +186,19 @@ by the corresponding headless regression test.
 - [x] Disable, re-enable, and confirm clean panel/operator lifecycle through the
   isolated ZIP installation and registration lifecycle tests.
 
+The optional-preview, Material Details, count-only confirmation, two-material
+partial-apply, 150% scale, and ordinary Unity material/submesh checks above
+were reported as passing by the user on 2026-08-01. The previewed clean-plan
+no-warning path is additionally covered by the generated Blender tests.
+
 The documentation captures under `docs/images/` were generated from this
 redistributable synthetic scene, cropped to remove the local file path, and
 checked against the final button labels. The live walkthrough was performed at
 the default UI scale with a narrow sidebar; automated layout/state checks cover
-long labels and both interface modes. A separate 150% scale visual pass remains
-part of the release-candidate usability gate.
+long labels and both interface modes.
 
-Ordinary Unity material/submesh validation remains a manual release gate. The
-user will provide that result; a VRChat SDK/shader run is separate reference
-evidence for only the recorded stack.
+Ordinary Unity material/submesh validation passed. A VRChat SDK/shader run
+remains separate reference evidence for only the recorded stack.
 
 ## Preservation snapshots
 
@@ -213,6 +216,12 @@ polygons. Use one discarded warm-up and five measured runs. On the approved
 same-machine structural workflow, the new mode-exit recheck targets a median
 below one second and below 15 percent of cold analysis; established same-machine
 metrics retain the 25 percent unexplained-regression gate.
+
+The generated revalidation benchmark also discards one warm-up and records five
+calls to the real final Apply preflight. It asserts that report identity,
+polygon material indices, material slots, and material datablocks remain
+unchanged. The 2026-08-01 median was 0.0353 seconds with zero image-digest rows
+and zero rasterized polygons.
 
 The Analyze throughput regression also exercises both image-reader paths.
 Eligible images must use one native bulk read with no Python slices; an
