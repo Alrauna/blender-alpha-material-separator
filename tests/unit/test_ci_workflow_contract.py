@@ -189,6 +189,15 @@ class CiWorkflowContractTests(unittest.TestCase):
         ):
             self.assertIn(text, agents)
         self.assertIn("GitHub Actions CI/CD", plan)
+        for text in (
+            "unauthenticated native Git",
+            "exact `GITHUB_SHA`",
+            "30-second connection timeout",
+            "two retries",
+            "version-independent",
+            "separate milestone",
+        ):
+            self.assertIn(text, testing + agents + plan)
 
 
 if __name__ == "__main__":

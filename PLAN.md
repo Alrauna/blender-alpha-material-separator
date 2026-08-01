@@ -286,6 +286,12 @@ The authoritative hardening matrix includes:
 - [x] Add read-only Windows and Linux validation.
 - [x] Add protected manual draft-first publication.
 - [x] Run the complete local product gate.
+- [x] Bound Blender downloads with a 30-second connection timeout, fixed total
+  limit, two retries, and partial-file cleanup.
+- [x] Use safe Linux tar extraction and version-independent validation ZIP
+  discovery.
+- [x] Remove actions and credentials from the write-authorized release source
+  fetch; use unauthenticated native Git and verify the exact `GITHUB_SHA`.
 - [ ] Push `ci/automation` after separate approval.
 - [ ] Observe both hosted validation checks.
 - [ ] Make the repository public after separate approval.
@@ -297,6 +303,7 @@ The tested local Windows curl/network combination cannot complete the explicit
 Quad9 DoH request. Hosted Windows/Linux execution is the compatibility
 authority. If it reproduces the failure, use the documented minimal RFC 8484
 contingency without removing Quad9 or weakening byte consensus.
+Blender native extension-repository hosting remains a separate milestone.
 
 ## Public integration boundary
 

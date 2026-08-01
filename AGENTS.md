@@ -212,13 +212,18 @@ edit. Remove or revise items that no longer require immediate attention.
 - Keep workflow permissions at `contents: read` by default. Only the protected
   manual release job may use `contents: write`, and `GH_TOKEN` belongs only on
   individual `gh` command steps.
-- Keep `actions/checkout` pinned to a reviewed full commit SHA with
-  `persist-credentials: false`. Adding an action, dependency, cache, artifact
-  transfer, trigger, runner type, permission, or network source requires design
-  review and explicit approval.
+- Keep `actions/checkout` confined to read-only jobs, pinned to a reviewed full
+  commit SHA, with `persist-credentials: false`. The write-authorized release
+  job must use unauthenticated native Git, fetch the exact `GITHUB_SHA`, and
+  verify `HEAD` without credentials. Adding an action, dependency, cache,
+  artifact transfer, trigger, runner type, permission, or network source
+  requires design review and explicit approval.
 - Blender downloads must retain the fixed HTTPS identity, committed SHA-256,
   system/Cloudflare/Quad9 checksum consensus, pre-extraction archive hash, and
-  executable version check. Never weaken a failed trust check to make CI pass.
+  executable version check. Network timeouts and retries may bound failure but
+  may not weaken resolver or hash requirements.
+- Ordinary validation must discover exactly one version-independent AMS ZIP;
+  only the strict release path may derive a filename from the validated version.
 - Validation builds are disposable. Publication rebuilds from the validated
   `main` commit, creates a draft, uploads the ZIP and `SHA256SUMS.txt`, downloads
   and re-hashes the stored ZIP, then publishes.

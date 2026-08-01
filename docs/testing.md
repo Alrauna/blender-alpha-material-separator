@@ -44,7 +44,8 @@ Pull requests targeting `main` and pushes to `main` run two stable checks:
 
 Both use Blender 5.2.0 exactly and run the unit suite, complete headless Blender
 suite with auto-execution disabled, source validation, extension build, and
-validation of that exact ZIP. Each runner builds and discards its own ZIP.
+version-independent discovery and validation of the one generated AMS ZIP.
+Each runner builds and discards its own ZIP.
 Workflow artifacts, caches, setup actions, package installers, containers,
 self-hosted runners, and third-party actions are not used.
 
@@ -52,7 +53,9 @@ The workflow downloads Blender only from its fixed Blender.org HTTPS URL. It
 retrieves Blender.org's checksum file through system DNS, Cloudflare DoH, and
 Quad9 DoH, requires byte-identical content, verifies the relevant value against
 the committed SHA-256 trust anchor, hashes the archive before extraction, and
-requires the executable to report Blender 5.2.0. Any disagreement fails closed.
+requires the executable to report Blender 5.2.0. Curl has a 30-second connection
+timeout, a fixed total limit, and two retries. Linux tar extraction uses
+Python's safe data filter. Any disagreement or timeout fails closed.
 
 The tested local Windows curl/network combination cannot complete the explicit
 Quad9 `--doh-url` request even though system DNS and Cloudflare return identical
@@ -64,17 +67,20 @@ and byte consensus; do not weaken or remove the resolver gate.
 
 Manual dispatch requires a strict `X.Y.Z` version. Publication additionally
 requires `main`, a public repository, successful Windows and Linux checks, and
-the protected `release` environment. It rebuilds a fresh ZIP, validates it,
-writes `SHA256SUMS.txt`, refuses an existing tag or release, creates a draft,
-uploads both assets, downloads the stored ZIP into a fresh directory, re-hashes
-it, and only then publishes. `GH_TOKEN` is exposed only to individual GitHub CLI
-steps; tests, Blender, hashing, and packaging never receive it.
+the protected `release` environment. The write-authorized job uses
+unauthenticated native Git to fetch and verify the exact `GITHUB_SHA`; no action
+or Git command receives the release token. It rebuilds a fresh ZIP, validates
+it, writes `SHA256SUMS.txt`, refuses an existing tag or release, creates a
+draft, uploads both assets, downloads the stored ZIP into a fresh directory,
+re-hashes it, and only then publishes. `GH_TOKEN` is exposed only to individual
+GitHub CLI steps; tests, Blender, Git, hashing, and packaging never receive it.
 
 GitHub-hosted runner timing is variable, so CI runs correctness benchmark
 contracts but does not enforce a hosted performance threshold. The repository's
 25 percent same-machine limit remains the local authority. This CI-only
 milestone does not require the private before/after smoke because it changes no
 resolver, rasterizer, cache, Preview, Apply, or preservation behavior.
+Blender native extension-repository hosting remains a separate milestone.
 
 The corresponding local gate is:
 
