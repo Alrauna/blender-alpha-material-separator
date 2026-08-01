@@ -4,9 +4,9 @@ Updated: 2026-08-01
 
 ## Current objective
 
-Obtain user review of the approved human-first README design in
-`docs/superpowers/specs/2026-08-01-readme-human-first-design.md`, then prepare
-its test-first implementation plan. The README rewrite has not begun.
+Obtain user approval of the test-first human-first README implementation plan
+in `docs/superpowers/plans/2026-08-01-human-first-readme.md`, then execute it
+using the selected workflow. The README rewrite has not begun.
 Separately, the locally corrected Blender bootstrap still requires explicit
 approval before it may be pushed to draft pull request
 [#2](https://github.com/Alrauna/blender-alpha-material-separator/pull/2).
@@ -44,6 +44,9 @@ approval before it may be pushed to draft pull request
 - `095fc2c` (`docs: design human-first README`) records the approved
   end-user-only, renderer-agnostic README structure. No README content or
   contract test has changed yet.
+- `2b981a5` (`docs: plan human-first README rewrite`) records the self-reviewed
+  RED/GREEN implementation plan. No README content or contract test has changed
+  yet.
 - No workflow YAML, extension code, remote, or GitHub setting was changed.
 - Nothing from this local correction has been pushed.
 
@@ -237,16 +240,16 @@ succeeded; the rebuilt ignored ZIP is 66,755 bytes; diff check was clean.
 
 ## Remaining tasks in priority order
 
-1. Obtain user review of the written README design specification.
-2. Prepare and approve a test-first README implementation plan.
-3. Rewrite the README and its contract tests, then verify and commit them.
-4. Obtain separate approval to push `ci/automation`.
-5. Observe both required hosted checks and address only demonstrated failures.
-6. Separately approve repository visibility, required-check protection,
+1. Obtain user approval of the written README implementation plan and select
+   inline or subagent-driven execution.
+2. Rewrite the README and its contract tests, then verify and commit them.
+3. Obtain separate approval to push `ci/automation`.
+4. Observe both required hosted checks and address only demonstrated failures.
+5. Separately approve repository visibility, required-check protection,
    release-environment protection, merge, and the first `1.0.0` publication.
-7. Plan Blender native extension-repository hosting as a separate milestone.
+6. Plan Blender native extension-repository hosting as a separate milestone.
 
 ## Recommended next action
 
-Review and approve the written human-first README specification so its
-test-first implementation plan can be prepared.
+Review and approve the written human-first README implementation plan, then
+choose inline or subagent-driven execution.
