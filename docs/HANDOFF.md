@@ -4,9 +4,10 @@ Updated: 2026-08-01
 
 ## Current objective
 
-The standalone Apply-preflight benchmark gap is closed. One older installed-ZIP
-visual progress and Escape-cancellation interaction remains unverified. The
-next approved repository objective is to increment the extension to `1.0.0`, merge
+The release-validation checklist is complete. The user confirmed installed-ZIP
+Escape cancellation works, while noting minor desynchronization between the
+cursor and sidebar percentages. The next approved repository objective is to
+increment the extension to `1.0.0`, merge
 `feat/alpha-material-separator-0.1` into `main`, and create a separate branch
 for GitHub Actions integration. Do not push without separate approval.
 
@@ -126,8 +127,9 @@ reported no errors.
 - Git may report expected LF-to-CRLF working-copy notices.
 - The Unity, UI-scale, and interactive workflow results are user-reported
   manual acceptance evidence, not automation performed in this turn.
-- The installed-ZIP visual progress and Escape-cancellation interaction in
-  Milestone 4D remains unverified.
+- Installed-ZIP Escape cancellation passed. The cursor and sidebar progress
+  percentages can briefly disagree; root cause and desired synchronization
+  behavior have not been investigated.
 - The `1.0.0` version bump, merge to `main`, and GitHub Actions branch have not
   started.
 - The existing `.packaged-releases/alpha_material_separator-0.1.0.zip`
@@ -135,16 +137,15 @@ reported no errors.
 
 ## Remaining tasks in priority order
 
-1. Confirm the installed-ZIP visual progress and Escape-cancellation interaction
-   or explicitly defer it.
-2. Inspect every version declaration and prepare the minimal `1.0.0` bump.
-3. Verify and commit the version bump locally.
-4. Merge the completed feature branch into `main` without rewriting history.
-5. Create the GitHub Actions integration branch.
-6. Design and approve the Actions workflow before implementation.
+1. Inspect every version declaration and prepare the minimal `1.0.0` bump.
+2. Verify and commit the version bump locally.
+3. Merge the completed feature branch into `main` without rewriting history.
+4. Create the GitHub Actions integration branch.
+5. Design and approve the Actions workflow before implementation.
+6. Separately reproduce and design a fix for cursor/sidebar progress
+   desynchronization if the user prioritizes it.
 
 ## Recommended next action
 
-Resolve the one unverified installed-ZIP visual progress/Escape check, then
-inspect version declarations and present the minimal `1.0.0` bump and merge
+Inspect version declarations and present the minimal `1.0.0` bump and merge
 sequence.

@@ -8,11 +8,12 @@ harmless selection/mode changes, and the installed-ZIP Analyze → Preview →
 Tab → Apply workflow no longer requires redundant analysis. The listed
 Milestone 5 checks are complete: the compact count-only confirmation,
 optional-preview flows, partial apply, 150% UI scale, Unity material/submesh
-handoff, and final Apply-preflight measurement have passed. The installed-ZIP
-visual progress and Escape-cancellation interaction in Milestone 4D remains
-unverified. VRChat validation remains optional stack-specific evidence. The
-approved repository-simplification pass is complete in commits `4138236`
-through `f330192`; public API 1.2 and tested workflow behavior are unchanged.
+handoff, final Apply-preflight measurement, and installed-ZIP progress and
+Escape cancellation have passed. A minor cursor/sidebar percentage
+desynchronization remains a follow-up UX issue. VRChat validation remains
+optional stack-specific evidence. The approved repository-simplification pass
+is complete in commits `4138236` through `f330192`; public API 1.2 and tested
+workflow behavior are unchanged.
 
 ## Product outcome
 
@@ -246,9 +247,9 @@ The authoritative hardening matrix includes:
 - [x] Record five-run callback, digest, memory, and instrumented modal-cadence
   medians, and block any unexplained established same-machine regression above
   25 percent.
-- [ ] Complete the installed-ZIP visual stage, progress, and Escape-cancellation
-  interaction. Windows automation could not bind to its returned Blender
-  window, so this exact interaction remains unverified.
+- [x] Complete the installed-ZIP visual stage, progress, and Escape-cancellation
+  interaction. The user confirmed Escape cancellation works. The cursor and
+  sidebar percentages can briefly disagree and remain a follow-up UX issue.
 
 ## Milestone 5: release validation
 

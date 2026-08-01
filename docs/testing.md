@@ -120,7 +120,8 @@ by the corresponding headless regression test.
   materials continue using automatic detection.
 - [x] Run a nontrivial analysis and observe progress advancing continuously.
 - [x] Press Escape and confirm cancellation leaves no partial report or data
-  change.
+  change. The installed ZIP passed this check on 2026-08-01; the cursor and
+  sidebar percentages can briefly disagree and remain a follow-up UX issue.
 - [x] Verify the plain-language result counts and the suppressed/unsupported
   explanations and remedies. Raw codes and analysis IDs remain Expert-only.
 - [x] Preview affected and mixed classes and confirm selected faces are visible.
