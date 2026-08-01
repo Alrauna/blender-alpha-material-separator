@@ -205,6 +205,29 @@ materially changes what the next turn must address. Pure read-only answers and
 status checks that leave the next action unchanged do not require a handoff
 edit. Remove or revise items that no longer require immediate attention.
 
+## CI/CD security
+
+- Keep `CI / Windows — Blender 5.2` and `CI / Linux — Blender 5.2` stable; both
+  are required merge checks once repository protection is configured.
+- Keep workflow permissions at `contents: read` by default. Only the protected
+  manual release job may use `contents: write`, and `GH_TOKEN` belongs only on
+  individual `gh` command steps.
+- Keep `actions/checkout` pinned to a reviewed full commit SHA with
+  `persist-credentials: false`. Adding an action, dependency, cache, artifact
+  transfer, trigger, runner type, permission, or network source requires design
+  review and explicit approval.
+- Blender downloads must retain the fixed HTTPS identity, committed SHA-256,
+  system/Cloudflare/Quad9 checksum consensus, pre-extraction archive hash, and
+  executable version check. Never weaken a failed trust check to make CI pass.
+- Validation builds are disposable. Publication rebuilds from the validated
+  `main` commit, creates a draft, uploads the ZIP and `SHA256SUMS.txt`, downloads
+  and re-hashes the stored ZIP, then publishes.
+- Do not push, change visibility or repository settings, configure protection,
+  create tags, or publish releases without explicit user approval.
+- If hosted runners reproduce the recorded curl Quad9 DoH failure, the approved
+  contingency is a minimal standard-library RFC 8484 path. Preserve TLS
+  hostname validation, dynamic Blender addresses, Quad9, and byte consensus.
+
 ## Commands
 
 ```powershell

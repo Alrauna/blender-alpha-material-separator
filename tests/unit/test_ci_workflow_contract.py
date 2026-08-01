@@ -105,6 +105,30 @@ class CiWorkflowContractTests(unittest.TestCase):
             if "GH_TOKEN:" in line:
                 self.assertIn("${{ github.token }}", line)
 
+    def test_ci_security_and_rollout_are_documented(self) -> None:
+        testing = (ROOT / "docs" / "testing.md").read_text(encoding="utf-8")
+        agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+        plan = (ROOT / "PLAN.md").read_text(encoding="utf-8")
+        for text in (
+            "CI / Windows — Blender 5.2",
+            "CI / Linux — Blender 5.2",
+            "Blender 5.2.0",
+            "Cloudflare",
+            "Quad9",
+            "SHA256SUMS.txt",
+            "performance threshold",
+        ):
+            self.assertIn(text, testing)
+        for text in (
+            "actions/checkout",
+            "persist-credentials: false",
+            "contents: read",
+            "contents: write",
+            "Do not push",
+        ):
+            self.assertIn(text, agents)
+        self.assertIn("GitHub Actions CI/CD", plan)
+
 
 if __name__ == "__main__":
     unittest.main()

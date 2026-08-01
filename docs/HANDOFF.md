@@ -4,11 +4,11 @@ Updated: 2026-08-01
 
 ## Current objective
 
-The `1.0.0` release transition is complete locally and the current branch is
-`ci/automation`. The GitHub Actions architecture and written specification are
-approved. A test-first implementation plan now defines the local workflow,
-security contracts, standard-library trust helper, review gates, and separately
-approved remote rollout. No workflow implementation or push is authorized yet.
+The current branch is `ci/automation`. The verified Blender bootstrap,
+read-only Windows/Linux validation matrix, and guarded draft-first publication
+path are implemented in three local commits. Durable CI documentation is being
+completed before the final local security review. No push or remote GitHub
+change has occurred.
 
 ## Completed work
 
@@ -35,6 +35,17 @@ approved remote rollout. No workflow implementation or push is authorized yet.
   `docs/superpowers/specs/2026-08-01-github-actions-ci-cd-design.md`.
 - Test-first CI/CD implementation plan:
   `docs/superpowers/plans/2026-08-01-github-actions-ci-cd.md`.
+- `ff293e3 ci: add verified Blender bootstrap`
+  - Adds fixed Blender 5.2.0 trust anchors, streamed hashing, strict checksum
+    parsing/consensus, HTTPS-only curl commands, verified extraction, executable
+    version checking, and generated unit contracts.
+- `aec88d5 ci: add Windows and Linux validation`
+  - Adds the pinned, read-only `windows-2025`/`ubuntu-24.04` matrix and stable
+    required-check names.
+- `ade948c ci: add guarded immutable release publishing`
+  - Adds strict release identity, checksum generation/reverification, protected
+    manual release gating, narrowly scoped write permission, draft-first asset
+    upload, stored-ZIP re-hash, and final publication.
 - `695b4a7 test: benchmark final Apply preflight`
   - Adds a generated contract for a distinct final Apply-preflight measurement.
   - Reuses the 4,900-polygon, 1K-image structural fixture with one generated
@@ -188,6 +199,54 @@ Result: the plan's required placeholder scan returned no matches; its
 specification coverage and interface names were reviewed; `git diff --check`
 reported no errors. No workflow, helper, test, or remote state was created.
 
+### CI/CD Task 1 TDD and trust-chain attempt
+
+```powershell
+& $Python52 -m unittest tests.unit.test_ci -v
+& $Python52 -m unittest discover -s tests/unit -t . -v
+& $Python52 scripts/ci.py prepare-blender `
+  --platform windows `
+  --output-dir .test-output/ci/blender-windows
+```
+
+Result: the focused RED failed because `scripts.ci` did not exist. After the
+minimal helper was added, 5/5 focused tests and 57/57 total unit tests passed.
+The real trust-chain command failed closed on the Quad9-routed checksum request
+with curl exit `6`, HTTP `000`, and `Could not resolve host:
+download.blender.org`. System DNS and Cloudflare produced byte-identical
+777-byte checksum files with SHA-256
+`F35709C2EB91FBB58EBBD354285039DF62217E6DBDA9C3A4713EC113D728057F`.
+
+The local curl reports version `8.21.0`, advertises `--doh-url`, and lacks an
+HTTP/2 feature. Exact diagnostic retries using Quad9's documented hostname,
+trailing-question-mark form, TLS-validated published bootstrap address, and
+IP-form DoH endpoint all failed with the same resolver error. No Blender archive
+was downloaded or extracted.
+
+### CI/CD Tasks 2 and 3
+
+```powershell
+& $Python52 -m unittest tests.unit.test_ci_workflow_contract -v
+& $Python52 -m unittest `
+  tests.unit.test_ci tests.unit.test_ci_workflow_contract -v
+& $Python52 -m unittest discover -s tests/unit -t . -v
+& $Blender52 --factory-startup --background --disable-autoexec `
+  --python-exit-code 1 --python tests/blender/run_all.py
+& $Blender52 --factory-startup --command extension validate addon
+& $Blender52 --factory-startup --command extension build `
+  --source-dir addon --output-dir .packaged-releases
+& $Blender52 --factory-startup --command extension validate `
+  .packaged-releases/alpha_material_separator-1.0.0.zip
+```
+
+Result: the workflow contract first failed because the workflow did not exist,
+then passed. Publication contracts first failed for missing release helpers and
+jobs, then 14/14 focused contracts and 66/66 total unit tests passed. The
+complete headless Blender suite printed both success markers; source and
+freshly built archive validation succeeded. The local release CLI accepted
+`1.0.0`, produced `v1.0.0` and `SHA256SUMS.txt`, reverified the ZIP, and rejected
+manifest-mismatched `1.0.1` with exit `1`.
+
 ## Known warnings and unverified assumptions
 
 - Expected Blender output includes bundled Grease Pencil brush-path warnings,
@@ -201,20 +260,34 @@ reported no errors. No workflow, helper, test, or remote state was created.
   behavior have not been investigated.
 - `.packaged-releases/alpha_material_separator-1.0.0.zip` is validated and
   remains ignored.
-- GitHub Actions behavior, runner validation, and publication are not
-  implemented yet. The approved design and test-first plan are documentation
-  only.
+- GitHub Actions code is implemented locally but has not been parsed or
+  executed by GitHub. Runner image tooling, PowerShell behavior, Linux bundled
+  Python discovery, stable check display names, and draft-release commands
+  remain hosted assumptions.
+- Current uncommitted work is documentation, the documentation contract, and
+  this handoff update.
+- The approved curl `--doh-url` method is not viable on the tested local
+  Windows curl/network combination. Do not count the local real trust chain as
+  passed.
+- Deferred contingency if hosted runners reproduce the failure: replace curl's
+  built-in DoH resolution with a minimal standard-library RFC 8484
+  query/response path, retain TLS hostname validation and dynamically resolved
+  Blender addresses, and continue requiring byte-identical checksum content.
+  Do not drop Quad9 or weaken consensus.
 
 ## Remaining tasks in priority order
 
-1. Review and approve the test-first CI/CD implementation plan.
-2. Implement and locally validate workflow contracts before any push.
-3. Run the approved Windows/Linux GitHub bootstrap only after push approval.
-4. Separately reproduce and design a fix for cursor/sidebar progress
+1. Complete the durable CI documentation contract and commit it.
+2. Run the full local completion gate and correctness/minimalism reviews.
+3. Stop and request approval before pushing `ci/automation`.
+4. Run the Windows/Linux GitHub bootstrap only after push approval.
+5. Use the documented RFC 8484 contingency only if hosted runners reproduce
+   the curl Quad9 failure.
+6. Separately reproduce and design a fix for cursor/sidebar progress
    desynchronization if the user prioritizes it.
 
 ## Recommended next action
 
-Review the test-first CI/CD implementation plan. After approval, execute its
-local tasks on `ci/automation`; stop again before the first push or any GitHub
-settings change.
+Finish the local documentation and security review, then stop for explicit push
+approval. Hosted Windows/Linux runs must fail closed and determine whether the
+deferred RFC 8484 contingency is needed.

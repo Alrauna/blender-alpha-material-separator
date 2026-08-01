@@ -279,6 +279,25 @@ The authoritative hardening matrix includes:
 - Optional: record VRChat SDK/shader validation only as a reference for the
   exact tested versions.
 
+## Milestone 6 — GitHub Actions CI/CD
+
+- [x] Fix Blender 5.2.0 Windows and Linux download identities and hashes.
+- [x] Add generated helper and workflow security contracts.
+- [x] Add read-only Windows and Linux validation.
+- [x] Add protected manual draft-first publication.
+- [x] Run the complete local product gate.
+- [ ] Push `ci/automation` after separate approval.
+- [ ] Observe both hosted validation checks.
+- [ ] Make the repository public after separate approval.
+- [ ] Configure required checks, the `release` environment, and immutable
+  releases.
+- [ ] Dispatch and verify release `1.0.0` after separate approval.
+
+The tested local Windows curl/network combination cannot complete the explicit
+Quad9 DoH request. Hosted Windows/Linux execution is the compatibility
+authority. If it reproduces the failure, use the documented minimal RFC 8484
+contingency without removing Quad9 or weakening byte consensus.
+
 ## Public integration boundary
 
 Stable operators use `bpy.ops.alpha_material_separator.*`: capability query,

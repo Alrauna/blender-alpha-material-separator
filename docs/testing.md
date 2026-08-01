@@ -35,6 +35,62 @@ export/reimport, README contracts, and anonymized synthetic characterization.
 Do not mark the installed-ZIP or exact interaction checkboxes complete merely
 because the source-tree headless suite passed.
 
+## GitHub Actions CI/CD
+
+Pull requests targeting `main` and pushes to `main` run two stable checks:
+
+- `CI / Windows — Blender 5.2`
+- `CI / Linux — Blender 5.2`
+
+Both use Blender 5.2.0 exactly and run the unit suite, complete headless Blender
+suite with auto-execution disabled, source validation, extension build, and
+validation of that exact ZIP. Each runner builds and discards its own ZIP.
+Workflow artifacts, caches, setup actions, package installers, containers,
+self-hosted runners, and third-party actions are not used.
+
+The workflow downloads Blender only from its fixed Blender.org HTTPS URL. It
+retrieves Blender.org's checksum file through system DNS, Cloudflare DoH, and
+Quad9 DoH, requires byte-identical content, verifies the relevant value against
+the committed SHA-256 trust anchor, hashes the archive before extraction, and
+requires the executable to report Blender 5.2.0. Any disagreement fails closed.
+
+The tested local Windows curl/network combination cannot complete the explicit
+Quad9 `--doh-url` request even though system DNS and Cloudflare return identical
+checksum files. This result is not a pass. The first hosted Windows and Linux
+runs determine whether the limitation is local. If hosted runners reproduce it,
+the approved contingency is a minimal standard-library RFC 8484 query/response
+path that retains Quad9, TLS hostname validation, dynamic Blender addresses,
+and byte consensus; do not weaken or remove the resolver gate.
+
+Manual dispatch requires a strict `X.Y.Z` version. Publication additionally
+requires `main`, a public repository, successful Windows and Linux checks, and
+the protected `release` environment. It rebuilds a fresh ZIP, validates it,
+writes `SHA256SUMS.txt`, refuses an existing tag or release, creates a draft,
+uploads both assets, downloads the stored ZIP into a fresh directory, re-hashes
+it, and only then publishes. `GH_TOKEN` is exposed only to individual GitHub CLI
+steps; tests, Blender, hashing, and packaging never receive it.
+
+GitHub-hosted runner timing is variable, so CI runs correctness benchmark
+contracts but does not enforce a hosted performance threshold. The repository's
+25 percent same-machine limit remains the local authority. This CI-only
+milestone does not require the private before/after smoke because it changes no
+resolver, rasterizer, cache, Preview, Apply, or preservation behavior.
+
+The corresponding local gate is:
+
+```powershell
+$Blender52 = 'C:\Program Files\Blender Foundation\Blender 5.2\blender.exe'
+$Python52 = 'C:\Program Files\Blender Foundation\Blender 5.2\5.2\python\bin\python.exe'
+& $Python52 -m unittest discover -s tests/unit -t . -v
+& $Blender52 --factory-startup --background --disable-autoexec `
+  --python-exit-code 1 --python tests/blender/run_all.py
+& $Blender52 --factory-startup --command extension validate addon
+& $Blender52 --factory-startup --command extension build `
+  --source-dir addon --output-dir .packaged-releases
+& $Blender52 --factory-startup --command extension validate `
+  .packaged-releases/alpha_material_separator-1.0.0.zip
+```
+
 ## Required test layers
 
 Every behavior defect first receives a generated or synthetic failing
