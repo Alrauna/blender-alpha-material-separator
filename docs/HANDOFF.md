@@ -7,7 +7,7 @@ Updated: 2026-08-01
 The release-validation checklist is complete. The release-transition design is
 approved and written. It promotes the extension to `1.0.0`, fast-forwards
 `feat/alpha-material-separator-0.1` into local `main`, and creates
-`codex/github-actions`. The written specification still requires user review
+`ci/automation`. The written specification still requires user review
 before its test-first implementation plan is prepared. Do not push without
 separate approval.
 
@@ -141,7 +141,7 @@ reported no errors.
    `docs/superpowers/specs/2026-08-01-release-1.0-transition-design.md`.
 2. Prepare and approve the test-first release-transition implementation plan.
 3. Execute the verified `1.0.0` bump and local fast-forward.
-4. Create `codex/github-actions` without adding workflow files.
+4. Create `ci/automation` without adding workflow files.
 5. Design and approve the Actions workflow before implementation.
 6. Separately reproduce and design a fix for cursor/sidebar progress
    desynchronization if the user prioritizes it.
