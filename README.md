@@ -11,7 +11,7 @@ Unity or VRChat shaders automatically.
 Version 0.1.0 targets Blender 5.2 LTS and is still undergoing release
 validation.
 
-![The Simple interface in Blender's Alpha Material sidebar](docs/images/01-panel-simple.png)
+![The Simple interface in Blender's AMS sidebar](docs/images/01-panel-simple.png)
 
 ## Requirements and installation
 
@@ -20,7 +20,7 @@ validation.
 3. Open the menu at the upper right, choose **Install from Disk**, and select the
    ZIP.
 4. Confirm that **Blender Alpha Material Separator** is enabled.
-5. Return to a 3D View, press `N`, and open the **Alpha Material** tab.
+5. Return to a 3D View, press `N`, and open the **AMS** tab.
 
 Save your `.blend` before processing an important model. Assignment supports
 Blender Undo, but a saved file is still the safest starting point.

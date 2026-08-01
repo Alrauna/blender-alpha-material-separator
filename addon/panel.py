@@ -216,7 +216,7 @@ class ALPHA_MATERIAL_SEPARATOR_PT_main(bpy.types.Panel):
     bl_label = "Alpha Material Separator"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
-    bl_category = "Alpha Material"
+    bl_category = "AMS"
 
     def draw(self, context: bpy.types.Context) -> None:
         layout = self.layout
@@ -540,7 +540,7 @@ class ALPHA_MATERIAL_SEPARATOR_PT_main(bpy.types.Panel):
 class _ExpertPanel:
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
-    bl_category = "Alpha Material"
+    bl_category = "AMS"
     bl_parent_id = "ALPHA_MATERIAL_SEPARATOR_PT_main"
     bl_options = {"DEFAULT_CLOSED"}
 

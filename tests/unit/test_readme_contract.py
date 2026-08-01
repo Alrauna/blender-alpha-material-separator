@@ -19,7 +19,7 @@ class ReadmeContractTests(unittest.TestCase):
     def test_guided_workflow_labels_and_location_are_exact(self) -> None:
         for text in (
             "3D View",
-            "Alpha Material",
+            "open the **AMS** tab",
             "Analyze Selected Meshes",
             "Preview Faces to Move",
             "Apply Material Separation",

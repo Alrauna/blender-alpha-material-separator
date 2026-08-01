@@ -83,6 +83,11 @@ def run() -> None:
         assert hasattr(bpy.types.WindowManager, "alpha_material_separator_settings")
         assert hasattr(bpy.types.WindowManager, "alpha_material_separator_ui")
         assert hasattr(bpy.types.Material, "alpha_material_separator_source")
+        assert bpy.types.ALPHA_MATERIAL_SEPARATOR_PT_main.bl_category == "AMS"
+        assert (
+            bpy.types.ALPHA_MATERIAL_SEPARATOR_PT_analysis_settings.bl_category
+            == "AMS"
+        )
         assert_operator_registered()
         if iteration == 0:
             run_analysis_preview_tests()
