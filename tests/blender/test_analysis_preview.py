@@ -92,6 +92,23 @@ def _quad(name: str, material):
     return object_
 
 
+def _polygon_strip(name: str, count: int):
+    vertices = []
+    faces = []
+    for index in range(count):
+        offset = len(vertices)
+        x = float(index)
+        vertices.extend(
+            ((x, 0.0, 0.0), (x + 0.5, 0.0, 0.0), (x, 0.5, 0.0))
+        )
+        faces.append((offset, offset + 1, offset + 2))
+    mesh = bpy.data.meshes.new(f"{name}_MESH")
+    mesh.from_pydata(vertices, (), faces)
+    object_ = bpy.data.objects.new(name, mesh)
+    bpy.context.collection.objects.link(object_)
+    return object_
+
+
 def _preview_component_object(name: str):
     image = bpy.data.images.new(f"{name}_IMAGE", width=2, height=1, alpha=True)
     image.pixels.foreach_set(
@@ -496,6 +513,43 @@ def _single_preparation_pass_test(*objects) -> None:
     assert max(fingerprint_calls.values(), default=0) == 1, fingerprint_calls
 
 
+def _analysis_cadence_tests() -> None:
+    timed_object = _polygon_strip("AMS_TIMED_ENGINE", 5)
+    timed = AnalysisEngine((timed_object,), AnalysisConfig())
+    analyzed = []
+    timed._analyze_polygon = (
+        lambda _prepared, polygon: analyzed.append(polygon.index)
+    )
+    ticks = iter((0.0, 0.004, 0.008, 0.012))
+    assert not timed.step(
+        4_096,
+        time_budget_seconds=0.010,
+        clock=lambda: next(ticks),
+    )
+    assert analyzed == [0, 1, 2], analyzed
+
+    capped_object = _polygon_strip("AMS_CAPPED_ENGINE", 4_100)
+    capped = AnalysisEngine((capped_object,), AnalysisConfig())
+    capped_count = 0
+
+    def count_polygon(_prepared, _polygon):
+        nonlocal capped_count
+        capped_count += 1
+
+    capped._analyze_polygon = count_polygon
+    assert not capped.step(4_096)
+    assert capped_count == 4_096
+
+    synchronous = AnalysisEngine((timed_object,), AnalysisConfig())
+    synchronous._analyze_polygon = lambda _prepared, _polygon: None
+    assert synchronous.step(
+        5,
+        clock=lambda: (_ for _ in ()).throw(
+            AssertionError("clock used without a time budget")
+        ),
+    )
+
+
 def _out_of_range_uv_test() -> None:
     image = bpy.data.images.new("AMS_TILED_UV_IMAGE", width=2, height=1, alpha=True)
     image.pixels.foreach_set((1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0))
@@ -672,6 +726,8 @@ def run() -> None:
     _out_of_range_uv_test()
     _preview_component_selection_test()
     _clear_scene()
+    _analysis_cadence_tests()
+    _clear_scene()
     image = _image("AMS_ANALYSIS_IMAGE")
     material, tree, principled, texture = _material("AMS_ANALYSIS_MATERIAL", image)
     first = _quad("AMS_ANALYSIS_A", material)
@@ -692,7 +748,10 @@ def run() -> None:
     before = (_mesh_snapshot(first), _mesh_snapshot(second))
     deferred = AnalysisEngine((first, second), AnalysisConfig(), defer_images=True)
     assert deferred.completed == 0
-    assert deferred.step(1) is False
+    assert deferred.stage == "Reading Textures"
+    while deferred.stage == "Reading Textures":
+        assert deferred.step(1) is False
+    assert deferred.stage == "Analyzing Faces"
     assert deferred.completed > 0
     deferred.cancel()
     assert deferred.step(1) is True

@@ -899,6 +899,19 @@ class AnalysisEngine:
         if not defer_images:
             self._initialize_groups()
 
+    @property
+    def stage(self) -> str:
+        if (
+            self._deferred_images
+            and self._image_builder_index < len(self._image_builders)
+        ):
+            return "Reading Textures"
+        return "Analyzing Faces"
+
+    def close(self) -> None:
+        for builder in self._image_builders:
+            builder.close()
+
     def _initialize_groups(self) -> None:
         for prepared in self.prepared:
             if prepared.result.skipped_reason:
@@ -946,6 +959,7 @@ class AnalysisEngine:
 
     def cancel(self) -> None:
         self.cancelled = True
+        self.close()
 
     def _record_unsupported(
         self,
@@ -1110,7 +1124,13 @@ class AnalysisEngine:
                 }
             )
 
-    def step(self, polygon_budget: int = 128) -> bool:
+    def step(
+        self,
+        polygon_budget: int = 128,
+        *,
+        time_budget_seconds: float | None = None,
+        clock=None,
+    ) -> bool:
         if self.cancelled:
             return True
         if self._deferred_images:
@@ -1131,6 +1151,11 @@ class AnalysisEngine:
                     self._image_builder_index += 1
                 return False
             self._finalize_deferred_images()
+        if time_budget_seconds is not None:
+            clock = clock or time.perf_counter
+            deadline = clock() + time_budget_seconds
+        else:
+            deadline = None
         processed = 0
         while self._prepared_index < len(self.prepared) and processed < polygon_budget:
             prepared = self.prepared[self._prepared_index]
@@ -1140,6 +1165,8 @@ class AnalysisEngine:
                 self._polygon_index += 1
                 self.completed += 1
                 processed += 1
+                if deadline is not None and clock() >= deadline:
+                    return False
             if self._polygon_index >= len(polygons):
                 self._polygon_index = 0
                 self._prepared_index += 1
