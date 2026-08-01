@@ -5,10 +5,11 @@ Updated: 2026-08-01
 ## Current objective
 
 The current branch is `ci/automation`. The verified Blender bootstrap,
-read-only Windows/Linux validation matrix, and guarded draft-first publication
-path are implemented in three local commits. Durable CI documentation is being
-completed before the final local security review. No push or remote GitHub
-change has occurred.
+read-only Windows/Linux validation matrix, guarded draft-first publication
+path, documentation, and release-input injection fix are implemented in local
+commits. Local implementation and verification are complete. No push or remote
+GitHub change has occurred; the next milestone is approval-gated hosted
+validation.
 
 ## Completed work
 
@@ -46,6 +47,15 @@ change has occurred.
   - Adds strict release identity, checksum generation/reverification, protected
     manual release gating, narrowly scoped write permission, draft-first asset
     upload, stored-ZIP re-hash, and final publication.
+- `fb66cd1 docs: document CI and immutable releases`
+  - Documents the trust model, local/hosted validation boundary, protected
+    release environment, immutable-release policy, and rollout sequence.
+- `12af07e fix: prevent release input shell injection`
+  - Moves the manual release version into job environment variables so
+    untrusted workflow-dispatch input is never interpolated into PowerShell
+    source.
+  - Adds a workflow contract that permits the expression only in the two
+    environment declarations.
 - `695b4a7 test: benchmark final Apply preflight`
   - Adds a generated contract for a distinct final Apply-preflight measurement.
   - Reuses the 4,900-polygon, 1K-image structural fixture with one generated
@@ -87,6 +97,10 @@ change has occurred.
 - The ignored raw benchmark output remains at
   `.test-output/benchmarks/revalidation-current.json` and must not be committed.
 - Keep commits local and do not push without explicit approval.
+- Keep the curl-based Quad9 DoH check for the initial hosted run. If GitHub's
+  runners reproduce the local curl failure, the approved contingency is a
+  minimal RFC 8484 client that preserves Quad9 as an independent source and
+  the byte-for-byte checksum consensus requirement.
 
 ## Files changed and why
 
@@ -99,6 +113,15 @@ change has occurred.
 - `docs/testing.md`: measurement method and completed manual/automated checks.
 - `PLAN.md`: completed release-validation status.
 - `docs/HANDOFF.md`: current evidence and next action.
+- `scripts/ci.py`: standard-library trust-chain and release-identity helper.
+- `.github/workflows/ci.yml`: pinned read-only Windows/Linux validation and
+  guarded manual draft-first publication.
+- `tests/unit/test_ci.py`: trust-anchor, checksum, download, and release helper
+  contracts.
+- `tests/unit/test_ci_workflow_contract.py`: workflow security, platform,
+  validation, publication, and shell-injection contracts.
+- `docs/testing.md`, `PLAN.md`, and `AGENTS.md`: CI trust model, rollout,
+  required checks, and repository operating rules.
 - `addon/blender_manifest.toml`, `addon/api_contract.py`: extension version
   `1.0.0` while API remains `1.2`.
 - `tests/unit/test_api_contract.py`: manifest/runtime version agreement.
@@ -247,6 +270,35 @@ freshly built archive validation succeeded. The local release CLI accepted
 `1.0.0`, produced `v1.0.0` and `SHA256SUMS.txt`, reverified the ZIP, and rejected
 manifest-mismatched `1.0.1` with exit `1`.
 
+### Final CI security review and completion gate
+
+The independent review found one important issue: the manual release version
+was interpolated directly into PowerShell source. The new contract failed on
+four unsafe command lines before the fix. After moving the value into the job
+environment, the focused workflow suite passed 9/9 and the full unit suite
+passed 68/68.
+
+```powershell
+& $Python52 -m unittest tests.unit.test_ci_workflow_contract -v
+& $Python52 -m unittest discover -s tests/unit -t . -v
+& $Blender52 --factory-startup --background --disable-autoexec `
+  --python-exit-code 1 --python tests/blender/run_all.py
+& $Blender52 --factory-startup --command extension validate addon
+& $Blender52 --factory-startup --command extension build `
+  --source-dir addon --output-dir .packaged-releases
+& $Blender52 --factory-startup --command extension validate `
+  .packaged-releases/alpha_material_separator-1.0.0.zip
+git diff --check
+```
+
+Result: 68/68 unit tests passed; the headless suite printed
+`ALPHA_MATERIAL_SEPARATOR_BENCHMARK_CONTRACTS_OK` and
+`ALPHA_MATERIAL_SEPARATOR_BLENDER_TESTS_OK`; source validation, archive build,
+and exact archive validation succeeded. The fresh ZIP was 66,755 bytes and
+contained no `scripts/`, `tests/`, or `.github/` entries. `git diff --check`
+reported no errors. The minimalism review found no safe removable complexity
+within the approved trust and publication boundaries.
+
 ## Known warnings and unverified assumptions
 
 - Expected Blender output includes bundled Grease Pencil brush-path warnings,
@@ -264,8 +316,6 @@ manifest-mismatched `1.0.1` with exit `1`.
   executed by GitHub. Runner image tooling, PowerShell behavior, Linux bundled
   Python discovery, stable check display names, and draft-release commands
   remain hosted assumptions.
-- Current uncommitted work is documentation, the documentation contract, and
-  this handoff update.
 - The approved curl `--doh-url` method is not viable on the tested local
   Windows curl/network combination. Do not count the local real trust chain as
   passed.
@@ -277,17 +327,18 @@ manifest-mismatched `1.0.1` with exit `1`.
 
 ## Remaining tasks in priority order
 
-1. Complete the durable CI documentation contract and commit it.
-2. Run the full local completion gate and correctness/minimalism reviews.
-3. Stop and request approval before pushing `ci/automation`.
-4. Run the Windows/Linux GitHub bootstrap only after push approval.
-5. Use the documented RFC 8484 contingency only if hosted runners reproduce
+1. Obtain explicit approval before pushing `ci/automation` and creating a pull
+   request.
+2. Run and inspect the required Windows/Linux GitHub checks.
+3. Use the documented RFC 8484 contingency only if hosted runners reproduce
    the curl Quad9 failure.
-6. Separately reproduce and design a fix for cursor/sidebar progress
+4. After both checks pass, separately approve repository visibility, branch
+   protection, release-environment protection, merge, and first publication.
+5. Separately reproduce and design a fix for cursor/sidebar progress
    desynchronization if the user prioritizes it.
 
 ## Recommended next action
 
-Finish the local documentation and security review, then stop for explicit push
-approval. Hosted Windows/Linux runs must fail closed and determine whether the
-deferred RFC 8484 contingency is needed.
+Approve pushing `ci/automation` and creating a pull request so the fail-closed
+Windows/Linux hosted validation can determine whether the deferred RFC 8484
+contingency is needed.
