@@ -5,11 +5,10 @@ Updated: 2026-08-01
 ## Current objective
 
 The release-validation checklist is complete. The release-transition design is
-approved and written. It promotes the extension to `1.0.0`, fast-forwards
+approved, and its test-first implementation plan is written for user review.
+It promotes the extension to `1.0.0`, fast-forwards
 `feat/alpha-material-separator-0.1` into local `main`, and creates
-`ci/automation`. The written specification still requires user review
-before its test-first implementation plan is prepared. Do not push without
-separate approval.
+`ci/automation`. Do not push without separate approval.
 
 ## Completed work
 
@@ -137,15 +136,14 @@ reported no errors.
 
 ## Remaining tasks in priority order
 
-1. Obtain user review of
-   `docs/superpowers/specs/2026-08-01-release-1.0-transition-design.md`.
-2. Prepare and approve the test-first release-transition implementation plan.
-3. Execute the verified `1.0.0` bump and local fast-forward.
-4. Create `ci/automation` without adding workflow files.
-5. Design and approve the Actions workflow before implementation.
-6. Separately reproduce and design a fix for cursor/sidebar progress
+1. Obtain user approval of
+   `docs/superpowers/plans/2026-08-01-release-1.0-transition.md`.
+2. Execute the verified `1.0.0` bump and local fast-forward.
+3. Create `ci/automation` without adding workflow files.
+4. Design and approve the Actions workflow before implementation.
+5. Separately reproduce and design a fix for cursor/sidebar progress
    desynchronization if the user prioritizes it.
 
 ## Recommended next action
 
-Review and approve the written release-transition specification.
+Review and approve the test-first release-transition implementation plan.
