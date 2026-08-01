@@ -165,3 +165,45 @@ single-process improvements, multiprocessing is deferred: Blender datablocks
 must remain on the main process, serialized coverage work would increase
 memory and cancellation complexity, and no measured whole-workflow case clears
 the 20 percent implementation threshold safely.
+
+## Analyze responsiveness
+
+Measured 2026-08-01 after retaining native `foreach_get` transfer while
+processing at most 65,536 participating texels per step, changing the modal
+timer from 20 ms to 1 ms, and checking a 12 ms target between polygons. One
+warm-up was discarded and five runs were measured on the same machine.
+
+| Tier | Previous cold | Current cold | Change |
+| --- | ---: | ---: | ---: |
+| Small | 0.723 s | 0.691 s | -4.4% |
+| Typical | 8.538 s | 8.074 s | -5.4% |
+| High | 82.812 s | 71.556 s | -13.6% |
+| Large/tiled UV | 2.028 s | 1.917 s | -5.5% |
+
+Peak working set was about 2.92 GiB, less than one percent above the previous
+recorded peak. Full digest medians were 0.077 seconds at 1K, 0.308 seconds at
+2K, 1.202 seconds at 4K, and 45.163 seconds at 8K. No matching established
+metric regressed by the provisional 25 percent limit.
+
+The anonymous private cadence model measured:
+
+| Metric | Before | Current |
+| --- | ---: | ---: |
+| Estimated interactive Analyze | about 109.3 s | 51.544 s |
+| Callback work | 55.032 s | 43.093 s |
+| Maximum private image callback | 1.630 s | 0.0368 s |
+| Maximum polygon callback | 0.279 s | 0.197 s |
+| Generated 2K image callback | 0.385 s | 0.0109 s |
+| Generated 4K image callback | not recorded | 0.0316 s |
+
+The estimated interactive duration fell about 52.8 percent. It combines
+measured callback work with the configured 1 ms timer interval; it is not a
+foreground UI wall-clock measurement. The attempted isolated installed-ZIP
+visual run could not be controlled because the Windows automation helper
+rejected its own Blender window handle. A manual foreground timing remains
+open.
+
+The 12 ms face target is checked only after a complete polygon. It is not a
+strict callback maximum: the measured worst indivisible polygon callback was
+about 197 ms. Resumable per-polygon rasterization and multiprocessing remain
+deferred.

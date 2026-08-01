@@ -34,7 +34,7 @@
 - Consumes: existing `ImageSnapshotBuilder.step() -> int`, `finish() -> ImageSnapshot`, and `read_image_snapshot(...)`.
 - Produces: `MAX_BULK_TEXELS_PER_STEP = 65_536`, `ImageSnapshotBuilder.close() -> None`, and unchanged snapshot digest/grid results.
 
-- [ ] **Step 1: Extend the generated image doubles**
+- [x] **Step 1: Extend the generated image doubles**
 
 Change `_Image` so tests can create more than two texels while preserving all current callers:
 
@@ -53,7 +53,7 @@ class _Image:
         self.component_count = component_count
 ```
 
-- [ ] **Step 2: Write failing bulk-step and cleanup regressions**
+- [x] **Step 2: Write failing bulk-step and cleanup regressions**
 
 Extend `_bulk_image_reader_tests()` with a generated 131,073-texel RGBA image and direct builder assertions:
 
@@ -118,7 +118,7 @@ assert cancelled._bulk_pixels is None
 
 Keep the existing all-component/all-channel bulk-versus-fallback digest and affected-grid parity loop.
 
-- [ ] **Step 3: Run the headless test and verify the intended failure**
+- [x] **Step 3: Run the headless test and verify the intended failure**
 
 Run:
 
@@ -130,7 +130,7 @@ $Blender52 = 'C:\Program Files\Blender Foundation\Blender 5.2\blender.exe'
 
 Expected: FAIL because the first bulk `step()` currently processes all 131,073 texels and there is no retained buffer or `close()` method.
 
-- [ ] **Step 4: Implement the smallest resumable bulk reader**
+- [x] **Step 4: Implement the smallest resumable bulk reader**
 
 In `addon/adapters/image_data.py`, add:
 
@@ -201,13 +201,13 @@ def close(self) -> None:
 
 Do not alter `_selected_values`, the row-slice fallback, the digest prefix, or `ImageSnapshot`.
 
-- [ ] **Step 5: Run the headless suite and verify green**
+- [x] **Step 5: Run the headless suite and verify green**
 
 Run the Step 3 command.
 
 Expected: `ALPHA_MATERIAL_SEPARATOR_BLENDER_TESTS_OK`.
 
-- [ ] **Step 6: Commit the image boundary**
+- [x] **Step 6: Commit the image boundary**
 
 ```powershell
 git add -- addon/adapters/image_data.py tests/blender/test_analysis_preview.py
@@ -227,7 +227,7 @@ git commit -m "perf: chunk native image post-processing"
 - Consumes: `AnalysisEngine.step(polygon_budget=128)`.
 - Produces: backward-compatible `AnalysisEngine.step(polygon_budget=128, *, time_budget_seconds=None, clock=None) -> bool`, `AnalysisEngine.stage -> str`, and `AnalysisEngine.close() -> None`.
 
-- [ ] **Step 1: Add a generated multi-polygon fixture**
+- [x] **Step 1: Add a generated multi-polygon fixture**
 
 Add a local helper beside `_quad` that creates independent triangles without private data:
 
@@ -247,7 +247,7 @@ def _polygon_strip(name, count):
     return object_
 ```
 
-- [ ] **Step 2: Write failing deadline, cap, synchronous, and stage regressions**
+- [x] **Step 2: Write failing deadline, cap, synchronous, and stage regressions**
 
 Add `_analysis_cadence_tests()` and call it from `run()`:
 
@@ -295,7 +295,7 @@ assert deferred.stage == "Analyzing Faces"
 
 Then cancel it and retain the existing incomplete-report assertion.
 
-- [ ] **Step 3: Run the headless suite and verify the intended failure**
+- [x] **Step 3: Run the headless suite and verify the intended failure**
 
 Run:
 
@@ -306,7 +306,7 @@ Run:
 
 Expected: FAIL because `AnalysisEngine.step()` does not accept a time budget or clock and `stage` is absent.
 
-- [ ] **Step 4: Implement the optional deadline in the existing loop**
+- [x] **Step 4: Implement the optional deadline in the existing loop**
 
 Add:
 
@@ -365,13 +365,13 @@ def step(
 
 Do not put a clock check inside rasterization or classification. Do not pass a time budget from synchronous `execute()`.
 
-- [ ] **Step 5: Run the headless suite and verify green**
+- [x] **Step 5: Run the headless suite and verify green**
 
 Run the Step 3 command.
 
 Expected: `ALPHA_MATERIAL_SEPARATOR_BLENDER_TESTS_OK`.
 
-- [ ] **Step 6: Commit the engine boundary**
+- [x] **Step 6: Commit the engine boundary**
 
 ```powershell
 git add -- addon/adapters/analysis.py tests/blender/test_analysis_preview.py
@@ -395,7 +395,7 @@ git commit -m "perf: time-slice modal face analysis"
 - Consumes: `AnalysisEngine.stage`, deadline-aware `step()`, and existing private UI state.
 - Produces: `analysis_progress_visible: BoolProperty`, optional `show_progress` on `runtime.update_analysis`, and modal constants `0.001`, `0.012`, and `4_096`.
 
-- [ ] **Step 1: Write failing progress-state tests**
+- [x] **Step 1: Write failing progress-state tests**
 
 Extend the existing progress block in `test_ux_overrides.py`:
 
@@ -432,7 +432,7 @@ assert ui.analysis_progress == 1.0
 
 Keep the existing decreasing-update assertion to prove measurable progress remains monotonic.
 
-- [ ] **Step 2: Write failing operator-stage and prior-report tests**
+- [x] **Step 2: Write failing operator-stage and prior-report tests**
 
 In `test_analysis_preview.py`, temporarily wrap `runtime.update_analysis` while running a normal analysis:
 
@@ -477,7 +477,7 @@ deferred.cancel()
 assert all(builder._bulk_pixels is None for builder in deferred._image_builders)
 ```
 
-- [ ] **Step 3: Run the headless suite and verify the intended failure**
+- [x] **Step 3: Run the headless suite and verify the intended failure**
 
 Run:
 
@@ -488,7 +488,7 @@ Run:
 
 Expected: FAIL because the progress-visibility property, approved stage sequence, modal constants, and cleanup calls are not implemented.
 
-- [ ] **Step 4: Add the private progress visibility state**
+- [x] **Step 4: Add the private progress visibility state**
 
 In `properties.py` add:
 
@@ -539,7 +539,7 @@ if ui.analysis_progress_visible:
 analysis.label(text=stage)
 ```
 
-- [ ] **Step 5: Wire the approved modal cadence and stages**
+- [x] **Step 5: Wire the approved modal cadence and stages**
 
 At module level in `operators/analyze.py` add:
 
@@ -636,7 +636,7 @@ context.workspace.status_text_set(text=None)
 
 from both synchronous `finally` and `_finish_modal()`. In both cleanup paths call `self._engine.close()` before dropping the engine reference. Preserve the existing previous-report behavior by continuing to call `runtime.set_report()` only after validation.
 
-- [ ] **Step 6: Run focused and full headless verification**
+- [x] **Step 6: Run focused and full headless verification**
 
 Run:
 
@@ -649,7 +649,7 @@ $Python52 = 'C:\Program Files\Blender Foundation\Blender 5.2\5.2\python\bin\pyth
 
 Expected: both suites pass; the Blender run ends with `ALPHA_MATERIAL_SEPARATOR_BLENDER_TESTS_OK`.
 
-- [ ] **Step 7: Commit the operator/UI boundary**
+- [x] **Step 7: Commit the operator/UI boundary**
 
 ```powershell
 git add -- addon/operators/analyze.py addon/runtime.py addon/properties.py `
@@ -675,7 +675,7 @@ git commit -m "fix: smooth analyze progress updates"
 - Consumes: completed responsive image, engine, and operator behavior.
 - Produces: reviewed timing evidence, updated milestone status, a validated local ZIP, and an exact continuation handoff.
 
-- [ ] **Step 1: Run source and complete automated validation**
+- [x] **Step 1: Run source and complete automated validation**
 
 ```powershell
 & $Python52 -m unittest discover -s tests/unit -t . -v
@@ -686,7 +686,7 @@ git commit -m "fix: smooth analyze progress updates"
 
 Expected: unit suite passes, Blender prints `ALPHA_MATERIAL_SEPARATOR_BLENDER_TESTS_OK`, and source validation succeeds.
 
-- [ ] **Step 2: Run the private Analyze → Preview → Apply preservation smoke**
+- [x] **Step 2: Run the private Analyze → Preview → Apply preservation smoke**
 
 ```powershell
 & $Blender52 --factory-startup --background --disable-autoexec `
@@ -698,7 +698,7 @@ Expected: unit suite passes, Blender prints `ALPHA_MATERIAL_SEPARATOR_BLENDER_TE
 
 Expected: workflow, out-of-range addressing, preview/plan equivalence, mutation plan, idempotence, and preservation gates pass. The retired hand-made 1,176-face opaque difference remains diagnostic rather than a regression.
 
-- [ ] **Step 3: Measure generated performance**
+- [x] **Step 3: Measure generated performance**
 
 Run one discarded warm-up and five measured runs through the existing script:
 
@@ -708,7 +708,7 @@ Run one discarded warm-up and five measured runs through the existing script:
 
 Record medians from the ignored output. Fail the gate for an unexplained same-machine regression above 25 percent in cold analysis, digest time, peak working set, or an established release tier.
 
-- [ ] **Step 4: Measure modal cadence on the private stress example**
+- [x] **Step 4: Measure modal cadence on the private stress example**
 
 Recreate the ignored cadence profiler described in `docs/HANDOFF.md`, using the same anonymous stage/callback aggregation as the pre-change run. Discard one warm-up and measure five runs.
 
@@ -723,7 +723,7 @@ classification and unsupported-reason aggregates remain unchanged
 
 Do not commit the profiler, private paths embedded in output, or raw measurements.
 
-- [ ] **Step 5: Build and validate the installable ZIP**
+- [x] **Step 5: Build and validate the installable ZIP**
 
 ```powershell
 .\scripts\build_extension.ps1 -Blender $Blender52
@@ -746,7 +746,7 @@ In a clean Blender 5.2 profile:
 6. Confirm a completed report still supports Preview → Object Mode → Apply without reanalysis.
 7. Confirm the status bar text clears after completion, cancellation, and failure.
 
-- [ ] **Step 7: Update durable records**
+- [x] **Step 7: Update durable records**
 
 In `docs/performance.md`, append the new five-run medians, callback maxima, peak working set, and comparison with the pre-change 20 ms estimate. State that the 12 ms target is checked between polygons and is not a strict callback maximum.
 
@@ -754,7 +754,7 @@ In `PLAN.md`, mark the balanced-responsiveness implementation and its completed 
 
 In `docs/HANDOFF.md`, replace the implementation objective with current verified results, exact commands, warnings, unverified assumptions, remaining release work, and one recommended next action.
 
-- [ ] **Step 8: Check and commit the documentation boundary**
+- [x] **Step 8: Check and commit the documentation boundary**
 
 ```powershell
 git diff --check

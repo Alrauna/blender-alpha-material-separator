@@ -237,14 +237,18 @@ The authoritative hardening matrix includes:
 - [x] Approve the balanced design: resumable native-image post-processing, a
   1 ms modal timer, a 12 ms between-polygon target, a 4,096-polygon cap, and
   truthful progress stages.
-- [ ] Add failing generated regressions for image chunking, buffer cleanup,
+- [x] Add failing generated regressions for image chunking, buffer cleanup,
   deadline scheduling, progress stages, and prior-report preservation.
-- [ ] Implement the approved image, engine, operator, and private progress-state
+- [x] Implement the approved image, engine, operator, and private progress-state
   changes without altering public API `1.2` or analysis semantics.
-- [ ] Pass unit, headless Blender, private workflow/preservation, source/archive,
-  generated performance, and installed-ZIP interactive gates.
-- [ ] Record five-run callback and end-to-end responsiveness medians. Block an
-  unexplained established same-machine regression above 25 percent.
+- [x] Pass unit, headless Blender, private workflow/preservation, source/archive,
+  generated performance, and installed-ZIP lifecycle gates.
+- [x] Record five-run callback, digest, memory, and instrumented modal-cadence
+  medians, and block any unexplained established same-machine regression above
+  25 percent.
+- [ ] Complete the installed-ZIP visual stage, progress, and Escape-cancellation
+  interaction. Windows automation could not bind to its returned Blender
+  window, so this exact interaction remains unverified.
 
 ## Milestone 5: release validation
 
