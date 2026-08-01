@@ -296,7 +296,9 @@ The authoritative hardening matrix includes:
   coverage for Quad9 DoT plus exact archive root discovery.
 - [x] Harden Quad9 response validation and pass all authenticated A answers to
   curl's native address fallback.
-- [x] Push `ci/automation` after separate approval.
+- [x] Bind direct A owners to the exact question, validate compression
+  boundaries and the 255-byte name limit, and cap distinct addresses at 16.
+- [ ] Push `ci/automation` after separate approval.
 - [ ] Observe both hosted validation checks.
 - [ ] Make the repository public after separate approval.
 - [ ] Configure required checks, the `release` environment, and immutable

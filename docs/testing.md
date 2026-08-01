@@ -54,9 +54,11 @@ retrieves Blender.org's checksum file through system DNS, Cloudflare DoH, and
 Quad9 DoT, requires byte-identical content, verifies the relevant value against
 the committed SHA-256 trust anchor, hashes the archive before extraction, and
 requires the executable to report Blender 5.2.0. The DoT response must be a
-complete standard A/IN response echoing the exact query; only direct answer
-addresses participate. All distinct valid answers are passed to curl, which
-keeps `download.blender.org` as the validated TLS hostname. Curl has a
+complete standard A/IN response echoing the exact query. Each direct A answer
+owner must match that query case-insensitively, and compressed names may point
+only to previously validated label boundaries. CNAME expansion is unsupported
+and therefore fails closed. At most 16 distinct valid addresses are passed to
+curl, which keeps `download.blender.org` as the validated TLS hostname. Curl has a
 30-second connection timeout, a fixed total limit, and two retries. Linux tar
 extraction uses Python's safe data filter and selects Blender from the exact
 archive root. Any malformed response, disagreement, or timeout fails closed.

@@ -198,6 +198,8 @@ class CiWorkflowContractTests(unittest.TestCase):
             "separate milestone",
             "Quad9 DoT",
             "exact archive root",
+            "validated label boundaries",
+            "at most 16",
         ):
             self.assertIn(text, testing + agents + plan)
 

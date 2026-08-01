@@ -222,10 +222,12 @@ edit. Remove or revise items that no longer require immediate attention.
   system DNS/Cloudflare DoH/Quad9 DoT checksum consensus, pre-extraction archive
   hash, exact archive root, and executable version check. Quad9-resolved
   addresses must come from a complete, exact-question, standard A/IN answer;
-  authority and additional records do not supply addresses. Pass every distinct
-  valid answer to curl while retaining the Blender hostname for TLS validation.
-  Network timeouts and retries may bound failure but may not weaken resolver or
-  hash requirements.
+  every direct A owner must match that question case-insensitively, compression
+  pointers may target only validated label boundaries, and authority,
+  additional, and CNAME records do not supply addresses. Pass at most 16
+  distinct valid answers to curl while retaining the Blender hostname for TLS
+  validation. Network timeouts and retries may bound failure but may not weaken
+  resolver or hash requirements.
 - Ordinary validation must discover exactly one version-independent AMS ZIP;
   only the strict release path may derive a filename from the validated version.
 - Validation builds are disposable. Publication rebuilds from the validated

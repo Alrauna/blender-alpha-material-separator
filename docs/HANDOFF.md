@@ -35,6 +35,11 @@ may be pushed without separate approval.
 - `782ebb3` (`fix: harden Quad9 DNS handling`) rejects truncated, malformed,
   mismatched-question, and non-answer-only responses and gives curl every
   distinct authenticated A answer.
+- `ed39d88` (`docs: record strict Quad9 validation`) records that hardening.
+- `6958325` (`fix: validate Quad9 answer ownership`) additionally binds each
+  direct A owner to the question, accepts compression only at validated label
+  boundaries, enforces the DNS 255-byte name limit, and caps distinct
+  addresses at 16.
 - No workflow YAML, extension code, remote, or GitHub setting was changed.
 - Nothing from this local correction has been pushed.
 
@@ -167,6 +172,29 @@ one hostname-preserving curl entry, and all three checksum paths returned the
 same 777-byte manifest with SHA-256
 `f35709c2eb91fbb58ebbd354285039df62217e6dbda9c3a4713ec113d728057f`.
 
+### DNS owner, compression, and address-budget RED/GREEN
+
+```powershell
+& $Python52 -m unittest `
+  tests.unit.test_ci.CiTrustTests.test_dns_answer_owner_must_match_question `
+  tests.unit.test_ci.CiTrustTests.test_dns_name_compression_requires_valid_boundaries `
+  tests.unit.test_ci.CiTrustTests.test_dns_address_budget_is_enforced -v
+```
+
+RED result: all three tests failed because unrelated answer owners,
+mid-label compression pointers, and 17 distinct addresses were accepted.
+
+GREEN result: 3/3 focused and 20/20 CI-helper tests passed. The complete unit
+suite passed 84/84.
+
+```powershell
+& $Python52 -c "import tempfile; from pathlib import Path; from scripts import ci; d=tempfile.TemporaryDirectory(); p=Path(d.name); a=ci.quad9_addresses('download.blender.org'); print('QUAD9_VALIDATED_ADDRESSES', a); print('QUAD9_RESOLVE', ci.curl_command(ci.CHECKSUM_URL,p/'q.txt',resolved_addresses=a)[-3]); paths=[p/'system.txt',p/'cloudflare.txt',p/'quad9.txt']; ci.download(ci.CHECKSUM_URL,paths[0]); ci.download(ci.CHECKSUM_URL,paths[1],ci.CLOUDFLARE_DOH_URL); ci.download_via_quad9(ci.CHECKSUM_URL,paths[2]); payloads=tuple(x.read_bytes() for x in paths); ci.require_checksum_consensus(payloads,ci.PLATFORMS['windows']['filename'],ci.PLATFORMS['windows']['sha256']); print('THREE_PATH_CHECKSUM_CONSENSUS_OK',len(payloads[0]),ci.sha256_file(paths[0])); d.cleanup()"
+```
+
+Result: Quad9 returned two validated direct A addresses. All three paths
+returned the same 777-byte manifest with SHA-256
+`f35709c2eb91fbb58ebbd354285039df62217e6dbda9c3a4713ec113d728057f`.
+
 ### Complete Blender and package gate
 
 ```powershell
@@ -183,7 +211,7 @@ $Archive = (Resolve-Path `
 git diff --check
 ```
 
-Result: 81/81 unit tests passed; Blender printed
+Result: 84/84 unit tests passed; Blender printed
 `ALPHA_MATERIAL_SEPARATOR_BENCHMARK_CONTRACTS_OK` and
 `ALPHA_MATERIAL_SEPARATOR_BLENDER_TESTS_OK`; source and archive validation
 succeeded; the rebuilt ignored ZIP is 66,755 bytes; diff check was clean.
@@ -192,6 +220,8 @@ succeeded; the rebuilt ignored ZIP is 66,755 bytes; diff check was clean.
 
 - The local machine proved Quad9 DoT and three-path byte consensus, but
   GitHub-hosted Windows and Linux have not yet proved outbound port 853.
+- CNAME expansion is intentionally unsupported. A response without a direct
+  matching A answer fails closed rather than expanding aliases.
 - Exact-root lookup is covered synthetically and matches the official fixed
   archive names, but the corrected Linux path has not yet run on GitHub.
 - The PR still points at `4ca0c3d` and therefore still displays the old failed
