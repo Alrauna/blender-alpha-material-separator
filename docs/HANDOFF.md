@@ -4,11 +4,12 @@ Updated: 2026-08-01
 
 ## Current objective
 
-The `1.0.0` release transition is complete locally. Local `main` was
-fast-forwarded to the verified release commit, the feature branch remains as a
-recovery reference, and the current branch is `ci/automation`. The next
-objective is to design GitHub Actions integration; no workflow implementation
-or push is authorized yet.
+The `1.0.0` release transition is complete locally and the current branch is
+`ci/automation`. The GitHub Actions architecture, security trust model,
+resolver-consensus download checks, two-platform merge gate, and manual
+draft-first publication design are approved. The next objective is written-spec
+review followed by a separate test-first implementation plan. No workflow
+implementation or push is authorized yet.
 
 ## Completed work
 
@@ -185,16 +186,19 @@ after `git merge --ff-only feat/alpha-material-separator-0.1` on local `main`.
 - `.packaged-releases/alpha_material_separator-1.0.0.zip` is validated and
   remains ignored.
 - GitHub Actions behavior, runner matrix, caching, artifacts, and permissions
-  are not designed or implemented yet.
+  are not implemented yet. The approved design is
+  `docs/superpowers/specs/2026-08-01-github-actions-ci-cd-design.md`.
 
 ## Remaining tasks in priority order
 
-1. Design and approve the GitHub Actions workflow.
+1. Review the written GitHub Actions design specification.
 2. Prepare and approve its test-first implementation plan.
 3. Implement and locally validate workflow contracts before any push.
-4. Separately reproduce and design a fix for cursor/sidebar progress
+4. Run the approved Windows/Linux GitHub bootstrap only after push approval.
+5. Separately reproduce and design a fix for cursor/sidebar progress
    desynchronization if the user prioritizes it.
 
 ## Recommended next action
 
-Design the minimal GitHub Actions workflow for Blender extension validation.
+Review the committed GitHub Actions design, then prepare its test-first
+implementation plan after approval.
