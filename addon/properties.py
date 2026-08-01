@@ -99,6 +99,7 @@ class ALPHA_MATERIAL_SEPARATOR_PG_ui_state(bpy.types.PropertyGroup):
     )
     is_analyzing: BoolProperty(default=False, options={"SKIP_SAVE"})
     analysis_progress: FloatProperty(default=0.0, min=0.0, max=1.0, options={"SKIP_SAVE"})
+    analysis_progress_visible: BoolProperty(default=False, options={"SKIP_SAVE"})
     analysis_stage: StringProperty(default="", options={"SKIP_SAVE"})
     cancel_requested: BoolProperty(default=False, options={"SKIP_SAVE"})
     reviewed_analysis_id: StringProperty(default="", options={"SKIP_SAVE"})

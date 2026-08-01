@@ -423,14 +423,36 @@ def run() -> None:
     )
     ui.show_material_details = True
     assert runtime.begin_analysis(bpy.context.window_manager)
-    runtime.update_analysis(bpy.context.window_manager, 5, 10, "Testing")
-    runtime.update_analysis(bpy.context.window_manager, 3, 10, "Testing")
+    assert ui.analysis_stage == "Preparing Inputs"
+    assert not ui.analysis_progress_visible
+    runtime.update_analysis(bpy.context.window_manager, 5, 10, "Reading Textures")
+    assert ui.analysis_progress_visible
+    runtime.update_analysis(bpy.context.window_manager, 3, 10, "Reading Textures")
     assert ui.analysis_progress == 0.5, ui.analysis_progress
+    runtime.update_analysis(
+        bpy.context.window_manager,
+        10,
+        10,
+        "Validating Inputs",
+        show_progress=False,
+    )
+    assert ui.analysis_stage == "Validating Inputs"
+    assert not ui.analysis_progress_visible
+    assert ui.analysis_progress == 0.5, ui.analysis_progress
+    runtime.update_analysis(
+        bpy.context.window_manager,
+        10,
+        10,
+        "Analysis Complete",
+    )
+    assert ui.analysis_progress_visible
+    assert ui.analysis_progress == 1.0, ui.analysis_progress
     cancel = bpy.ops.alpha_material_separator.cancel_analysis()
     assert cancel == {"FINISHED"}, cancel
     assert runtime.cancellation_requested(bpy.context.window_manager)
     runtime.finish_analysis(bpy.context.window_manager)
     assert not ui.is_analyzing and ui.analysis_progress == 0.0
+    assert not ui.analysis_progress_visible
     assert runtime.report() is prior_report
     assert ui.reviewed_analysis_id == prior_report.analysis_id
     assert ui.reviewed_policy_signature == "AMS_PRIOR_REVIEW_TOKEN"

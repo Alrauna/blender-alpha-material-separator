@@ -100,18 +100,30 @@ def begin_analysis(window_manager) -> bool:
         return False
     ui.is_analyzing = True
     ui.analysis_progress = 0.0
-    ui.analysis_stage = "Preparing inputs"
+    ui.analysis_progress_visible = False
+    ui.analysis_stage = "Preparing Inputs"
     ui.cancel_requested = False
     tag_redraw()
     return True
 
 
-def update_analysis(window_manager, completed: int, total: int, stage: str) -> None:
+def update_analysis(
+    window_manager,
+    completed: int,
+    total: int,
+    stage: str,
+    *,
+    show_progress: bool = True,
+) -> None:
     ui = _ui(window_manager)
     if ui is None:
         return
-    next_progress = min(1.0, max(ui.analysis_progress, completed / max(1, total)))
-    ui.analysis_progress = next_progress
+    if show_progress:
+        ui.analysis_progress = min(
+            1.0,
+            max(ui.analysis_progress, completed / max(1, total)),
+        )
+    ui.analysis_progress_visible = show_progress
     ui.analysis_stage = stage
     tag_redraw()
 
@@ -134,6 +146,7 @@ def finish_analysis(window_manager) -> None:
     if ui is not None:
         ui.is_analyzing = False
         ui.analysis_progress = 0.0
+        ui.analysis_progress_visible = False
         ui.analysis_stage = ""
         ui.cancel_requested = False
     tag_redraw()
@@ -158,6 +171,7 @@ def clear(*, preserve_completion: bool = False) -> None:
         if ui is not None:
             ui.is_analyzing = False
             ui.analysis_progress = 0.0
+            ui.analysis_progress_visible = False
             ui.analysis_stage = ""
             ui.cancel_requested = False
             clear_review(window_manager)

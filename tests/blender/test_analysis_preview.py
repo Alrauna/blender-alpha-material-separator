@@ -20,6 +20,7 @@ from addon.adapters.assignment import build_assignment_plan
 from addon.adapters.image_data import ImageReadError, read_image_snapshot
 from addon.adapters.material_resolver import resolve_material
 from addon.core import FaceClass
+from addon.operators import analyze as analyze_operator
 
 
 def _clear_scene() -> None:
@@ -754,6 +755,7 @@ def run() -> None:
     assert deferred.stage == "Analyzing Faces"
     assert deferred.completed > 0
     deferred.cancel()
+    assert all(builder._bulk_pixels is None for builder in deferred._image_builders)
     assert deferred.step(1) is True
     try:
         deferred.finish()
@@ -774,14 +776,36 @@ def run() -> None:
     assert edit_mode_result == {"FINISHED"}, state.last_status_json
     assert first.mode == "OBJECT" and second.mode == "OBJECT"
 
-    result = bpy.ops.alpha_material_separator.analyze(
-        api_major=1,
-        alpha_threshold=0.999,
-        min_affected_texels=1,
-        min_affected_fraction=0.0,
-        margin_texels=0,
-    )
+    stages = []
+    original_update_analysis = runtime.update_analysis
+
+    def record_progress(window_manager, completed, total, stage, **kwargs):
+        stages.append((stage, kwargs.get("show_progress", True)))
+        return original_update_analysis(
+            window_manager,
+            completed,
+            total,
+            stage,
+            **kwargs,
+        )
+
+    runtime.update_analysis = record_progress
+    try:
+        result = bpy.ops.alpha_material_separator.analyze(
+            api_major=1,
+            alpha_threshold=0.999,
+            min_affected_texels=1,
+            min_affected_fraction=0.0,
+            margin_texels=0,
+        )
+    finally:
+        runtime.update_analysis = original_update_analysis
     assert result == {"FINISHED"}, result
+    assert ("Validating Inputs", False) in stages, stages
+    assert stages[-1] == ("Analysis Complete", True), stages
+    assert analyze_operator.MODAL_TIMER_SECONDS == 0.001
+    assert analyze_operator.MODAL_FACE_TIME_BUDGET_SECONDS == 0.012
+    assert analyze_operator.MODAL_POLYGON_BUDGET == 4_096
     payload = json.loads(state.report_json)
     assert payload["validation_state"] == "CLEAN", payload
     assert payload["pending_scopes"] == [], payload

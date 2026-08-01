@@ -294,9 +294,10 @@ class ALPHA_MATERIAL_SEPARATOR_PT_main(bpy.types.Panel):
         analysis.label(text="1. Analyze", icon="VIEWZOOM")
         analysis.label(text="Automatic image and UV detection.")
         if ui.is_analyzing:
-            analysis.label(
-                text=f"{ui.analysis_stage or 'Analyzing'} - {round(ui.analysis_progress * 100)}%"
-            )
+            stage = ui.analysis_stage or "Analyzing"
+            if ui.analysis_progress_visible:
+                stage = f"{stage} - {round(ui.analysis_progress * 100)}%"
+            analysis.label(text=stage)
             analysis.label(text="Press Esc or click Cancel.")
             analysis.label(text="No partial result is kept.")
             analysis.operator(

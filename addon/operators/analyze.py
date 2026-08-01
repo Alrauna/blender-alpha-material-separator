@@ -17,6 +17,10 @@ from ..adapters.analysis import (
 from ..core import AnalysisSettings
 from ..overrides import OverrideConfigError, parse_material_overrides_json
 
+MODAL_TIMER_SECONDS = 0.001
+MODAL_FACE_TIME_BUDGET_SECONDS = 0.012
+MODAL_POLYGON_BUDGET = 4_096
+
 
 def _mesh_objects(context: bpy.types.Context) -> tuple[bpy.types.Object, ...]:
     return tuple(obj for obj in context.selected_objects if obj.type == "MESH")
@@ -83,6 +87,27 @@ class ALPHA_MATERIAL_SEPARATOR_OT_analyze(bpy.types.Operator):
         state = context.window_manager.alpha_material_separator_api
         api_contract.publish_status(state, code, message, **details)
 
+    def _update_progress(
+        self,
+        context,
+        stage: str,
+        *,
+        show_progress: bool = True,
+    ) -> None:
+        completed = self._engine.completed
+        total = self._engine.total
+        runtime.update_analysis(
+            context.window_manager,
+            completed,
+            total,
+            stage,
+            show_progress=show_progress,
+        )
+        text = stage
+        if show_progress:
+            text = f"{stage} - {round(completed / max(1, total) * 100)}%"
+        context.workspace.status_text_set(text=text)
+
     def _config(self) -> AnalysisConfig:
         material_overrides = parse_material_overrides_json(
             self.material_overrides_json
@@ -147,28 +172,31 @@ class ALPHA_MATERIAL_SEPARATOR_OT_analyze(bpy.types.Operator):
                 "An analysis is already running; cancel it or wait for it to finish",
             )
             return False
+        context.workspace.status_text_set(text="Preparing Inputs")
         try:
             self._engine = AnalysisEngine(
                 objects, self._config(), defer_images=defer_images
             )
         except OverrideConfigError as error:
+            context.workspace.status_text_set(text=None)
             runtime.finish_analysis(context.window_manager)
             self._status(context, error.code, str(error))
             return False
         except Exception as error:
+            context.workspace.status_text_set(text=None)
             runtime.finish_analysis(context.window_manager)
             self._status(context, "ANALYSIS_PREPARE_FAILED", str(error))
             return False
         context.window_manager.progress_begin(0, max(1, self._engine.total))
-        runtime.update_analysis(
-            context.window_manager,
-            0,
-            self._engine.total,
-            "Analyzing faces",
-        )
+        self._update_progress(context, self._engine.stage)
         return True
 
     def _publish(self, context) -> set[str]:
+        self._update_progress(
+            context,
+            "Validating Inputs",
+            show_progress=False,
+        )
         report = self._engine.finish()
         valid, reason = validate_report_for_publication(report)
         if not valid:
@@ -187,12 +215,7 @@ class ALPHA_MATERIAL_SEPARATOR_OT_analyze(bpy.types.Operator):
             "Analysis completed; review the report before preview or assignment",
             report=payload,
         )
-        runtime.update_analysis(
-            context.window_manager,
-            self._engine.total,
-            self._engine.total,
-            "Analysis complete",
-        )
+        self._update_progress(context, "Analysis Complete")
         return {"FINISHED"}
 
     def execute(self, context: bpy.types.Context) -> set[str]:
@@ -201,12 +224,7 @@ class ALPHA_MATERIAL_SEPARATOR_OT_analyze(bpy.types.Operator):
         try:
             while not self._engine.step(256):
                 context.window_manager.progress_update(self._engine.completed)
-                runtime.update_analysis(
-                    context.window_manager,
-                    self._engine.completed,
-                    self._engine.total,
-                    "Analyzing faces",
-                )
+                self._update_progress(context, self._engine.stage)
             context.window_manager.progress_update(self._engine.total)
             return self._publish(context)
         except Exception as error:
@@ -214,13 +232,18 @@ class ALPHA_MATERIAL_SEPARATOR_OT_analyze(bpy.types.Operator):
             return {"CANCELLED"}
         finally:
             context.window_manager.progress_end()
+            context.workspace.status_text_set(text=None)
             runtime.finish_analysis(context.window_manager)
+            self._engine.close()
             self._engine = None
 
     def invoke(self, context: bpy.types.Context, _event) -> set[str]:
         if not self._start(context, defer_images=True):
             return {"CANCELLED"}
-        self._timer = context.window_manager.event_timer_add(0.02, window=context.window)
+        self._timer = context.window_manager.event_timer_add(
+            MODAL_TIMER_SECONDS,
+            window=context.window,
+        )
         context.window_manager.modal_handler_add(self)
         return {"RUNNING_MODAL"}
 
@@ -239,14 +262,12 @@ class ALPHA_MATERIAL_SEPARATOR_OT_analyze(bpy.types.Operator):
         if event.type != "TIMER":
             return {"PASS_THROUGH"}
         try:
-            complete = self._engine.step(64)
-            context.window_manager.progress_update(self._engine.completed)
-            runtime.update_analysis(
-                context.window_manager,
-                self._engine.completed,
-                self._engine.total,
-                "Analyzing faces",
+            complete = self._engine.step(
+                MODAL_POLYGON_BUDGET,
+                time_budget_seconds=MODAL_FACE_TIME_BUDGET_SECONDS,
             )
+            context.window_manager.progress_update(self._engine.completed)
+            self._update_progress(context, self._engine.stage)
             if not complete:
                 return {"RUNNING_MODAL"}
             result = self._publish(context)
@@ -258,8 +279,10 @@ class ALPHA_MATERIAL_SEPARATOR_OT_analyze(bpy.types.Operator):
 
     def _finish_modal(self, context) -> None:
         context.window_manager.progress_end()
+        context.workspace.status_text_set(text=None)
         if self._timer is not None:
             context.window_manager.event_timer_remove(self._timer)
         self._timer = None
+        self._engine.close()
         self._engine = None
         runtime.finish_analysis(context.window_manager)
