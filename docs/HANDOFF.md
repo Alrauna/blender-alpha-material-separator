@@ -7,9 +7,9 @@ Updated: 2026-08-01
 The current branch is `ci/automation`. The verified Blender bootstrap,
 read-only Windows/Linux validation matrix, guarded draft-first publication
 path, documentation, and release-input injection fix are implemented in local
-commits. A pre-push audit found additional hardening work, and the corrective
-design is approved. No push or remote GitHub change has occurred; the next
-milestone is an approval-gated test-first implementation plan.
+commits. A pre-push audit found additional hardening work; its corrective
+design and written specification are approved. No push or remote GitHub change
+has occurred. The test-first implementation plan is ready for review.
 
 ## Completed work
 
@@ -332,9 +332,9 @@ within the approved trust and publication boundaries.
 
 ## Remaining tasks in priority order
 
-1. Prepare and obtain approval for the test-first implementation plan in
-   `docs/superpowers/specs/2026-08-01-github-actions-hardening-design.md`.
-2. Implement and locally verify the approved pre-push hardening.
+1. Review and approve
+   `docs/superpowers/plans/2026-08-01-github-actions-hardening.md`.
+2. Implement and locally verify its three test-first tasks.
 3. Obtain explicit approval before pushing `ci/automation` and creating a pull
    request.
 4. Run and inspect the required Windows/Linux GitHub checks.
@@ -348,5 +348,5 @@ within the approved trust and publication boundaries.
 
 ## Recommended next action
 
-Review and approve the written pre-push hardening specification, then prepare
-its test-first implementation plan.
+Review and approve the written test-first pre-push hardening implementation
+plan.
