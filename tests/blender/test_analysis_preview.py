@@ -15,6 +15,7 @@ from addon.adapters import image_data
 from addon.adapters.analysis import (
     AnalysisConfig,
     AnalysisEngine,
+    validate_report_for_publication,
 )
 from addon.adapters.assignment import build_assignment_plan
 from addon.adapters.image_data import ImageReadError, read_image_snapshot
@@ -551,6 +552,34 @@ def _analysis_cadence_tests() -> None:
     )
 
 
+def _mid_analysis_mutation_test(first, second) -> None:
+    engine = AnalysisEngine((first, second), AnalysisConfig(), defer_images=True)
+    while engine.stage == "Reading Textures":
+        assert engine.step(1) is False
+    assert engine.step(1) is False
+    uv_layer = second.data.uv_layers.active
+    modern = getattr(uv_layer, "uv", None)
+    original = (
+        modern[0].vector.x if modern is not None else uv_layer.data[0].uv.x
+    )
+    if modern is not None:
+        modern[0].vector.x = original + 0.125
+    else:
+        uv_layer.data[0].uv.x = original + 0.125
+    try:
+        while not engine.step(1):
+            pass
+        report = engine.finish()
+        valid, reason = validate_report_for_publication(report)
+        assert not valid and reason == "INPUTS_CHANGED", (valid, reason)
+    finally:
+        engine.close()
+        if modern is not None:
+            modern[0].vector.x = original
+        else:
+            uv_layer.data[0].uv.x = original
+
+
 def _out_of_range_uv_test() -> None:
     image = bpy.data.images.new("AMS_TILED_UV_IMAGE", width=2, height=1, alpha=True)
     image.pixels.foreach_set((1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0))
@@ -747,6 +776,7 @@ def run() -> None:
 
     _single_preparation_pass_test(first, second)
     before = (_mesh_snapshot(first), _mesh_snapshot(second))
+    _mid_analysis_mutation_test(first, second)
     deferred = AnalysisEngine((first, second), AnalysisConfig(), defer_images=True)
     assert deferred.completed == 0
     assert deferred.stage == "Reading Textures"
