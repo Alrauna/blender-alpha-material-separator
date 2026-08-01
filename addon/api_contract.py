@@ -9,7 +9,7 @@ from typing import Any
 from .overrides import ADDRESS_MODES as OVERRIDE_ADDRESS_MODES
 
 API_VERSION = (1, 2)
-EXTENSION_VERSION = (0, 1, 0)
+EXTENSION_VERSION = (1, 0, 0)
 
 PUBLIC_OPERATOR_IDS = (
     "alpha_material_separator.query_capabilities",

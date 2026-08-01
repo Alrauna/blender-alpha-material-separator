@@ -1,6 +1,6 @@
-# Version 0.1 material-support matrix
+# Version 1.0 material-support matrix
 
-Status: **approved and implemented for version 0.1**.
+Status: **approved and implemented for version 1.0**.
 
 ## Status meanings
 
@@ -11,7 +11,7 @@ Status: **approved and implemented for version 0.1**.
 
 ## Alpha-source resolution
 
-| Pattern | Status | Version 0.1 behavior |
+| Pattern | Status | Version 1.0 behavior |
 | --- | --- | --- |
 | Image Texture Alpha directly connected to active Principled Alpha | Guaranteed | Resolve that exact image. Other image nodes do not make it ambiguous because the alpha link is authoritative. |
 | Explicit image and UV-map overrides | Guaranteed | Use the selected raw UV layer and image; do not infer or evaluate the shader graph. |
@@ -27,7 +27,7 @@ Status: **approved and implemented for version 0.1**.
 
 ## UV/vector resolution
 
-| Pattern | Status | Version 0.1 behavior |
+| Pattern | Status | Version 1.0 behavior |
 | --- | --- | --- |
 | Explicit UV-map override | Guaranteed | Use the named per-loop UV map exactly. |
 | Image vector unlinked, using active render UV | Supported | Resolve the active-render layer, require it to exist, and include active/render selection in cache signatures. |
@@ -39,7 +39,7 @@ Status: **approved and implemented for version 0.1**.
 
 ## Addressing and images
 
-| Input | Status | Version 0.1 behavior |
+| Input | Status | Version 1.0 behavior |
 | --- | --- | --- |
 | Repeat, Extend, Clip, Mirror | Guaranteed | Honor the resolved node mode; explicit image override defaults to Repeat unless overridden. |
 | Static FILE, packed, GENERATED image | Guaranteed baseline adapter scope | Read current in-memory pixels in bounded complete-row chunks; malformed/unreadable images are unsupported. |

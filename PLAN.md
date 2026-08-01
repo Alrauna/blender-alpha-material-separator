@@ -1,4 +1,4 @@
-# Blender Alpha Material Separator 0.1 implementation plan
+# Blender Alpha Material Separator 1.0 release plan
 
 Status: milestones 0-4A are implemented and verified locally on
 `feat/alpha-material-separator-0.1`. The workflow-friction hardening prompted
@@ -17,7 +17,7 @@ workflow behavior are unchanged.
 
 ## Product outcome
 
-Version 0.1 analyzes selected original/base mesh polygons, reports and previews
+Version 1.0 analyzes selected original/base mesh polygons, reports and previews
 opaque, alpha-affected, mixed, suppressed, and unsupported faces, and assigns
 reviewed alpha-affected/mixed faces to a derived material slot. It never changes
 topology or physically separates objects.
@@ -33,7 +33,7 @@ manually after export.
 - Extend existing documentation and ignore rules.
 - Create an extension-native Blender 5.2 package with reversible registration.
 - Declare `GPL-3.0-or-later`, manifest ID `alpha_material_separator`, version
-  `0.1.0`, and maintainer `Alrauna`.
+  `1.0.0`, and maintainer `Alrauna`.
 - Validate registration, unregistration, re-registration, and the manifest.
 
 ## Milestone 1: bounded material characterization
@@ -294,7 +294,7 @@ Future CATS code must feature-detect the capability operator, tolerate absence
 or incompatible API majors, and use only documented operators/status. This
 extension never imports or depends on CATS.
 
-## Version 0.1 exclusions
+## Version 1.0 exclusions
 
 - Topology cutting, subdivision, or physical object separation.
 - Shader rewriting or Unity editor automation.

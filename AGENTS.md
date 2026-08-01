@@ -81,7 +81,7 @@ material slot without changing topology.
 - Blender dependency-graph notifications are invalidation hints, not proof that
   an analysis is stale. Selection and Object/Edit Mode changes must preserve a
   reviewed report when authoritative input fingerprints remain equal.
-- Version 0.1 assignment may create or reuse a local derived material, write
+- Version 1.0 assignment may create or reuse a local derived material, write
   namespaced AMS metadata on that derived material, append/reuse its material
   slot, and change only reviewed polygon material indices. It must support undo
   and repeated-run idempotence. Source materials remain unchanged.
@@ -214,7 +214,7 @@ $Python52 = 'C:\Program Files\Blender Foundation\Blender 5.2\5.2\python\bin\pyth
 & $Blender52 --factory-startup --background --disable-autoexec --python-exit-code 1 --python tests/blender/run_all.py
 & $Blender52 --factory-startup --command extension validate addon
 & $Blender52 --factory-startup --command extension build --source-dir addon --output-dir .packaged-releases
-$Archive = (Resolve-Path .\.packaged-releases\alpha_material_separator-0.1.0.zip).Path
+$Archive = (Resolve-Path .\.packaged-releases\alpha_material_separator-1.0.0.zip).Path
 & $Blender52 --factory-startup --command extension validate $Archive
 ```
 
@@ -239,11 +239,14 @@ SDK/shader results apply only to the exact tested stack.
 
 ## Git policy
 
-Work on `feat/alpha-material-separator-0.1`. Create coherent local commits only
-at approved milestone boundaries. During implementation, commit each coherent,
-verified unit before starting a materially different task; do not accumulate
-unrelated completed work until the end of a long turn. Stage explicit paths and
-inspect the staged diff so each commit contains only its stated scope. Preserve
-unrelated user changes, and never commit ignored/private/generated outputs.
-Do not initialize another repository, rewrite history, alter remotes, or push
-without separate approval.
+Complete the approved release transition on
+`feat/alpha-material-separator-0.1`; after its verified fast-forward to `main`,
+work on `ci/automation`. Retain the feature branch as a local recovery
+reference. Create coherent local commits only at approved milestone
+boundaries. During implementation, commit each coherent, verified unit before
+starting a materially different task; do not accumulate unrelated completed
+work until the end of a long turn. Stage explicit paths and inspect the staged
+diff so each commit contains only its stated scope. Preserve unrelated user
+changes, and never commit ignored/private/generated outputs. Do not initialize
+another repository, rewrite history, alter remotes, or push without separate
+approval.

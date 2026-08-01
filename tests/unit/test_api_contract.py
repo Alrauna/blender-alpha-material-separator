@@ -4,11 +4,17 @@ from __future__ import annotations
 
 import json
 import sys
+import tomllib
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 
 from addon import api_contract
 from addon.overrides import ADDRESS_MODES as OVERRIDE_ADDRESS_MODES
+
+
+ROOT = Path(__file__).resolve().parents[2]
+MANIFEST = ROOT / "addon" / "blender_manifest.toml"
 
 
 class ApiContractTests(unittest.TestCase):
@@ -22,7 +28,9 @@ class ApiContractTests(unittest.TestCase):
 
         payload = json.loads(first)
         self.assertEqual(payload["api_version"], "1.2")
-        self.assertEqual(payload["extension_version"], "0.1.0")
+        self.assertEqual(payload["extension_version"], "1.0.0")
+        manifest = tomllib.loads(MANIFEST.read_text(encoding="utf8"))
+        self.assertEqual(manifest["version"], payload["extension_version"])
         self.assertTrue(payload["capabilities"]["query_capabilities"])
         self.assertTrue(payload["capabilities"]["material_support_matrix_ready"])
         self.assertTrue(payload["capabilities"]["analysis"])

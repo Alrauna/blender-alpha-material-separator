@@ -4,14 +4,23 @@ Updated: 2026-08-01
 
 ## Current objective
 
-The release-validation checklist is complete. The release-transition design is
-approved, and its test-first implementation plan is written for user review.
-It promotes the extension to `1.0.0`, fast-forwards
-`feat/alpha-material-separator-0.1` into local `main`, and creates
-`ci/automation`. Do not push without separate approval.
+The release-validation checklist is complete. The extension version is now
+`1.0.0` in source and current documentation, with public API `1.2` unchanged.
+The full source/package gate passed; the local release commit remains next.
+Afterward, fast-forward `feat/alpha-material-separator-0.1` into local `main`
+and create `ci/automation`. Do not push without separate approval.
 
 ## Completed work
 
+- Prepared the `1.0.0` release identity:
+  - Manifest and runtime capability payload both report `1.0.0`.
+  - Public integration API remains `1.2`.
+  - Current installation, support, testing, plan, and repository instructions
+    use the new release identity.
+  - Generated `alpha_material_separator-1.0.0.zip` validated successfully.
+  - Archive size: 66,294 bytes.
+  - Archive SHA-256:
+    `1123BA95DC307ABBB3F12F9D5815AC19763B3CA12DEAD8B5116BA407C79EFE6C`.
 - `695b4a7 test: benchmark final Apply preflight`
   - Adds a generated contract for a distinct final Apply-preflight measurement.
   - Reuses the 4,900-polygon, 1K-image structural fixture with one generated
@@ -42,7 +51,7 @@ It promotes the extension to `1.0.0`, fast-forwards
 
 ## Important decisions and constraints
 
-- Version is still `0.1.0` and public API is still `1.2` in the current commit.
+- Extension version is `1.0.0`; public API remains `1.2`.
 - The benchmark adds test-only timing and no production instrumentation,
   behavior, dependencies, public fields, or new threshold.
 - The timing covers authoritative validation, assignment-plan rebuilding,
@@ -118,6 +127,30 @@ Result: 51/51 unit tests passed; the headless suite printed both success
 markers above; source manifest validation succeeded; `git diff --check`
 reported no errors.
 
+### Release 1.0 gate
+
+The runtime/manifest RED contract failed as intended with capability version
+`0.1.0` instead of `1.0.0`, then passed after changing the two release
+authorities. The README RED contract failed on the old release sentence, then
+passed after updating current documentation.
+
+```powershell
+& $Python52 -m unittest discover -s tests/unit -t . -v
+& $Blender52 --factory-startup --background --disable-autoexec `
+  --python-exit-code 1 --python tests/blender/run_all.py
+& $Blender52 --factory-startup --command extension validate addon
+.\scripts\build_extension.ps1 -Blender $Blender52
+$Archive = (Resolve-Path `
+  .\.packaged-releases\alpha_material_separator-1.0.0.zip).Path
+& $Blender52 --factory-startup --command extension validate $Archive
+git diff --check
+```
+
+Result: 52/52 unit tests passed; Blender printed
+`ALPHA_MATERIAL_SEPARATOR_BENCHMARK_CONTRACTS_OK` and
+`ALPHA_MATERIAL_SEPARATOR_BLENDER_TESTS_OK`; source and archive validation
+succeeded; `git diff --check` reported no errors.
+
 ## Known warnings and unverified assumptions
 
 - Expected Blender output includes bundled Grease Pencil brush-path warnings,
@@ -129,16 +162,15 @@ reported no errors.
 - Installed-ZIP Escape cancellation passed. The cursor and sidebar progress
   percentages can briefly disagree; root cause and desired synchronization
   behavior have not been investigated.
-- The `1.0.0` version bump, merge to `main`, and GitHub Actions branch have not
+- The local merge to `main` and `ci/automation` branch creation have not
   started.
-- The existing `.packaged-releases/alpha_material_separator-0.1.0.zip`
-  predates this test-only benchmark milestone; no package rebuild was required.
+- `.packaged-releases/alpha_material_separator-1.0.0.zip` is validated and
+  remains ignored.
 
 ## Remaining tasks in priority order
 
-1. Obtain user approval of
-   `docs/superpowers/plans/2026-08-01-release-1.0-transition.md`.
-2. Execute the verified `1.0.0` bump and local fast-forward.
+1. Commit the verified `1.0.0` release identity.
+2. Fast-forward the verified feature branch into local `main`.
 3. Create `ci/automation` without adding workflow files.
 4. Design and approve the Actions workflow before implementation.
 5. Separately reproduce and design a fix for cursor/sidebar progress
@@ -146,4 +178,4 @@ reported no errors.
 
 ## Recommended next action
 
-Review and approve the test-first release-transition implementation plan.
+Commit the verified `1.0.0` identity.

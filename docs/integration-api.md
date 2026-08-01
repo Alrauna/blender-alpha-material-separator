@@ -1,7 +1,7 @@
 # Public integration API
 
 - API version: `1.2`
-- Extension version: `0.1.0`
+- Extension version: `1.0.0`
 
 API 1.2 is additive over 1.1. Existing API 1.0/1.1 callers keep the same
 operator IDs, existing arguments, scripted defaults, and classifications.

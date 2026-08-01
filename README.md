@@ -8,14 +8,13 @@ original material. The result is one object with opaque and alpha material
 sections. The extension does not cut geometry, split the object, or configure
 Unity or VRChat shaders automatically.
 
-Version 0.1.0 targets Blender 5.2 LTS and is still undergoing release
-validation.
+Version 1.0.0 targets Blender 5.2 LTS.
 
 ![The Simple interface in Blender's AMS sidebar](docs/images/01-panel-simple.png)
 
 ## Requirements and installation
 
-1. Download or build `alpha_material_separator-0.1.0.zip`. Do not unzip it.
+1. Download or build `alpha_material_separator-1.0.0.zip`. Do not unzip it.
 2. In Blender 5.2, open **Edit → Preferences → Get Extensions**.
 3. Open the menu at the upper right, choose **Install from Disk**, and select the
    ZIP.
@@ -65,7 +64,7 @@ Blender Undo, but a saved file is still the safest starting point.
 | --- | --- | --- |
 | **Stay on opaque material** | No covered image pixel is below the alpha threshold. | Keep the face on the source material. |
 | **Move to alpha material** | Every covered image pixel is alpha-affected. | Move the face to `__AMS_ALPHA`. |
-| **Mixed—must use alpha without cutting geometry** | One polygon covers both opaque and alpha-affected pixels. | Move it to alpha. Making only part opaque would require topology cutting, which 0.1 does not do. |
+| **Mixed—must use alpha without cutting geometry** | One polygon covers both opaque and alpha-affected pixels. | Move it to alpha. Making only part opaque would require topology cutting, which 1.0 does not do. |
 | **Below significance—needs review** | Alpha evidence exists but is below an Expert minimum. | Skip that entire source-material group by default. |
 | **Could not analyze** | The extension could not prove a face result or resolve that material's alpha source. | If the material source was resolved, uncertain faces move to alpha by the Simple default. A material with no traceable alpha source stays completely unchanged. |
 
@@ -235,7 +234,7 @@ Connected unsupported Alpha processing and complex Mix, Math, Mapping, group,
 or procedural Base Color paths are reported rather than silently guessed; use
 a manual or baked source for those cases.
 
-Version 0.1 does not cut contours, subdivide geometry, separate objects, rewrite
+Version 1.0 does not cut contours, subdivide geometry, separate objects, rewrite
 shaders, automate Unity, integrate CATS automatically, analyze evaluated
 modifier topology, or install runtime dependencies. See the exact
 [material-support matrix](docs/material-support.md).

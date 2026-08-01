@@ -10,7 +10,7 @@ python -m unittest discover -s tests/unit -t . -v
 & $Blender52 --factory-startup --command extension validate addon
 .\scripts\build_extension.ps1 -Blender $Blender52
 
-$Archive = (Resolve-Path .\.packaged-releases\alpha_material_separator-0.1.0.zip).Path
+$Archive = (Resolve-Path .\.packaged-releases\alpha_material_separator-1.0.0.zip).Path
 & $Blender52 --factory-startup --command extension validate $Archive
 
 $IsolatedRoot = Join-Path (Resolve-Path .\.test-output).Path "isolated-install-$PID"

@@ -29,6 +29,11 @@ class ReadmeContractTests(unittest.TestCase):
         ):
             self.assertIn(text, self.text)
 
+    def test_current_release_identity_is_documented(self) -> None:
+        self.assertIn("Version 1.0.0 targets Blender 5.2 LTS.", self.text)
+        self.assertIn("alpha_material_separator-1.0.0.zip", self.text)
+        self.assertNotIn("still undergoing release validation", self.text)
+
     def test_defaults_and_safety_caveats_are_documented(self) -> None:
         for text in (
             "Blender 5.2",
