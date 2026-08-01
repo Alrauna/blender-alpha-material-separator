@@ -83,6 +83,8 @@ jobs:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -99,7 +101,7 @@ jobs:
             throw 'Release publication requires a public repository.'
           }
           python scripts/ci.py check-release `
-            --version '${{ inputs.version }}' `
+            --version $env:RELEASE_VERSION `
             --manifest addon/blender_manifest.toml
 
   release:
@@ -114,6 +116,8 @@ jobs:
     environment: release
     permissions:
       contents: write
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -141,16 +145,16 @@ jobs:
         run: >-
           & '${{ steps.blender.outputs.blender }}'
           --factory-startup --command extension validate
-          '${{ runner.temp }}/release/alpha_material_separator-${{ inputs.version }}.zip'
+          "${{ runner.temp }}/release/alpha_material_separator-${env:RELEASE_VERSION}.zip"
 
       - name: Prepare release identity and checksum
         id: release
         shell: pwsh
         run: >-
           python scripts/ci.py prepare-release
-          --version '${{ inputs.version }}'
+          --version $env:RELEASE_VERSION
           --manifest addon/blender_manifest.toml
-          --archive '${{ runner.temp }}/release/alpha_material_separator-${{ inputs.version }}.zip'
+          --archive "${{ runner.temp }}/release/alpha_material_separator-${env:RELEASE_VERSION}.zip"
           --checksum-output '${{ runner.temp }}/release/SHA256SUMS.txt'
           --github-output $env:GITHUB_OUTPUT
 

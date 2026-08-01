@@ -105,6 +105,19 @@ class CiWorkflowContractTests(unittest.TestCase):
             if "GH_TOKEN:" in line:
                 self.assertIn("${{ github.token }}", line)
 
+    def test_release_input_is_never_interpolated_into_shell_source(self) -> None:
+        expression = "${{ inputs.version }}"
+        expression_lines = [
+            line.strip()
+            for line in self.text.splitlines()
+            if expression in line
+        ]
+        self.assertEqual(
+            expression_lines,
+            [f"RELEASE_VERSION: {expression}"] * 2,
+        )
+        self.assertIn("$env:RELEASE_VERSION", self.text)
+
     def test_ci_security_and_rollout_are_documented(self) -> None:
         testing = (ROOT / "docs" / "testing.md").read_text(encoding="utf-8")
         agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
