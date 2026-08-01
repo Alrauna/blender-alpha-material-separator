@@ -77,3 +77,150 @@ jobs:
           & '${{ steps.blender.outputs.blender }}'
           --factory-startup --command extension validate
           '${{ runner.temp }}/release/alpha_material_separator-1.0.0.zip'
+
+  release_gate:
+    name: Release input gate
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Require main, public visibility, and manifest version
+        shell: pwsh
+        run: |
+          if ('${{ github.ref }}' -ne 'refs/heads/main') {
+            throw 'Release dispatch must use main.'
+          }
+          if ('${{ github.event.repository.visibility }}' -ne 'public') {
+            throw 'Release publication requires a public repository.'
+          }
+          python scripts/ci.py check-release `
+            --version '${{ inputs.version }}' `
+            --manifest addon/blender_manifest.toml
+
+  release:
+    name: Publish immutable release
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' &&
+      github.event.repository.visibility == 'public'
+    needs: [validate, release_gate]
+    runs-on: windows-2025
+    timeout-minutes: 45
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Verify and extract Blender 5.2.0
+        id: blender
+        shell: pwsh
+        run: >-
+          python scripts/ci.py prepare-blender
+          --platform windows
+          --output-dir '${{ runner.temp }}/blender-5.2.0'
+          --github-output $env:GITHUB_OUTPUT
+
+      - name: Build fresh extension ZIP
+        shell: pwsh
+        run: >-
+          & '${{ steps.blender.outputs.blender }}'
+          --factory-startup --command extension build
+          --source-dir addon --output-dir '${{ runner.temp }}/release'
+
+      - name: Validate fresh extension ZIP
+        shell: pwsh
+        run: >-
+          & '${{ steps.blender.outputs.blender }}'
+          --factory-startup --command extension validate
+          '${{ runner.temp }}/release/alpha_material_separator-${{ inputs.version }}.zip'
+
+      - name: Prepare release identity and checksum
+        id: release
+        shell: pwsh
+        run: >-
+          python scripts/ci.py prepare-release
+          --version '${{ inputs.version }}'
+          --manifest addon/blender_manifest.toml
+          --archive '${{ runner.temp }}/release/alpha_material_separator-${{ inputs.version }}.zip'
+          --checksum-output '${{ runner.temp }}/release/SHA256SUMS.txt'
+          --github-output $env:GITHUB_OUTPUT
+
+      - name: Refuse an existing tag or release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $Owner, $Name = $env:GITHUB_REPOSITORY.Split('/', 2)
+          $Query = @'
+          query($owner:String!, $name:String!, $ref:String!, $tag:String!) {
+            repository(owner:$owner, name:$name) {
+              ref(qualifiedName:$ref) { name }
+              release(tagName:$tag) { id }
+            }
+          }
+          '@
+          $Tag = '${{ steps.release.outputs.tag }}'
+          $State = gh api graphql -f query=$Query `
+            -f owner=$Owner -f name=$Name -f ref="refs/tags/$Tag" -f tag=$Tag |
+            ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Could not verify tag and release absence.'
+          }
+          if ($State.data.repository.ref) {
+            throw 'Release tag already exists.'
+          }
+          if ($State.data.repository.release) {
+            throw 'Release already exists.'
+          }
+
+      - name: Create draft release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create '${{ steps.release.outputs.tag }}'
+          --draft --generate-notes
+          --title '${{ steps.release.outputs.tag }}'
+          --target '${{ github.sha }}'
+
+      - name: Upload release assets
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release upload '${{ steps.release.outputs.tag }}'
+          '${{ runner.temp }}/release/${{ steps.release.outputs.archive_name }}'
+          '${{ runner.temp }}/release/SHA256SUMS.txt'
+
+      - name: Download stored ZIP
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          New-Item -ItemType Directory '${{ runner.temp }}/downloaded-release'
+          gh release download '${{ steps.release.outputs.tag }}' `
+            --pattern '${{ steps.release.outputs.archive_name }}' `
+            --dir '${{ runner.temp }}/downloaded-release'
+
+      - name: Verify stored ZIP hash
+        shell: pwsh
+        run: >-
+          python scripts/ci.py verify-file
+          --file '${{ runner.temp }}/downloaded-release/${{ steps.release.outputs.archive_name }}'
+          --expected-sha256 '${{ steps.release.outputs.sha256 }}'
+
+      - name: Publish verified draft
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release edit '${{ steps.release.outputs.tag }}' --draft=false

@@ -110,6 +110,43 @@ class CiTrustTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             ci.curl_command("http://download.blender.org/file", output)
 
+    def test_release_identity_is_strict_and_matches_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            manifest = Path(directory) / "blender_manifest.toml"
+            manifest.write_text('version = "1.0.0"\n', encoding="utf-8")
+            self.assertEqual(
+                ci.release_identity("1.0.0", manifest),
+                (
+                    "1.0.0",
+                    "v1.0.0",
+                    "alpha_material_separator-1.0.0.zip",
+                ),
+            )
+            for value in ("v1.0.0", "1.0", "1.0.0-beta", "1.0.0\nbad"):
+                with self.subTest(value=value):
+                    with self.assertRaises(ValueError):
+                        ci.release_identity(value, manifest)
+            with self.assertRaisesRegex(ValueError, "manifest"):
+                ci.release_identity("1.0.1", manifest)
+
+    def test_checksum_file_uses_lowercase_digest_and_archive_basename(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive = root / "alpha_material_separator-1.0.0.zip"
+            checksum = root / "SHA256SUMS.txt"
+            archive.write_bytes(b"release")
+            digest = ci.write_sha256s(archive, checksum)
+            self.assertEqual(digest, hashlib.sha256(b"release").hexdigest())
+            self.assertEqual(
+                checksum.read_text(encoding="utf-8"),
+                f"{digest}  alpha_material_separator-1.0.0.zip\n",
+            )
+            ci.require_file_sha256(archive, digest)
+            with self.assertRaises(ValueError):
+                ci.require_file_sha256(archive, "0" * 64)
+
 
 if __name__ == "__main__":
     unittest.main()

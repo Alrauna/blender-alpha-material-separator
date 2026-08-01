@@ -7,6 +7,7 @@ import hashlib
 import re
 import shutil
 import subprocess
+import tomllib
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -39,6 +40,7 @@ PLATFORMS = {
     },
 }
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
+_VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+\Z")
 
 
 def parse_checksum_manifest(payload: bytes) -> dict[str, str]:
@@ -188,13 +190,66 @@ def prepare_blender(
     return blender, python
 
 
+def release_identity(version: str, manifest: Path) -> tuple[str, str, str]:
+    if not _VERSION.fullmatch(version):
+        raise ValueError("release version must use X.Y.Z")
+    manifest_version = tomllib.loads(
+        manifest.read_text(encoding="utf-8")
+    )["version"]
+    if manifest_version != version:
+        raise ValueError(
+            f"manifest version {manifest_version!r} does not match {version!r}"
+        )
+    return (
+        version,
+        f"v{version}",
+        f"alpha_material_separator-{version}.zip",
+    )
+
+
+def write_sha256s(archive: Path, output: Path) -> str:
+    digest = sha256_file(archive)
+    output.write_text(
+        f"{digest}  {archive.name}\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    return digest
+
+
+def require_file_sha256(path: Path, expected_sha256: str) -> None:
+    if not _SHA256.fullmatch(expected_sha256):
+        raise ValueError("expected SHA-256 is malformed")
+    actual = sha256_file(path)
+    if actual != expected_sha256:
+        raise ValueError(
+            f"file SHA-256 mismatch: expected {expected_sha256}, got {actual}"
+        )
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(dest="command", required=True)
+
     prepare = subparsers.add_parser("prepare-blender")
     prepare.add_argument("--platform", choices=tuple(PLATFORMS), required=True)
     prepare.add_argument("--output-dir", type=Path, required=True)
     prepare.add_argument("--github-output", type=Path)
+
+    check_release = subparsers.add_parser("check-release")
+    check_release.add_argument("--version", required=True)
+    check_release.add_argument("--manifest", type=Path, required=True)
+
+    prepare_release = subparsers.add_parser("prepare-release")
+    prepare_release.add_argument("--version", required=True)
+    prepare_release.add_argument("--manifest", type=Path, required=True)
+    prepare_release.add_argument("--archive", type=Path, required=True)
+    prepare_release.add_argument("--checksum-output", type=Path, required=True)
+    prepare_release.add_argument("--github-output", type=Path, required=True)
+
+    verify_file = subparsers.add_parser("verify-file")
+    verify_file.add_argument("--file", type=Path, required=True)
+    verify_file.add_argument("--expected-sha256", required=True)
     return parser
 
 
@@ -205,6 +260,33 @@ def main(argv: list[str] | None = None) -> int:
             arguments.platform,
             arguments.output_dir,
             arguments.github_output,
+        )
+    elif arguments.command == "check-release":
+        release_identity(arguments.version, arguments.manifest)
+    elif arguments.command == "prepare-release":
+        version, tag, archive_name = release_identity(
+            arguments.version,
+            arguments.manifest,
+        )
+        if arguments.archive.name != archive_name:
+            raise ValueError(
+                f"release archive must be named {archive_name!r}"
+            )
+        digest = write_sha256s(
+            arguments.archive,
+            arguments.checksum_output,
+        )
+        _write_github_output(
+            arguments.github_output,
+            version=version,
+            tag=tag,
+            archive_name=archive_name,
+            sha256=digest,
+        )
+    elif arguments.command == "verify-file":
+        require_file_sha256(
+            arguments.file,
+            arguments.expected_sha256,
         )
     return 0
 
