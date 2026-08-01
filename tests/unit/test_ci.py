@@ -21,6 +21,45 @@ LINUX_SHA256 = (
     "96f6c181a30f4950607839dc84d42a35"
     "4b250d8a0231b098b59b7bc69c351c48"
 )
+DNS_QUESTION = (
+    b"\x08download\x07blender\x03org\x00"
+    + struct.pack("!HH", 1, 1)
+)
+DNS_A_1 = (
+    b"\xc0\x0c"
+    + struct.pack("!HHIH", 1, 1, 60, 4)
+    + b"\xcb\x00\x71\x07"
+)
+DNS_A_2 = (
+    b"\xc0\x0c"
+    + struct.pack("!HHIH", 1, 1, 60, 4)
+    + b"\xcb\x00\x71\x08"
+)
+
+
+def dns_response(
+    *,
+    transaction_id: int = 0x1234,
+    flags: int = 0x8180,
+    question: bytes = DNS_QUESTION,
+    questions: int = 1,
+    answers: tuple[bytes, ...] = (),
+    authorities: tuple[bytes, ...] = (),
+    additional: tuple[bytes, ...] = (),
+) -> bytes:
+    return (
+        struct.pack(
+            "!HHHHHH",
+            transaction_id,
+            flags,
+            questions,
+            len(answers),
+            len(authorities),
+            len(additional),
+        )
+        + question * questions
+        + b"".join((*answers, *authorities, *additional))
+    )
 
 
 class CiTrustTests(unittest.TestCase):
@@ -141,15 +180,7 @@ class CiTrustTests(unittest.TestCase):
             self.assertFalse(output.exists())
 
     def test_quad9_dot_uses_validated_tls_and_returns_a_records(self) -> None:
-        question = b"\x08download\x07blender\x03org\x00"
-        message = (
-            struct.pack("!HHHHHH", 0x1234, 0x8180, 1, 1, 0, 0)
-            + question
-            + struct.pack("!HH", 1, 1)
-            + b"\xc0\x0c"
-            + struct.pack("!HHIH", 1, 1, 60, 4)
-            + b"\xcb\x00\x71\x07"
-        )
+        message = dns_response(answers=(DNS_A_1,))
 
         class FakeTls:
             def __init__(self, payload: bytes) -> None:
@@ -204,26 +235,119 @@ class CiTrustTests(unittest.TestCase):
             struct.unpack("!H", tls.sent[:2])[0],
             len(tls.sent) - 2,
         )
+        query = tls.sent[2:]
+        self.assertEqual(
+            query,
+            struct.pack("!HHHHHH", 0x1234, 0x0100, 1, 0, 0, 0)
+            + DNS_QUESTION,
+        )
 
-    def test_curl_command_can_pin_validated_hostname_to_address(self) -> None:
+    def test_dns_parser_rejects_truncated_and_non_answer_addresses(self) -> None:
+        for message in (
+            dns_response(flags=0x8380, answers=(DNS_A_1,)),
+            dns_response(authorities=(DNS_A_1,)),
+            dns_response(additional=(DNS_A_1,)),
+        ):
+            with self.subTest(message=message):
+                with self.assertRaises(ValueError):
+                    ci._parse_dns_a_response(
+                        message,
+                        0x1234,
+                        DNS_QUESTION,
+                    )
+
+    def test_dns_parser_requires_exact_standard_question(self) -> None:
+        valid = dns_response(answers=(DNS_A_1, DNS_A_2, DNS_A_1))
+        self.assertEqual(
+            ci._parse_dns_a_response(valid, 0x1234, DNS_QUESTION),
+            ("203.0.113.7", "203.0.113.8"),
+        )
+        wrong_name = (
+            b"\x07example\x03com\x00"
+            + struct.pack("!HH", 1, 1)
+        )
+        wrong_type = (
+            b"\x08download\x07blender\x03org\x00"
+            + struct.pack("!HH", 28, 1)
+        )
+        for message in (
+            dns_response(questions=0),
+            dns_response(questions=2),
+            dns_response(question=wrong_name, answers=(DNS_A_1,)),
+            dns_response(question=wrong_type, answers=(DNS_A_1,)),
+        ):
+            with self.subTest(message=message):
+                with self.assertRaises(ValueError):
+                    ci._parse_dns_a_response(
+                        message,
+                        0x1234,
+                        DNS_QUESTION,
+                    )
+
+    def test_dns_parser_rejects_invalid_headers_and_records(self) -> None:
+        invalid_pointer = (
+            b"\xc0\xff"
+            + struct.pack("!HHIH", 1, 1, 60, 4)
+            + b"\xcb\x00\x71\x07"
+        )
+        invalid_label = (
+            b"\x40"
+            + b"a" * 64
+            + b"\0"
+            + struct.pack("!HHIH", 1, 1, 60, 4)
+            + b"\xcb\x00\x71\x07"
+        )
+        for message in (
+            dns_response(transaction_id=0x5678, answers=(DNS_A_1,)),
+            dns_response(flags=0x0180, answers=(DNS_A_1,)),
+            dns_response(flags=0x8980, answers=(DNS_A_1,)),
+            dns_response(flags=0x8181, answers=(DNS_A_1,)),
+            dns_response(answers=(DNS_A_1[:-1],)),
+            dns_response(answers=(invalid_pointer,)),
+            dns_response(answers=(invalid_label,)),
+            b"\x12\x34",
+        ):
+            with self.subTest(message=message):
+                with self.assertRaises(ValueError):
+                    ci._parse_dns_a_response(
+                        message,
+                        0x1234,
+                        DNS_QUESTION,
+                    )
+
+    def test_read_exact_reassembles_chunks_and_rejects_early_eof(self) -> None:
+        stream = mock.MagicMock()
+        stream.recv.side_effect = (b"a", b"bc")
+        self.assertEqual(ci._read_exact(stream, 3), b"abc")
+        stream.recv.side_effect = (b"a", b"")
+        with self.assertRaisesRegex(ValueError, "truncated"):
+            ci._read_exact(stream, 3)
+
+    def test_curl_command_can_pin_validated_hostname_to_addresses(self) -> None:
         command = ci.curl_command(
             ci.CHECKSUM_URL,
             Path("checksum.txt"),
-            resolved_ip="203.0.113.7",
+            resolved_addresses=("203.0.113.7", "203.0.113.8"),
         )
         self.assertEqual(
             command[command.index("--resolve") + 1],
-            "download.blender.org:443:203.0.113.7",
+            "download.blender.org:443:203.0.113.7,203.0.113.8",
         )
         self.assertNotIn("--doh-url", command)
+        with self.assertRaises(ValueError):
+            ci.curl_command(
+                ci.CHECKSUM_URL,
+                Path("checksum.txt"),
+                resolved_addresses=(),
+            )
 
-    def test_quad9_download_uses_resolved_address(self) -> None:
+    def test_quad9_download_uses_all_resolved_addresses(self) -> None:
         output = Path("checksum.txt")
         with (
             mock.patch.object(
                 ci,
                 "quad9_addresses",
-                return_value=("203.0.113.7",),
+                return_value=("203.0.113.7", "203.0.113.8"),
             ),
             mock.patch.object(ci, "download") as download,
         ):
@@ -231,7 +355,7 @@ class CiTrustTests(unittest.TestCase):
         download.assert_called_once_with(
             ci.CHECKSUM_URL,
             output,
-            resolved_ip="203.0.113.7",
+            resolved_addresses=("203.0.113.7", "203.0.113.8"),
         )
 
     def test_archive_extraction_uses_safe_linux_tar_filter(self) -> None:

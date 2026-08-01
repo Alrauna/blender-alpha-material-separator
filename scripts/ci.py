@@ -108,6 +108,9 @@ def _skip_dns_name(message: bytes, offset: int) -> int:
         if length & 0xC0 == 0xC0:
             if offset + 2 > len(message):
                 raise ValueError("truncated DNS name pointer")
+            pointer = ((length & 0x3F) << 8) | message[offset + 1]
+            if pointer < 12 or pointer >= offset:
+                raise ValueError("invalid DNS name pointer")
             return offset + 2
         offset += 1
         if length == 0:
@@ -117,22 +120,29 @@ def _skip_dns_name(message: bytes, offset: int) -> int:
         offset += length
 
 
-def _parse_dns_a_response(message: bytes, transaction_id: int) -> tuple[str, ...]:
+def _parse_dns_a_response(
+    message: bytes,
+    transaction_id: int,
+    expected_question: bytes,
+) -> tuple[str, ...]:
     if len(message) < 12:
         raise ValueError("truncated DNS response")
-    response_id, flags, questions, answers, authorities, additional = (
+    response_id, flags, questions, answers, _, _ = (
         struct.unpack("!HHHHHH", message[:12])
     )
-    if response_id != transaction_id or not flags & 0x8000 or flags & 0xF:
+    # Reject non-standard opcodes, truncation, and error responses.
+    if (
+        response_id != transaction_id
+        or not flags & 0x8000
+        or flags & 0x7A0F
+        or questions != 1
+    ):
         raise ValueError("invalid DNS response")
-    offset = 12
-    for _ in range(questions):
-        offset = _skip_dns_name(message, offset)
-        if offset + 4 > len(message):
-            raise ValueError("truncated DNS question")
-        offset += 4
+    offset = 12 + len(expected_question)
+    if message[12:offset] != expected_question:
+        raise ValueError("DNS response question mismatch")
     addresses: list[str] = []
-    for _ in range(answers + authorities + additional):
+    for _ in range(answers):
         offset = _skip_dns_name(message, offset)
         if offset + 10 > len(message):
             raise ValueError("truncated DNS record")
@@ -158,12 +168,14 @@ def quad9_addresses(hostname: str) -> tuple[str, ...]:
     if any(not label or len(label) > 63 for label in labels):
         raise ValueError("invalid DNS hostname")
     transaction_id = secrets.randbits(16)
-    question = b"".join(bytes((len(label),)) + label for label in labels)
+    question = (
+        b"".join(bytes((len(label),)) + label for label in labels)
+        + b"\0"
+        + struct.pack("!HH", 1, 1)
+    )
     message = (
         struct.pack("!HHHHHH", transaction_id, 0x0100, 1, 0, 0, 0)
         + question
-        + b"\0"
-        + struct.pack("!HH", 1, 1)
     )
     context = ssl.create_default_context()
     with socket.create_connection(
@@ -174,19 +186,19 @@ def quad9_addresses(hostname: str) -> tuple[str, ...]:
             tls.sendall(struct.pack("!H", len(message)) + message)
             response_size = struct.unpack("!H", _read_exact(tls, 2))[0]
             response = _read_exact(tls, response_size)
-    return _parse_dns_a_response(response, transaction_id)
+    return _parse_dns_a_response(response, transaction_id, question)
 
 
 def curl_command(
     url: str,
     output: Path,
     doh_url: str | None = None,
-    resolved_ip: str | None = None,
+    resolved_addresses: tuple[str, ...] | None = None,
 ) -> list[str]:
     parsed = urlparse(url)
     if parsed.scheme != "https":
         raise ValueError("HTTPS is required")
-    if doh_url and resolved_ip:
+    if doh_url and resolved_addresses is not None:
         raise ValueError("choose DNS-over-HTTPS or a resolved address")
     command = [
         "curl",
@@ -216,9 +228,14 @@ def curl_command(
         if urlparse(doh_url).scheme != "https":
             raise ValueError("DNS-over-HTTPS requires HTTPS")
         command.extend(("--doh-url", doh_url))
-    if resolved_ip:
-        address = str(ipaddress.IPv4Address(resolved_ip))
-        command.extend(("--resolve", f"{parsed.hostname}:443:{address}"))
+    if resolved_addresses is not None:
+        if not resolved_addresses or parsed.hostname is None:
+            raise ValueError("resolved addresses require a hostname")
+        addresses = ",".join(
+            str(ipaddress.IPv4Address(address))
+            for address in resolved_addresses
+        )
+        command.extend(("--resolve", f"{parsed.hostname}:443:{addresses}"))
     return [*command, url]
 
 
@@ -226,11 +243,11 @@ def download(
     url: str,
     output: Path,
     doh_url: str | None = None,
-    resolved_ip: str | None = None,
+    resolved_addresses: tuple[str, ...] | None = None,
 ) -> None:
     try:
         result = subprocess.run(
-            curl_command(url, output, doh_url, resolved_ip),
+            curl_command(url, output, doh_url, resolved_addresses),
             check=False,
             capture_output=True,
             text=True,
@@ -254,7 +271,7 @@ def download_via_quad9(url: str, output: Path) -> None:
     download(
         url,
         output,
-        resolved_ip=quad9_addresses(hostname)[0],
+        resolved_addresses=quad9_addresses(hostname),
     )
 
 
