@@ -27,6 +27,7 @@ CURL_RETRIES = 2
 CLOUDFLARE_DOH_URL = "https://cloudflare-dns.com/dns-query"
 QUAD9_DOT_HOST = "dns.quad9.net"
 QUAD9_DOT_PORT = 853
+MAX_RESOLVED_ADDRESSES = 16
 PLATFORMS = {
     "windows": {
         "filename": "blender-5.2.0-windows-x64.zip",
@@ -100,24 +101,46 @@ def _read_exact(stream: object, size: int) -> bytes:
     return bytes(result)
 
 
-def _skip_dns_name(message: bytes, offset: int) -> int:
+def _decode_dns_name(
+    message: bytes,
+    offset: int,
+    known_label_offsets: set[int],
+) -> tuple[tuple[bytes, ...], int, set[int]]:
+    labels: list[bytes] = []
+    observed_offsets: set[int] = set()
+    cursor = offset
+    next_offset: int | None = None
+    expanded_size = 1
     while True:
-        if offset >= len(message):
+        if cursor >= len(message):
             raise ValueError("truncated DNS name")
-        length = message[offset]
-        if length & 0xC0 == 0xC0:
-            if offset + 2 > len(message):
+        length = message[cursor]
+        encoding = length & 0xC0
+        if encoding == 0xC0:
+            if cursor + 2 > len(message):
                 raise ValueError("truncated DNS name pointer")
-            pointer = ((length & 0x3F) << 8) | message[offset + 1]
-            if pointer < 12 or pointer >= offset:
+            pointer = ((length & 0x3F) << 8) | message[cursor + 1]
+            if pointer not in known_label_offsets:
                 raise ValueError("invalid DNS name pointer")
-            return offset + 2
-        offset += 1
+            if next_offset is None:
+                next_offset = cursor + 2
+            cursor = pointer
+            continue
+        if encoding:
+            raise ValueError("invalid DNS label encoding")
+        observed_offsets.add(cursor)
+        cursor += 1
         if length == 0:
-            return offset
-        if length > 63 or offset + length > len(message):
+            if next_offset is None:
+                next_offset = cursor
+            return tuple(labels), next_offset, observed_offsets
+        if length > 63 or cursor + length > len(message):
             raise ValueError("invalid DNS name")
-        offset += length
+        expanded_size += length + 1
+        if expanded_size > 255:
+            raise ValueError("DNS name exceeds 255 bytes")
+        labels.append(message[cursor : cursor + length].lower())
+        cursor += length
 
 
 def _parse_dns_a_response(
@@ -141,9 +164,23 @@ def _parse_dns_a_response(
     offset = 12 + len(expected_question)
     if message[12:offset] != expected_question:
         raise ValueError("DNS response question mismatch")
+    question_name, question_end, known_label_offsets = _decode_dns_name(
+        message,
+        12,
+        set(),
+    )
+    if (
+        question_end + 4 != offset
+        or message[question_end:offset] != struct.pack("!HH", 1, 1)
+    ):
+        raise ValueError("invalid DNS response question")
     addresses: list[str] = []
     for _ in range(answers):
-        offset = _skip_dns_name(message, offset)
+        owner, offset, owner_offsets = _decode_dns_name(
+            message,
+            offset,
+            known_label_offsets,
+        )
         if offset + 10 > len(message):
             raise ValueError("truncated DNS record")
         record_type, record_class, _, length = struct.unpack(
@@ -156,11 +193,17 @@ def _parse_dns_a_response(
             raise ValueError("truncated DNS record data")
         offset += length
         if record_type == 1 and record_class == 1 and length == 4:
-            addresses.append(str(ipaddress.IPv4Address(data)))
-    result = tuple(dict.fromkeys(addresses))
-    if not result:
+            if owner != question_name:
+                raise ValueError("DNS answer owner mismatch")
+            address = str(ipaddress.IPv4Address(data))
+            if address not in addresses:
+                if len(addresses) >= MAX_RESOLVED_ADDRESSES:
+                    raise ValueError("DNS address budget exceeded")
+                addresses.append(address)
+            known_label_offsets.update(owner_offsets)
+    if not addresses:
         raise ValueError("Quad9 returned no IPv4 address")
-    return result
+    return tuple(addresses)
 
 
 def quad9_addresses(hostname: str) -> tuple[str, ...]:
@@ -229,7 +272,11 @@ def curl_command(
             raise ValueError("DNS-over-HTTPS requires HTTPS")
         command.extend(("--doh-url", doh_url))
     if resolved_addresses is not None:
-        if not resolved_addresses or parsed.hostname is None:
+        if (
+            not resolved_addresses
+            or len(resolved_addresses) > MAX_RESOLVED_ADDRESSES
+            or parsed.hostname is None
+        ):
             raise ValueError("resolved addresses require a hostname")
         addresses = ",".join(
             str(ipaddress.IPv4Address(address))

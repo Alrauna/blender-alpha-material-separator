@@ -62,6 +62,10 @@ def dns_response(
     )
 
 
+def dns_a_record(owner: bytes, address: bytes) -> bytes:
+    return owner + struct.pack("!HHIH", 1, 1, 60, 4) + address
+
+
 class CiTrustTests(unittest.TestCase):
     def test_fixed_blender_5_2_0_trust_anchors(self) -> None:
         self.assertEqual(ci.BLENDER_VERSION, "5.2.0")
@@ -314,6 +318,130 @@ class CiTrustTests(unittest.TestCase):
                         0x1234,
                         DNS_QUESTION,
                     )
+
+    def test_dns_answer_owner_must_match_question(self) -> None:
+        matching_name = b"\x08download\x07blender\x03org\x00"
+        uppercase_name = b"\x08DOWNLOAD\x07BLENDER\x03ORG\x00"
+        for record in (
+            dns_a_record(matching_name, b"\xcb\x00\x71\x07"),
+            dns_a_record(uppercase_name, b"\xcb\x00\x71\x07"),
+            DNS_A_1,
+        ):
+            with self.subTest(record=record):
+                self.assertEqual(
+                    ci._parse_dns_a_response(
+                        dns_response(answers=(record,)),
+                        0x1234,
+                        DNS_QUESTION,
+                    ),
+                    ("203.0.113.7",),
+                )
+
+        unrelated = dns_a_record(
+            b"\x05other\x07example\x00",
+            b"\xcb\x00\x71\x09",
+        )
+        with self.assertRaisesRegex(ValueError, "owner"):
+            ci._parse_dns_a_response(
+                dns_response(answers=(unrelated,)),
+                0x1234,
+                DNS_QUESTION,
+            )
+
+    def test_dns_name_compression_requires_valid_boundaries(self) -> None:
+        valid_suffix_pointer = dns_a_record(
+            b"\x08download\xc0\x15",
+            b"\xcb\x00\x71\x07",
+        )
+        self.assertEqual(
+            ci._parse_dns_a_response(
+                dns_response(answers=(valid_suffix_pointer,)),
+                0x1234,
+                DNS_QUESTION,
+            ),
+            ("203.0.113.7",),
+        )
+
+        answer_offset = 12 + len(DNS_QUESTION)
+        for owner in (
+            b"\xc0\x00",
+            b"\xc0\x0d",
+            b"\xc0\xff",
+            bytes((0xC0, answer_offset)),
+        ):
+            with self.subTest(owner=owner):
+                with self.assertRaisesRegex(ValueError, "pointer"):
+                    ci._parse_dns_a_response(
+                        dns_response(
+                            answers=(
+                                dns_a_record(
+                                    owner,
+                                    b"\xcb\x00\x71\x07",
+                                ),
+                            ),
+                        ),
+                        0x1234,
+                        DNS_QUESTION,
+                    )
+
+        oversized_name = (
+            (b"\x3f" + b"a" * 63) * 4
+            + b"\0"
+        )
+        with self.assertRaisesRegex(ValueError, "255"):
+            ci._parse_dns_a_response(
+                dns_response(
+                    answers=(
+                        dns_a_record(
+                            oversized_name,
+                            b"\xcb\x00\x71\x07",
+                        ),
+                    ),
+                ),
+                0x1234,
+                DNS_QUESTION,
+            )
+
+    def test_dns_address_budget_is_enforced(self) -> None:
+        records = tuple(
+            dns_a_record(
+                b"\xc0\x0c",
+                bytes((203, 0, 113, index)),
+            )
+            for index in range(1, 18)
+        )
+        self.assertEqual(
+            len(
+                ci._parse_dns_a_response(
+                    dns_response(answers=records[:16]),
+                    0x1234,
+                    DNS_QUESTION,
+                )
+            ),
+            16,
+        )
+        with self.assertRaisesRegex(ValueError, "address"):
+            ci._parse_dns_a_response(
+                dns_response(answers=records),
+                0x1234,
+                DNS_QUESTION,
+            )
+        self.assertEqual(
+            ci._parse_dns_a_response(
+                dns_response(answers=(DNS_A_1,) * 32),
+                0x1234,
+                DNS_QUESTION,
+            ),
+            ("203.0.113.7",),
+        )
+        with self.assertRaisesRegex(ValueError, "address"):
+            ci.curl_command(
+                ci.CHECKSUM_URL,
+                Path("checksum.txt"),
+                resolved_addresses=tuple(
+                    f"203.0.113.{index}" for index in range(1, 18)
+                ),
+            )
 
     def test_read_exact_reassembles_chunks_and_rejects_early_eof(self) -> None:
         stream = mock.MagicMock()
