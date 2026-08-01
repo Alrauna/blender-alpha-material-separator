@@ -7,9 +7,9 @@ Updated: 2026-08-01
 The current branch is `ci/automation`. The verified Blender bootstrap,
 read-only Windows/Linux validation matrix, guarded draft-first publication
 path, documentation, and release-input injection fix are implemented in local
-commits. Local implementation and verification are complete. No push or remote
-GitHub change has occurred; the next milestone is approval-gated hosted
-validation.
+commits. A pre-push audit found additional hardening work, and the corrective
+design is approved. No push or remote GitHub change has occurred; the next
+milestone is an approval-gated test-first implementation plan.
 
 ## Completed work
 
@@ -101,6 +101,11 @@ validation.
   runners reproduce the local curl failure, the approved contingency is a
   minimal RFC 8484 client that preserves Quad9 as an independent source and
   the byte-for-byte checksum consensus requirement.
+- Use Blender's native extension-repository system for future updates. Hosting
+  and `index.json` publication are a separate milestone; AMS will not contain a
+  custom updater.
+- The release job will use unauthenticated native Git for the exact public
+  commit so `actions/checkout` never receives its write-capable token.
 
 ## Files changed and why
 
@@ -327,18 +332,21 @@ within the approved trust and publication boundaries.
 
 ## Remaining tasks in priority order
 
-1. Obtain explicit approval before pushing `ci/automation` and creating a pull
+1. Prepare and obtain approval for the test-first implementation plan in
+   `docs/superpowers/specs/2026-08-01-github-actions-hardening-design.md`.
+2. Implement and locally verify the approved pre-push hardening.
+3. Obtain explicit approval before pushing `ci/automation` and creating a pull
    request.
-2. Run and inspect the required Windows/Linux GitHub checks.
-3. Use the documented RFC 8484 contingency only if hosted runners reproduce
+4. Run and inspect the required Windows/Linux GitHub checks.
+5. Use the documented RFC 8484 contingency only if hosted runners reproduce
    the curl Quad9 failure.
-4. After both checks pass, separately approve repository visibility, branch
+6. After both checks pass, separately approve repository visibility, branch
    protection, release-environment protection, merge, and first publication.
-5. Separately reproduce and design a fix for cursor/sidebar progress
+7. Design Blender native extension-repository hosting as a separate milestone.
+8. Separately reproduce and design a fix for cursor/sidebar progress
    desynchronization if the user prioritizes it.
 
 ## Recommended next action
 
-Approve pushing `ci/automation` and creating a pull request so the fail-closed
-Windows/Linux hosted validation can determine whether the deferred RFC 8484
-contingency is needed.
+Review and approve the written pre-push hardening specification, then prepare
+its test-first implementation plan.
