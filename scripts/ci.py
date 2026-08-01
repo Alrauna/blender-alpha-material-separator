@@ -15,6 +15,10 @@ from urllib.parse import urlparse
 BLENDER_VERSION = "5.2.0"
 BASE_URL = "https://download.blender.org/release/Blender5.2"
 CHECKSUM_URL = f"{BASE_URL}/blender-5.2.0.sha256"
+CURL_CONNECT_TIMEOUT_SECONDS = 30
+CURL_TOTAL_TIMEOUT_SECONDS = 600
+CURL_PROCESS_TIMEOUT_SECONDS = 620
+CURL_RETRIES = 2
 DOH_URLS = (
     "https://cloudflare-dns.com/dns-query",
     "https://dns.quad9.net/dns-query",
@@ -97,6 +101,17 @@ def curl_command(
         "--fail",
         "--silent",
         "--show-error",
+        "--connect-timeout",
+        str(CURL_CONNECT_TIMEOUT_SECONDS),
+        "--max-time",
+        str(CURL_TOTAL_TIMEOUT_SECONDS),
+        "--retry",
+        str(CURL_RETRIES),
+        "--retry-delay",
+        "2",
+        "--retry-max-time",
+        str(CURL_TOTAL_TIMEOUT_SECONDS),
+        "--retry-all-errors",
         "--output",
         str(output),
         "--write-out",
@@ -110,12 +125,17 @@ def curl_command(
 
 
 def download(url: str, output: Path, doh_url: str | None = None) -> None:
-    result = subprocess.run(
-        curl_command(url, output, doh_url),
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            curl_command(url, output, doh_url),
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=CURL_PROCESS_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as ex:
+        output.unlink(missing_ok=True)
+        raise RuntimeError("download timed out") from ex
     if result.returncode or result.stdout != "200":
         output.unlink(missing_ok=True)
         raise RuntimeError(
@@ -133,6 +153,13 @@ def _write_github_output(path: Path | None, **values: str | Path) -> None:
             if "\n" in text or "\r" in text:
                 raise ValueError("GitHub outputs must be single-line")
             stream.write(f"{key}={text}\n")
+
+
+def extract_archive(platform: str, archive: Path, output: Path) -> None:
+    if platform == "linux":
+        shutil.unpack_archive(archive, output, filter="data")
+    else:
+        shutil.unpack_archive(archive, output)
 
 
 def prepare_blender(
@@ -161,7 +188,7 @@ def prepare_blender(
         raise ValueError("downloaded archive hash mismatch")
 
     extract_dir = output_dir / "blender"
-    shutil.unpack_archive(archive, extract_dir)
+    extract_archive(platform, archive, extract_dir)
     executable_matches = list(extract_dir.rglob(metadata["executable"]))
     if len(executable_matches) != 1:
         raise ValueError("expected exactly one Blender executable")

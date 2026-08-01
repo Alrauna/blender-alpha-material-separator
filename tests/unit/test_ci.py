@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import hashlib
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from scripts import ci
 
@@ -103,12 +105,50 @@ class CiTrustTests(unittest.TestCase):
         self.assertIn("--write-out", plain)
         self.assertNotIn("--location", plain)
         self.assertNotIn("--doh-url", plain)
+        for flag, value in (
+            ("--connect-timeout", "30"),
+            ("--max-time", "600"),
+            ("--retry", "2"),
+            ("--retry-delay", "2"),
+            ("--retry-max-time", "600"),
+        ):
+            self.assertIn(flag, plain)
+            self.assertEqual(plain[plain.index(flag) + 1], value)
+        self.assertIn("--retry-all-errors", plain)
         self.assertEqual(
             cloudflare[cloudflare.index("--doh-url") + 1],
             "https://cloudflare-dns.com/dns-query",
         )
         with self.assertRaises(ValueError):
             ci.curl_command("http://download.blender.org/file", output)
+
+    def test_download_timeout_removes_partial_output(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "partial.bin"
+            output.write_bytes(b"partial")
+            timeout = subprocess.TimeoutExpired(
+                cmd=["curl"],
+                timeout=620,
+            )
+            with mock.patch.object(
+                ci.subprocess,
+                "run",
+                side_effect=timeout,
+            ):
+                with self.assertRaisesRegex(RuntimeError, "timed out"):
+                    ci.download(ci.CHECKSUM_URL, output)
+            self.assertFalse(output.exists())
+
+    def test_archive_extraction_uses_safe_linux_tar_filter(self) -> None:
+        archive = Path("blender.tar.xz")
+        output = Path("blender")
+        with mock.patch.object(ci.shutil, "unpack_archive") as unpack:
+            ci.extract_archive("linux", archive, output)
+            unpack.assert_called_once_with(archive, output, filter="data")
+
+        with mock.patch.object(ci.shutil, "unpack_archive") as unpack:
+            ci.extract_archive("windows", Path("blender.zip"), output)
+            unpack.assert_called_once_with(Path("blender.zip"), output)
 
     def test_release_identity_is_strict_and_matches_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
