@@ -4,133 +4,90 @@ Updated: 2026-08-01
 
 ## Current objective
 
-Observe and inspect the required hosted checks on draft pull request
-[#2](https://github.com/Alrauna/blender-alpha-material-separator/pull/2).
-Repository-setting changes, merge, tags, releases, and publication remain
-separately approval-gated.
+Finish the local correction for the failed Blender bootstrap jobs on draft pull
+request [#2](https://github.com/Alrauna/blender-alpha-material-separator/pull/2).
+The user approved Quad9 over DNS-over-TLS (DoT). The corrected branch must not
+be pushed until separate approval.
 
 ## Completed work
 
 - Extension version remains `1.0.0`; public API remains `1.2`.
-- The Windows/Linux validation matrix, guarded draft-first release path, fixed
-  Blender 5.2.0 trust anchors, checksum consensus, and stored-asset re-hash were
-  already implemented locally.
-- `6b5103e1bf333b4525cee1f9e9c4ac1f5776f534`
-  (`fix: bound Blender bootstrap operations`):
-  - adds a 30-second connection timeout, 600-second total curl limit, two
-    retries, and a 620-second parent-process limit;
-  - removes partial downloads after timeout; and
-  - uses Python's safe data extraction filter for Linux tar archives.
-- `8b7de986b33e14b6efef67af332b9b0c8a50d78e`
-  (`fix: isolate release write credentials`):
-  - confines the pinned checkout action to the two read-only jobs;
-  - uses unauthenticated native Git in the write-authorized release job;
-  - fetches and verifies the exact `GITHUB_SHA`;
-  - keeps dispatch context checks in workflow expressions rather than shell
-    source; and
-  - discovers exactly one versioned AMS ZIP in ordinary validation.
-- Durable CI rules and milestone status now describe these boundaries.
-- Inline correctness/security review found no accepted code finding.
-- Ponytail minimalism review result: `Lean already. Ship.`
-- `ci/automation` was pushed to `origin` after explicit approval.
-- Draft pull request
-  [#2](https://github.com/Alrauna/blender-alpha-material-separator/pull/2)
-  targets `main`.
+- The first hosted run, `30698781877`, established two independent failures:
+  - Windows curl could not resolve the checksum host through Quad9 DoH.
+  - Linux successfully downloaded, hashed, and extracted Blender, then the
+    recursive executable search found more than one `blender` path.
+- The local fix replaces only the incompatible Quad9 request with a
+  standard-library DoT query to `dns.quad9.net:853`. The resulting address is
+  passed to curl with `--resolve`, so HTTPS still validates
+  `download.blender.org`.
+- Linux and Windows executable discovery now requires the exact root derived
+  from the fixed official archive name rather than recursively searching.
+- The existing system-DNS, Cloudflare-DoH, and Quad9 byte-consensus gate,
+  committed SHA-256 anchors, safe extraction, timeouts, and retries remain.
+- New generated tests recorded RED before the production changes and GREEN
+  after them.
+- Durable CI documentation now describes Quad9 DoT and exact-root discovery.
+- `7c9db1c` (`fix: make Blender bootstrap portable`) contains the focused
+  production and generated-test changes.
+- No workflow YAML, extension code, remote, or GitHub setting was changed.
+- Nothing from this local correction has been pushed.
 
 ## Important decisions and constraints
 
 - Default workflow permission is `contents: read`; only the protected manual
   release job receives `contents: write`.
-- `GH_TOKEN` appears only on the five individual GitHub CLI release steps.
-  Git, tests, Python, Blender, build, validation, and hashing do not receive it.
-- Read-only jobs use the pinned checkout action with
-  `persist-credentials: false`; the write job invokes no action.
 - Blender retrieval remains HTTPS-only, redirect-rejecting, exact-HTTP-200,
   fixed-version, hash-before-extraction, and dependent on byte-identical
-  system/Cloudflare/Quad9 checksum content.
-- Timeouts and retries bound failure; they do not weaken resolver or hash
-  requirements.
-- Blender native extension-repository hosting and `index.json` publication are
-  a separate milestone. AMS has no custom updater.
+  system-DNS, Cloudflare-DoH, and Quad9-DoT checksum content.
+- Quad9 DoT uses the operating system trust store to validate
+  `dns.quad9.net`; the subsequent pinned download separately validates
+  `download.blender.org`.
+- The trust gates fail closed. Port 853 availability on both GitHub-hosted
+  runners must be proven by the next hosted run.
+- Blender native extension-repository hosting remains a separate milestone.
 - The private before/after smoke is not required for this CI-only change.
-- Do not change repository settings, merge, tag, release, or publish without
-  explicit approval.
+- Do not push, merge, tag, release, publish, or change repository settings
+  without explicit approval.
 
 ## Files changed and why
 
-- `scripts/ci.py`: bounded curl execution, timeout cleanup, and safe Linux
-  extraction.
-- `tests/unit/test_ci.py`: RED/GREEN contracts for those helper changes.
-- `.github/workflows/ci.yml`: credential-free exact-SHA release fetch,
-  expression-only release gating, and version-independent ZIP validation.
-- `tests/unit/test_ci_workflow_contract.py`: workflow security, credential,
-  dispatch, archive-discovery, and durable-documentation contracts.
-- `docs/testing.md`: current trust model and hosted/local boundary.
-- `AGENTS.md`: durable checkout, token, exact-SHA, network, and version rules.
-- `PLAN.md`: completed local hardening items; remote rollout remains open.
-- `docs/HANDOFF.md`: current evidence, risks, and next action.
+- `scripts/ci.py`: minimal DoT query/response handling, curl address pinning,
+  and exact archive-root executable discovery.
+- `tests/unit/test_ci.py`: generated RED/GREEN coverage for validated DoT,
+  hostname-preserving curl pinning, and exact-root discovery.
+- `tests/unit/test_ci_workflow_contract.py`: durable-documentation contract for
+  the approved resolver and extraction behavior.
+- `docs/testing.md`: current trust model, hosted failure, and rerun boundary.
+- `AGENTS.md`: durable Quad9 DoT and exact-root CI rules.
+- `PLAN.md`: completed local correction and open hosted rerun.
+- `docs/HANDOFF.md`: current evidence, warnings, and next action.
 
 ## Validation commands and results
 
-### Task 1 RED
+### Hosted failure evidence
+
+- Windows job:
+  `https://github.com/Alrauna/blender-alpha-material-separator/actions/runs/30698781877/job/91366015572`
+  failed with curl exit `6`, HTTP `000`, and
+  `Could not resolve host: download.blender.org`.
+- Linux job:
+  `https://github.com/Alrauna/blender-alpha-material-separator/actions/runs/30698781877/job/91366015548`
+  completed checksum consensus, archive download, hash, and extraction, then
+  failed with `ValueError: expected exactly one Blender executable`.
+
+### RED
 
 ```powershell
 & $Python52 -m unittest `
-  tests.unit.test_ci.CiTrustTests.test_curl_command_requires_https_tls_no_redirect_and_optional_doh `
-  tests.unit.test_ci.CiTrustTests.test_download_timeout_removes_partial_output `
+  tests.unit.test_ci.CiTrustTests.test_quad9_dot_uses_validated_tls_and_returns_a_records `
+  tests.unit.test_ci.CiTrustTests.test_curl_command_can_pin_validated_hostname_to_address `
+  tests.unit.test_ci.CiTrustTests.test_quad9_download_uses_resolved_address `
+  tests.unit.test_ci.CiTrustTests.test_blender_executable_uses_exact_archive_root `
   -v
 ```
 
-Result: failed as intended because curl bounds were absent and
-`subprocess.TimeoutExpired` escaped.
-
-```powershell
-& $Python52 -m unittest `
-  tests.unit.test_ci.CiTrustTests.test_archive_extraction_uses_safe_linux_tar_filter `
-  -v
-```
-
-Result: errored as intended because `extract_archive` did not exist.
-
-### Task 1 GREEN
-
-```powershell
-& $Python52 -m unittest tests.unit.test_ci -v
-& $Python52 -m unittest discover -s tests/unit -t . -v
-git diff --check
-```
-
-Result: 9/9 focused and 70/70 total unit tests passed; diff check was clean.
-
-### Task 2 RED
-
-```powershell
-& $Python52 -m unittest `
-  tests.unit.test_ci_workflow_contract.CiWorkflowContractTests.test_checkout_and_default_permissions_are_locked_down `
-  tests.unit.test_ci_workflow_contract.CiWorkflowContractTests.test_release_job_fetches_exact_public_sha_without_credentials `
-  tests.unit.test_ci_workflow_contract.CiWorkflowContractTests.test_dispatch_contexts_never_enter_shell_source `
-  tests.unit.test_ci_workflow_contract.CiWorkflowContractTests.test_validation_discovers_exactly_one_versioned_zip `
-  -v
-```
-
-Result: all four failed as intended on the third checkout, missing native-Git
-boundary, dispatch expressions in PowerShell, and hard-coded `1.0.0` ZIP.
-
-### Task 2 GREEN
-
-```powershell
-& $Python52 -m unittest tests.unit.test_ci_workflow_contract -v
-& $Python52 -m unittest `
-  tests.unit.test_ci tests.unit.test_ci_workflow_contract -v
-& $Python52 -m unittest discover -s tests/unit -t . -v
-git diff --check
-```
-
-Result: 12/12 workflow, 21/21 combined CI, and 73/73 total unit tests passed;
-diff check was clean. Inspection reported zero `uses:` entries in the release
-job, two total checkout actions, and five release-job `GH_TOKEN` declarations.
-
-### Task 3 RED and GREEN
+Result: four errors as intended because the DoT, resolved-address, and
+exact-root helpers did not exist.
 
 ```powershell
 & $Python52 -m unittest `
@@ -138,21 +95,47 @@ job, two total checkout actions, and five release-job `GH_TOKEN` declarations.
   -v
 ```
 
-Result: failed as intended because the durable guidance did not yet say
-`unauthenticated native Git`; passed after the documentation update.
+Result: failed as intended because durable documentation still specified Quad9
+DoH and did not specify exact archive-root discovery.
+
+### GREEN
 
 ```powershell
+& $Python52 -m unittest `
+  tests.unit.test_ci.CiTrustTests.test_quad9_dot_uses_validated_tls_and_returns_a_records `
+  tests.unit.test_ci.CiTrustTests.test_curl_command_can_pin_validated_hostname_to_address `
+  tests.unit.test_ci.CiTrustTests.test_quad9_download_uses_resolved_address `
+  tests.unit.test_ci.CiTrustTests.test_blender_executable_uses_exact_archive_root `
+  -v
+& $Python52 -m unittest tests.unit.test_ci -v
 & $Python52 -m unittest tests.unit.test_ci_workflow_contract -v
 & $Python52 -m unittest discover -s tests/unit -t . -v
-git diff --check
 ```
 
-Result: 12/12 workflow and 73/73 total unit tests passed; diff check was clean.
+Result: 4/4 focused, 13/13 CI helper, 12/12 workflow contract, and 77/77
+complete unit tests passed.
+
+```powershell
+& $Python52 -c "from pathlib import Path; import scripts.ci as ci; p=Path('.test-output/quad9-live.txt'); print(ci.quad9_addresses('download.blender.org')); ci.download_via_quad9(ci.CHECKSUM_URL,p); print(len(p.read_bytes()),ci.sha256_file(p)); p.unlink()"
+```
+
+Result: Quad9 returned two current addresses; the pinned HTTPS download
+returned 777 bytes with SHA-256
+`f35709c2eb91fbb58ebbd354285039df62217e6dbda9c3a4713ec113d728057f`.
+
+```powershell
+& $Python52 -c "from pathlib import Path; import scripts.ci as ci; root=Path('.test-output'); paths=[root/'ci-system.txt',root/'ci-cloudflare.txt',root/'ci-quad9.txt']; ci.download(ci.CHECKSUM_URL,paths[0]); ci.download(ci.CHECKSUM_URL,paths[1],ci.CLOUDFLARE_DOH_URL); ci.download_via_quad9(ci.CHECKSUM_URL,paths[2]); payloads=[p.read_bytes() for p in paths]; assert len(set(payloads)) == 1; print('THREE_PATH_CHECKSUM_CONSENSUS_OK',len(payloads[0]),ci.sha256_file(paths[0])); [p.unlink() for p in paths]"
+```
+
+Result: system DNS, Cloudflare DoH, and Quad9 DoT returned byte-identical
+777-byte checksum manifests:
+`THREE_PATH_CHECKSUM_CONSENSUS_OK`.
 
 ### Complete Blender and package gate
 
 ```powershell
 $Blender52 = 'C:\Program Files\Blender Foundation\Blender 5.2\blender.exe'
+& $Python52 -m unittest discover -s tests/unit -t . -v
 & $Blender52 --factory-startup --background --disable-autoexec `
   --python-exit-code 1 --python tests/blender/run_all.py
 & $Blender52 --factory-startup --command extension validate addon
@@ -161,26 +144,22 @@ $Blender52 = 'C:\Program Files\Blender Foundation\Blender 5.2\blender.exe'
 $Archive = (Resolve-Path `
   .\.packaged-releases\alpha_material_separator-1.0.0.zip).Path
 & $Blender52 --factory-startup --command extension validate $Archive
+git diff --check
 ```
 
-Result: Blender printed
+Result: 77/77 unit tests passed; Blender printed
 `ALPHA_MATERIAL_SEPARATOR_BENCHMARK_CONTRACTS_OK` and
 `ALPHA_MATERIAL_SEPARATOR_BLENDER_TESTS_OK`; source and archive validation
-succeeded. The rebuilt ignored ZIP is 66,755 bytes with 29 entries. Package
-inspection found no `.github/`, `scripts/`, `tests/`, `.local-references/`, or
-repository-documentation entries.
+succeeded; the rebuilt ignored ZIP is 66,755 bytes; diff check was clean.
 
 ## Known failures, warnings, and unverified assumptions
 
-- The tested local Windows curl/network combination still cannot complete the
-  Quad9 `--doh-url` checksum request. It fails closed. System DNS and Cloudflare
-  returned byte-identical checksum files in the earlier diagnostic.
-- Hosted Windows/Linux execution has not yet verified runner tooling,
-  PowerShell/YAML behavior, Linux bundled-Python discovery, safe tar filtering,
-  exact-SHA fetch acceptance, GitHub CLI release behavior, or Quad9 DoH.
-- If hosted runners reproduce the Quad9 failure, the approved fallback is a
-  minimal standard-library RFC 8484 client that preserves Quad9, TLS hostname
-  validation, dynamic Blender addresses, and byte consensus.
+- The local machine proved Quad9 DoT and three-path byte consensus, but
+  GitHub-hosted Windows and Linux have not yet proved outbound port 853.
+- Exact-root lookup is covered synthetically and matches the official fixed
+  archive names, but the corrected Linux path has not yet run on GitHub.
+- The PR still points at `4ca0c3d` and therefore still displays the old failed
+  checks until this local correction is approved and pushed.
 - Expected local output includes Grease Pencil asset-path warnings, the
   deliberate stale-input warning, and LF-to-CRLF Git notices.
 - `.packaged-releases/alpha_material_separator-1.0.0.zip` is ignored and must
@@ -188,14 +167,13 @@ repository-documentation entries.
 
 ## Remaining tasks in priority order
 
-1. Inspect both required hosted checks:
-   `CI / Windows — Blender 5.2` and `CI / Linux — Blender 5.2`.
-2. Use the RFC 8484 contingency only if hosted runners reproduce the Quad9
-   failure.
+1. Obtain separate approval to push `ci/automation`.
+2. Observe both required hosted checks and address only demonstrated failures.
 3. Separately approve repository visibility, required-check protection,
    release-environment protection, merge, and the first `1.0.0` publication.
 4. Plan Blender native extension-repository hosting as a separate milestone.
 
 ## Recommended next action
 
-Inspect the Windows and Linux checks on draft pull request #2.
+Approve pushing the locally committed correction, then observe both hosted
+validation jobs.

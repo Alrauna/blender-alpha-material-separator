@@ -196,6 +196,8 @@ class CiWorkflowContractTests(unittest.TestCase):
             "two retries",
             "version-independent",
             "separate milestone",
+            "Quad9 DoT",
+            "exact archive root",
         ):
             self.assertIn(text, testing + agents + plan)
 

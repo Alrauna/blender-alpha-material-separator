@@ -219,9 +219,11 @@ edit. Remove or revise items that no longer require immediate attention.
   artifact transfer, trigger, runner type, permission, or network source
   requires design review and explicit approval.
 - Blender downloads must retain the fixed HTTPS identity, committed SHA-256,
-  system/Cloudflare/Quad9 checksum consensus, pre-extraction archive hash, and
-  executable version check. Network timeouts and retries may bound failure but
-  may not weaken resolver or hash requirements.
+  system DNS/Cloudflare DoH/Quad9 DoT checksum consensus, pre-extraction archive
+  hash, exact archive root, and executable version check. Quad9-resolved
+  addresses must retain the Blender hostname for TLS validation. Network
+  timeouts and retries may bound failure but may not weaken resolver or hash
+  requirements.
 - Ordinary validation must discover exactly one version-independent AMS ZIP;
   only the strict release path may derive a filename from the validated version.
 - Validation builds are disposable. Publication rebuilds from the validated
@@ -229,9 +231,10 @@ edit. Remove or revise items that no longer require immediate attention.
   and re-hashes the stored ZIP, then publishes.
 - Do not push, change visibility or repository settings, configure protection,
   create tags, or publish releases without explicit user approval.
-- If hosted runners reproduce the recorded curl Quad9 DoH failure, the approved
-  contingency is a minimal standard-library RFC 8484 path. Preserve TLS
-  hostname validation, dynamic Blender addresses, Quad9, and byte consensus.
+- Quad9's HTTP/2-only DoH endpoint is incompatible with the tested Windows curl
+  path. Keep the approved standard-library Quad9 DoT path unless hosted port
+  853 is proven unavailable; preserve TLS hostname validation, dynamic Blender
+  addresses, Quad9, and byte consensus.
 
 ## Commands
 

@@ -51,19 +51,19 @@ self-hosted runners, and third-party actions are not used.
 
 The workflow downloads Blender only from its fixed Blender.org HTTPS URL. It
 retrieves Blender.org's checksum file through system DNS, Cloudflare DoH, and
-Quad9 DoH, requires byte-identical content, verifies the relevant value against
+Quad9 DoT, requires byte-identical content, verifies the relevant value against
 the committed SHA-256 trust anchor, hashes the archive before extraction, and
-requires the executable to report Blender 5.2.0. Curl has a 30-second connection
-timeout, a fixed total limit, and two retries. Linux tar extraction uses
-Python's safe data filter. Any disagreement or timeout fails closed.
+requires the executable to report Blender 5.2.0. Quad9 supplies a dynamic
+address while curl keeps `download.blender.org` as the validated TLS hostname.
+Curl has a 30-second connection timeout, a fixed total limit, and two retries.
+Linux tar extraction uses Python's safe data filter and selects Blender from
+the exact archive root. Any disagreement or timeout fails closed.
 
-The tested local Windows curl/network combination cannot complete the explicit
-Quad9 `--doh-url` request even though system DNS and Cloudflare return identical
-checksum files. This result is not a pass. The first hosted Windows and Linux
-runs determine whether the limitation is local. If hosted runners reproduce it,
-the approved contingency is a minimal standard-library RFC 8484 query/response
-path that retains Quad9, TLS hostname validation, dynamic Blender addresses,
-and byte consensus; do not weaken or remove the resolver gate.
+The first hosted run showed that Quad9's HTTP/2-only DoH endpoint is
+incompatible with the Windows runner's curl path. The approved standard-library
+Quad9 DoT replacement passed a live local resolution and pinned HTTPS checksum
+download. Hosted Windows and Linux must still prove port 853 availability; do
+not weaken or remove the independent resolver or byte-consensus gate.
 
 Manual dispatch requires a strict `X.Y.Z` version. Publication additionally
 requires `main`, a public repository, successful Windows and Linux checks, and

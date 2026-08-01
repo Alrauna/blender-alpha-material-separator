@@ -292,6 +292,8 @@ The authoritative hardening matrix includes:
   discovery.
 - [x] Remove actions and credentials from the write-authorized release source
   fetch; use unauthenticated native Git and verify the exact `GITHUB_SHA`.
+- [x] Reproduce the first hosted bootstrap failures and add local RED/GREEN
+  coverage for Quad9 DoT plus exact archive root discovery.
 - [x] Push `ci/automation` after separate approval.
 - [ ] Observe both hosted validation checks.
 - [ ] Make the repository public after separate approval.
@@ -299,10 +301,11 @@ The authoritative hardening matrix includes:
   releases.
 - [ ] Dispatch and verify release `1.0.0` after separate approval.
 
-The tested local Windows curl/network combination cannot complete the explicit
-Quad9 DoH request. Hosted Windows/Linux execution is the compatibility
-authority. If it reproduces the failure, use the documented minimal RFC 8484
-contingency without removing Quad9 or weakening byte consensus.
+The first hosted run confirmed that Quad9's HTTP/2-only DoH endpoint is
+incompatible with the Windows curl path. The approved standard-library Quad9
+DoT replacement and pinned HTTPS checksum download pass locally. The Linux
+executable locator now uses the exact archive root. Hosted rerun remains the
+compatibility authority for both corrections.
 Blender native extension-repository hosting remains a separate milestone.
 
 ## Public integration boundary
