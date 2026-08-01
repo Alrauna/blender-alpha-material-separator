@@ -53,11 +53,13 @@ The workflow downloads Blender only from its fixed Blender.org HTTPS URL. It
 retrieves Blender.org's checksum file through system DNS, Cloudflare DoH, and
 Quad9 DoT, requires byte-identical content, verifies the relevant value against
 the committed SHA-256 trust anchor, hashes the archive before extraction, and
-requires the executable to report Blender 5.2.0. Quad9 supplies a dynamic
-address while curl keeps `download.blender.org` as the validated TLS hostname.
-Curl has a 30-second connection timeout, a fixed total limit, and two retries.
-Linux tar extraction uses Python's safe data filter and selects Blender from
-the exact archive root. Any disagreement or timeout fails closed.
+requires the executable to report Blender 5.2.0. The DoT response must be a
+complete standard A/IN response echoing the exact query; only direct answer
+addresses participate. All distinct valid answers are passed to curl, which
+keeps `download.blender.org` as the validated TLS hostname. Curl has a
+30-second connection timeout, a fixed total limit, and two retries. Linux tar
+extraction uses Python's safe data filter and selects Blender from the exact
+archive root. Any malformed response, disagreement, or timeout fails closed.
 
 The first hosted run showed that Quad9's HTTP/2-only DoH endpoint is
 incompatible with the Windows runner's curl path. The approved standard-library

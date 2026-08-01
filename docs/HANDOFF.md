@@ -32,6 +32,9 @@ may be pushed without separate approval.
   production and generated-test changes.
 - `704e3e7` (`docs: record portable Blender bootstrap`) contains the durable
   guidance, plan status, and validation record.
+- `782ebb3` (`fix: harden Quad9 DNS handling`) rejects truncated, malformed,
+  mismatched-question, and non-answer-only responses and gives curl every
+  distinct authenticated A answer.
 - No workflow YAML, extension code, remote, or GitHub setting was changed.
 - Nothing from this local correction has been pushed.
 
@@ -54,10 +57,11 @@ may be pushed without separate approval.
 
 ## Files changed and why
 
-- `scripts/ci.py`: minimal DoT query/response handling, curl address pinning,
-  and exact archive-root executable discovery.
+- `scripts/ci.py`: strict DoT query/response handling, multi-address curl
+  pinning, and exact archive-root executable discovery.
 - `tests/unit/test_ci.py`: generated RED/GREEN coverage for validated DoT,
-  hostname-preserving curl pinning, and exact-root discovery.
+  malformed responses, hostname-preserving multi-address curl pinning, and
+  exact-root discovery.
 - `tests/unit/test_ci_workflow_contract.py`: durable-documentation contract for
   the approved resolver and extraction behavior.
 - `docs/testing.md`: current trust model, hosted failure, and rerun boundary.
@@ -101,6 +105,17 @@ exact-root helpers did not exist.
 Result: failed as intended because durable documentation still specified Quad9
 DoH and did not specify exact archive-root discovery.
 
+### DNS hardening RED
+
+```powershell
+& $Python52 -m unittest tests.unit.test_ci -v
+```
+
+Result: failed as intended because truncated and non-answer-only responses were
+accepted, the exact-question parser contract and multi-address curl input were
+absent, and `download_via_quad9()` discarded the second address. A subsequent
+focused RED also proved an out-of-range compression pointer was accepted.
+
 ### GREEN
 
 ```powershell
@@ -134,6 +149,24 @@ Result: system DNS, Cloudflare DoH, and Quad9 DoT returned byte-identical
 777-byte checksum manifests:
 `THREE_PATH_CHECKSUM_CONSENSUS_OK`.
 
+### DNS hardening GREEN
+
+```powershell
+& $Python52 -m unittest tests.unit.test_ci -v
+& $Python52 -m unittest discover -s tests/unit -t . -v
+```
+
+Result: 17/17 focused and 81/81 complete unit tests passed.
+
+```powershell
+& $Python52 -c "from pathlib import Path; import scripts.ci as ci; root=Path('.test-output'); paths=[root/'ci-system.txt',root/'ci-cloudflare.txt',root/'ci-quad9.txt']; addresses=ci.quad9_addresses('download.blender.org'); print('QUAD9_ADDRESSES',addresses); command=ci.curl_command(ci.CHECKSUM_URL,paths[2],resolved_addresses=addresses); print('QUAD9_RESOLVE',command[command.index('--resolve')+1]); ci.download(ci.CHECKSUM_URL,paths[0]); ci.download(ci.CHECKSUM_URL,paths[1],ci.CLOUDFLARE_DOH_URL); ci.download_via_quad9(ci.CHECKSUM_URL,paths[2]); payloads=[p.read_bytes() for p in paths]; assert len(set(payloads)) == 1; print('THREE_PATH_CHECKSUM_CONSENSUS_OK',len(payloads[0]),ci.sha256_file(paths[0])); [p.unlink() for p in paths]"
+```
+
+Result: Quad9 returned `104.20.41.146` and `172.66.172.236`; both appeared in
+one hostname-preserving curl entry, and all three checksum paths returned the
+same 777-byte manifest with SHA-256
+`f35709c2eb91fbb58ebbd354285039df62217e6dbda9c3a4713ec113d728057f`.
+
 ### Complete Blender and package gate
 
 ```powershell
@@ -150,7 +183,7 @@ $Archive = (Resolve-Path `
 git diff --check
 ```
 
-Result: 77/77 unit tests passed; Blender printed
+Result: 81/81 unit tests passed; Blender printed
 `ALPHA_MATERIAL_SEPARATOR_BENCHMARK_CONTRACTS_OK` and
 `ALPHA_MATERIAL_SEPARATOR_BLENDER_TESTS_OK`; source and archive validation
 succeeded; the rebuilt ignored ZIP is 66,755 bytes; diff check was clean.

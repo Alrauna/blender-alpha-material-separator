@@ -294,6 +294,8 @@ The authoritative hardening matrix includes:
   fetch; use unauthenticated native Git and verify the exact `GITHUB_SHA`.
 - [x] Reproduce the first hosted bootstrap failures and add local RED/GREEN
   coverage for Quad9 DoT plus exact archive root discovery.
+- [x] Harden Quad9 response validation and pass all authenticated A answers to
+  curl's native address fallback.
 - [x] Push `ci/automation` after separate approval.
 - [ ] Observe both hosted validation checks.
 - [ ] Make the repository public after separate approval.
