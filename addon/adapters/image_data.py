@@ -15,6 +15,7 @@ from ..core import AlphaGrid
 from ..overrides import CHANNELS
 
 MAX_BULK_WORKING_BYTES = 384 * 1024 * 1024
+MAX_BULK_TEXELS_PER_STEP = 65_536
 
 
 class ImageReadError(RuntimeError):
@@ -75,6 +76,7 @@ class ImageSnapshotBuilder:
         )
         self.current_row = 0
         self.destination = 0
+        self._bulk_pixels: array | None = None
         self.affected = bytearray(texel_count)
         self.digest = hashlib.blake2b(digest_size=32)
         self.digest.update(
@@ -89,28 +91,50 @@ class ImageSnapshotBuilder:
         if self.complete:
             return 0
         if self.use_bulk_read:
-            try:
-                pixels = array("f", [0.0]) * len(self.image.pixels)
-                self.image.pixels.foreach_get(pixels)
-            except (AttributeError, MemoryError, RuntimeError, TypeError, ValueError):
-                self.use_bulk_read = False
-                return self.step()
-            values = _selected_values(
-                pixels,
-                self.component_count,
-                self.channel,
+            if self._bulk_pixels is None:
+                try:
+                    self._bulk_pixels = array("f", [0.0]) * len(self.image.pixels)
+                    self.image.pixels.foreach_get(self._bulk_pixels)
+                except (
+                    AttributeError,
+                    MemoryError,
+                    RuntimeError,
+                    TypeError,
+                    ValueError,
+                ):
+                    self._bulk_pixels = None
+                    self.use_bulk_read = False
+                    return self.step()
+            start_texel = self.destination
+            stop_texel = min(
+                self.width * self.height,
+                start_texel + MAX_BULK_TEXELS_PER_STEP,
             )
-            del pixels
-            self.digest.update(values.tobytes())
-            for value in values:
-                if not math.isfinite(value):
-                    raise ImageReadError(
-                        "image contains non-finite participating values"
-                    )
-                self.affected[self.destination] = value < self.threshold
-                self.destination += 1
-            self.current_row = self.height
-            return self.height
+            first_value = start_texel * self.component_count
+            stop_value = stop_texel * self.component_count
+            try:
+                values = _selected_values(
+                    self._bulk_pixels[first_value:stop_value],
+                    self.component_count,
+                    self.channel,
+                )
+                self.digest.update(values.tobytes())
+                for value in values:
+                    if not math.isfinite(value):
+                        raise ImageReadError(
+                            "image contains non-finite participating values"
+                        )
+                    self.affected[self.destination] = value < self.threshold
+                    self.destination += 1
+            except Exception:
+                self.close()
+                raise
+            previous_row = self.current_row
+            self.current_row = min(self.height, self.destination // self.width)
+            if self.destination == self.width * self.height:
+                self.current_row = self.height
+                self.close()
+            return self.current_row - previous_row
         stop_row = min(self.height, self.current_row + self.rows_per_chunk)
         first_value = self.current_row * self.width * self.component_count
         stop_value = stop_row * self.width * self.component_count
@@ -125,6 +149,9 @@ class ImageSnapshotBuilder:
         processed = stop_row - self.current_row
         self.current_row = stop_row
         return processed
+
+    def close(self) -> None:
+        self._bulk_pixels = None
 
     def finish(self) -> ImageSnapshot:
         if not self.complete or self.destination != self.width * self.height:

@@ -295,8 +295,15 @@ class _Pixels:
 
 
 class _Image:
-    def __init__(self, values, component_count, **pixel_options):
-        self.size = (2, 1)
+    def __init__(
+        self,
+        values,
+        component_count,
+        *,
+        size=(2, 1),
+        **pixel_options,
+    ):
+        self.size = size
         self.pixels = _Pixels(values, **pixel_options)
         self.component_count = component_count
 
@@ -382,6 +389,59 @@ def _bulk_image_reader_tests() -> None:
             pass
         else:
             raise AssertionError("bulk reader accepted a non-finite channel value")
+
+        texel_count = 131_073
+        values = array("f")
+        for index in range(texel_count):
+            values.extend((0.25, 0.5, 0.75, 0.0 if index % 2 else 1.0))
+        image = _Image(
+            values,
+            4,
+            size=(texel_count, 1),
+            reject_slices=True,
+        )
+        builder = image_data.ImageSnapshotBuilder(
+            image,
+            channel="ALPHA",
+            threshold=0.999,
+        )
+        step_sizes = []
+        while not builder.complete:
+            before = builder.destination
+            builder.step()
+            step_sizes.append(builder.destination - before)
+        assert step_sizes == [65_536, 65_536, 1], step_sizes
+        assert image.pixels.bulk_reads == 1
+        assert image.pixels.slice_reads == 0
+        assert builder._bulk_pixels is None
+        snapshot = builder.finish()
+        assert len(snapshot.grid.affected) == texel_count
+
+        boundary_values = array("f", [1.0]) * 65_537
+        boundary_values[65_536] = float("nan")
+        boundary = image_data.ImageSnapshotBuilder(
+            _Image(boundary_values, 1, size=(65_537, 1)),
+            channel="RED",
+            threshold=0.999,
+        )
+        boundary.step()
+        try:
+            boundary.step()
+        except ImageReadError:
+            pass
+        else:
+            raise AssertionError("chunk-boundary NaN was accepted")
+        assert boundary._bulk_pixels is None
+
+        cancelled = image_data.ImageSnapshotBuilder(
+            _Image(array("f", [1.0]) * 65_537, 1, size=(65_537, 1)),
+            channel="RED",
+            threshold=0.999,
+        )
+        cancelled.step()
+        assert cancelled._bulk_pixels is not None
+        cancelled.close()
+        assert cancelled._bulk_pixels is None
     finally:
         if hasattr(image_data, "MAX_BULK_WORKING_BYTES"):
             image_data.MAX_BULK_WORKING_BYTES = original_limit
