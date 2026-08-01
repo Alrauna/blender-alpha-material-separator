@@ -85,6 +85,19 @@ class CiTrustTests(unittest.TestCase):
         )
         self.assertEqual(ci.PLATFORMS["linux"]["sha256"], LINUX_SHA256)
 
+    def test_blender_version_requires_official_lts_banner(self) -> None:
+        ci.require_blender_version("Blender 5.2.0 LTS")
+        for version in (
+            "Blender 5.2.0",
+            "Blender 5.2.1 LTS",
+            "Blender 5.2.0 LTS modified",
+        ):
+            with self.subTest(version=version):
+                with self.assertRaisesRegex(
+                    ValueError, "unexpected Blender version"
+                ):
+                    ci.require_blender_version(version)
+
     def test_parse_checksum_manifest_rejects_missing_duplicate_and_bad_rows(
         self,
     ) -> None:

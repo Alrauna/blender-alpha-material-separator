@@ -351,6 +351,11 @@ def blender_executable_path(platform: str, extracted: Path) -> Path:
     return executable.resolve()
 
 
+def require_blender_version(version: str) -> None:
+    if version != f"Blender {BLENDER_VERSION} LTS":
+        raise ValueError(f"unexpected Blender version: {version!r}")
+
+
 def prepare_blender(
     platform: str,
     output_dir: Path,
@@ -397,8 +402,7 @@ def prepare_blender(
         capture_output=True,
         text=True,
     ).stdout.splitlines()[0]
-    if version != f"Blender {BLENDER_VERSION}":
-        raise ValueError(f"unexpected Blender version: {version!r}")
+    require_blender_version(version)
     _write_github_output(github_output, blender=blender, python=python)
     return blender, python
 
