@@ -4,10 +4,10 @@ Updated: 2026-08-01
 
 ## Current objective
 
-Review the completed human-first README rewrite. Separately, the locally
-corrected Blender bootstrap and README commits still require explicit approval
-before they may be pushed to draft pull request
-[#2](https://github.com/Alrauna/blender-alpha-material-separator/pull/2).
+Push the approved `ci/automation` branch to draft pull request
+[#2](https://github.com/Alrauna/blender-alpha-material-separator/pull/2), then
+observe both required hosted validation checks. The user explicitly authorized
+this push on 2026-08-01.
 
 ## Completed work
 
@@ -48,6 +48,9 @@ before they may be pushed to draft pull request
   2,317-word README with a 1,076-word renderer-agnostic end-user guide, retains
   one screenshot, removes repository-local guidance, and updates the semantic
   README contract.
+- Push authorization for `ci/automation` was received on 2026-08-01. Before
+  publication, the actual remote branch remained at `4ca0c3d` while local HEAD
+  was `3c284fa`.
 - No workflow YAML, extension code, remote, or GitHub setting was changed.
 - Nothing from this local correction has been pushed.
 
@@ -262,14 +265,12 @@ repository-local terms, and the README contains exactly one image.
 
 ## Remaining tasks in priority order
 
-1. Review the completed README rewrite.
-2. Obtain separate approval to push `ci/automation`.
-3. Observe both required hosted checks and address only demonstrated failures.
-4. Separately approve repository visibility, required-check protection,
+1. Push the approved `ci/automation` branch.
+2. Observe both required hosted checks and address only demonstrated failures.
+3. Separately approve repository visibility, required-check protection,
    release-environment protection, merge, and the first `1.0.0` publication.
-5. Plan Blender native extension-repository hosting as a separate milestone.
+4. Plan Blender native extension-repository hosting as a separate milestone.
 
 ## Recommended next action
 
-Review the completed README, then separately approve pushing `ci/automation`
-when ready to rerun the hosted validation jobs.
+Push `ci/automation`, then observe both hosted validation jobs.
