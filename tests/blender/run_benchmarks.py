@@ -14,6 +14,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import bpy
 
@@ -28,7 +29,10 @@ from addon.adapters.analysis import (  # noqa: E402
     validate_report,
 )
 from addon.adapters.image_data import read_image_snapshot  # noqa: E402
+from addon.adapters.assignment import build_assignment_plan  # noqa: E402
 from addon.core import AddressMode, RasterBudgetExceeded, rasterize_polygon  # noqa: E402
+from addon.operators.assign_materials import _validated_plan  # noqa: E402
+from addon.presentation import review_signature  # noqa: E402
 
 
 class _PROCESS_MEMORY_COUNTERS_EX(ctypes.Structure):
@@ -241,6 +245,7 @@ def _revalidation_benchmark() -> dict:
     )
     clean_images = []
     for index, image in enumerate(images):
+        image.pixels[3] = 0.0
         filepath = Path(temporary_images.name) / f"revalidation-{index}.png"
         image.filepath_raw = str(filepath)
         image.file_format = "PNG"
@@ -259,6 +264,72 @@ def _revalidation_benchmark() -> dict:
         object_, clear_coverage=True
     )
     runtime.set_report(report)
+    policies = {
+        "mixed_policy": "TO_ALPHA",
+        "suppressed_policy": "CANCEL_SOURCE_MATERIAL",
+        "unsupported_policy": "TO_ALPHA",
+        "conflict_policy": "CANCEL_SOURCE_MATERIAL",
+    }
+    expected_plan = build_assignment_plan(report, **policies)
+    expected_payload = expected_plan.public_payload()
+    expected_signature = review_signature(
+        report.analysis_id,
+        policies["mixed_policy"],
+        policies["suppressed_policy"],
+        policies["unsupported_policy"],
+        policies["conflict_policy"],
+        expected_payload,
+    )
+    preflight_before = {
+        "indices": tuple(
+            polygon.material_index for polygon in object_.data.polygons
+        ),
+        "slots": tuple(slot.material for slot in object_.material_slots),
+        "materials": tuple(
+            sorted(material.as_pointer() for material in bpy.data.materials)
+        ),
+        "report": runtime.report(report.analysis_id),
+    }
+    operator = SimpleNamespace(
+        api_major=1,
+        expected_analysis_id=report.analysis_id,
+        expected_review_signature=expected_signature,
+        mixed_policy=policies["mixed_policy"],
+        suppressed_policy=policies["suppressed_policy"],
+        unsupported_policy=policies["unsupported_policy"],
+        derived_conflict_policy=policies["conflict_policy"],
+        _status=lambda *_args, **_kwargs: None,
+    )
+    context = SimpleNamespace(window_manager=bpy.context.window_manager)
+    preflight_times = []
+    preflight_plan = None
+    for run in range(6):
+        started = time.perf_counter()
+        prepared = _validated_plan(operator, context)
+        elapsed = time.perf_counter() - started
+        if prepared is None:
+            raise RuntimeError("Apply preflight did not produce a valid plan")
+        prepared_report, preflight_plan, _payload = prepared
+        if prepared_report is not report or not preflight_plan.actionable:
+            raise RuntimeError(
+                "Apply preflight changed report identity or actionability"
+            )
+        if run:
+            preflight_times.append(elapsed)
+    preflight_after = {
+        "indices": tuple(
+            polygon.material_index for polygon in object_.data.polygons
+        ),
+        "slots": tuple(slot.material for slot in object_.material_slots),
+        "materials": tuple(
+            sorted(material.as_pointer() for material in bpy.data.materials)
+        ),
+        "report": runtime.report(report.analysis_id),
+    }
+    preflight_mutation_free = preflight_after == preflight_before
+    if not preflight_mutation_free:
+        raise RuntimeError("Apply preflight mutated Blender or report state")
+    preflight_snapshot = runtime.snapshot()
     bpy.ops.object.select_all(action="DESELECT")
     object_.select_set(True)
     bpy.context.view_layer.objects.active = object_
@@ -309,6 +380,28 @@ def _revalidation_benchmark() -> dict:
         "coverage_cache_entries": final_snapshot.get("coverage_cache_entries"),
         "target_under_one_second": median < 1.0,
         "target_under_fifteen_percent_cold": median < cold_seconds * 0.15,
+        "apply_preflight_seconds_median_5": statistics.median(preflight_times),
+        "apply_preflight_seconds_runs": preflight_times,
+        "apply_preflight_ratio_to_cold_analysis": (
+            statistics.median(preflight_times) / max(cold_seconds, 1e-12)
+        ),
+        "apply_preflight_actionable": bool(preflight_plan.actionable),
+        "apply_preflight_mutation_free": preflight_mutation_free,
+        "apply_preflight_last_validation_component_hash_calls": (
+            preflight_snapshot.get("last_validation_component_hash_calls", 0)
+        ),
+        "apply_preflight_last_validation_image_digest_rows": (
+            preflight_snapshot.get("last_validation_image_digest_rows", 0)
+        ),
+        "apply_preflight_last_validation_rasterized_polygons": (
+            preflight_snapshot.get("last_validation_rasterized_polygons", 0)
+        ),
+        "apply_preflight_last_validation_coverage_hits": preflight_snapshot.get(
+            "last_validation_coverage_hits", 0
+        ),
+        "apply_preflight_last_validation_coverage_misses": preflight_snapshot.get(
+            "last_validation_coverage_misses", 0
+        ),
     }
     runtime.clear()
     mesh = object_.data

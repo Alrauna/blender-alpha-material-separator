@@ -31,6 +31,9 @@ from tests.blender.test_ux_overrides import run as run_ux_override_tests  # noqa
 from tests.blender.test_revalidation_matrix import (  # noqa: E402
     run as run_revalidation_matrix_tests,
 )
+from tests.blender.test_benchmark_contract import (  # noqa: E402
+    run as run_benchmark_contract_tests,
+)
 from tests.blender.test_simplification_contracts import (  # noqa: E402
     run as run_simplification_contracts,
 )
@@ -99,6 +102,7 @@ def run() -> None:
             run_preservation_tests()
             run_ux_override_tests()
             run_revalidation_matrix_tests()
+            run_benchmark_contract_tests()
 
         clear_result = bpy.ops.alpha_material_separator.clear_results(api_major=1)
         assert clear_result == {"FINISHED"}, clear_result
