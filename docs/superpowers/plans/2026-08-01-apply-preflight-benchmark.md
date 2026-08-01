@@ -43,7 +43,7 @@ tests, existing PowerShell benchmark runner.
 - Produces: `run() -> None`, a generated headless contract requiring the
   Apply-preflight result fields and five-run measurement method.
 
-- [ ] **Step 1: Write the failing generated contract**
+- [x] **Step 1: Write the failing generated contract**
 
 Create `tests/blender/test_benchmark_contract.py`:
 
@@ -85,7 +85,7 @@ from tests.blender.test_benchmark_contract import (
 run_benchmark_contract_tests()
 ```
 
-- [ ] **Step 2: Run the headless suite and verify RED**
+- [x] **Step 2: Run the headless suite and verify RED**
 
 Run:
 
@@ -122,7 +122,7 @@ Expected: FAIL with `KeyError: 'apply_preflight_seconds_runs'`.
   - `apply_preflight_last_validation_coverage_hits: int`
   - `apply_preflight_last_validation_coverage_misses: int`
 
-- [ ] **Step 1: Add only the required test imports**
+- [x] **Step 1: Add only the required test imports**
 
 In `tests/blender/run_benchmarks.py`, add:
 
@@ -136,7 +136,7 @@ from addon.operators.assign_materials import _validated_plan
 from addon.presentation import review_signature
 ```
 
-- [ ] **Step 2: Create the expected exact review signature outside timing**
+- [x] **Step 2: Create the expected exact review signature outside timing**
 
 After `runtime.set_report(report)` in `_revalidation_benchmark()`, build the
 current plan once:
@@ -160,7 +160,7 @@ expected_signature = review_signature(
 )
 ```
 
-- [ ] **Step 3: Snapshot every prohibited mutation**
+- [x] **Step 3: Snapshot every prohibited mutation**
 
 Before timing, capture:
 
@@ -177,7 +177,7 @@ preflight_before = {
 }
 ```
 
-- [ ] **Step 4: Measure one warm-up and five real preflights**
+- [x] **Step 4: Measure one warm-up and five real preflights**
 
 Create the test-only operator/context shapes:
 
@@ -213,7 +213,7 @@ for run in range(6):
         preflight_times.append(elapsed)
 ```
 
-- [ ] **Step 5: Prove the measurement caused no mutation**
+- [x] **Step 5: Prove the measurement caused no mutation**
 
 After timing, capture the same shape:
 
@@ -234,7 +234,7 @@ if not preflight_mutation_free:
 preflight_snapshot = runtime.snapshot()
 ```
 
-- [ ] **Step 6: Add the metrics to the existing result**
+- [x] **Step 6: Add the metrics to the existing result**
 
 Add:
 
@@ -265,7 +265,7 @@ Add:
 
 Keep benchmark schema version `2`; these fields are additive.
 
-- [ ] **Step 7: Run the headless suite and verify GREEN**
+- [x] **Step 7: Run the headless suite and verify GREEN**
 
 Run:
 
@@ -278,7 +278,7 @@ Expected: PASS with both
 `ALPHA_MATERIAL_SEPARATOR_BENCHMARK_CONTRACTS_OK` and
 `ALPHA_MATERIAL_SEPARATOR_BLENDER_TESTS_OK`.
 
-- [ ] **Step 8: Review and commit the benchmark code**
+- [x] **Step 8: Review and commit the benchmark code**
 
 ```powershell
 git diff -- `
@@ -310,7 +310,7 @@ git commit -m "test: benchmark final Apply preflight"
 - Produces: one documented Apply-preflight median and closed release checklist
   item, without changing a performance threshold.
 
-- [ ] **Step 1: Run the focused benchmark**
+- [x] **Step 1: Run the focused benchmark**
 
 Run:
 
@@ -323,7 +323,7 @@ $Output = '.test-output\benchmarks\revalidation-current.json'
 
 Expected: exit `0`, `REVALIDATION complete`, and `BENCHMARK_OUTPUT`.
 
-- [ ] **Step 2: Inspect the generated measurement**
+- [x] **Step 2: Inspect the generated measurement**
 
 Run:
 
@@ -343,7 +343,7 @@ $Result.revalidation | Select-Object `
 Expected: five non-negative runs, their median, `mutation_free=True`, zero
 image-digest rows, and zero rasterized polygons.
 
-- [ ] **Step 3: Record the exact row**
+- [x] **Step 3: Record the exact row**
 
 In `docs/performance.md`, extend **Structural revalidation baseline** with:
 
@@ -359,7 +359,7 @@ In `docs/performance.md`, extend **Structural revalidation baseline** with:
 Add one sentence stating that this measures validation and plan rebuilding
 before mutation, not dialog response or assignment.
 
-- [ ] **Step 4: Close only the measured checklist item**
+- [x] **Step 4: Close only the measured checklist item**
 
 In `PLAN.md`, mark the distinct Apply-preflight timing row complete and record
 the measured median.
@@ -370,7 +370,7 @@ warm-up and five Apply-preflight runs and proves no mutation.
 In `docs/HANDOFF.md`, record the exact command, output path, result, code commit,
 remaining release status, and recommended next action.
 
-- [ ] **Step 5: Run the complete verification gate**
+- [x] **Step 5: Run the complete verification gate**
 
 Run:
 
@@ -387,7 +387,7 @@ Expected: 51 unit tests pass, Blender prints
 `ALPHA_MATERIAL_SEPARATOR_BLENDER_TESTS_OK`, source validation succeeds, and
 `git diff --check` reports no errors.
 
-- [ ] **Step 6: Commit the measured documentation**
+- [x] **Step 6: Commit the measured documentation**
 
 ```powershell
 git add -- `
@@ -399,7 +399,7 @@ git diff --cached --check
 git commit -m "docs: record Apply preflight baseline"
 ```
 
-- [ ] **Step 7: Mark this implementation plan complete**
+- [x] **Step 7: Mark this implementation plan complete**
 
 Change every checkbox in this plan to `[x]`, then commit only the plan:
 
