@@ -73,14 +73,29 @@ jobs:
 
       - name: Validate extension ZIP
         shell: pwsh
-        run: >-
-          & '${{ steps.blender.outputs.blender }}'
-          --factory-startup --command extension validate
-          '${{ runner.temp }}/release/alpha_material_separator-1.0.0.zip'
+        run: |
+          $Archives = @(
+            Get-ChildItem `
+              -LiteralPath '${{ runner.temp }}/release' `
+              -Filter 'alpha_material_separator-*.zip' `
+              -File
+          )
+          if ($Archives.Count -ne 1) {
+            throw "Expected one AMS ZIP, found $($Archives.Count)."
+          }
+          & '${{ steps.blender.outputs.blender }}' `
+            --factory-startup --command extension validate `
+            $Archives[0].FullName
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
 
   release_gate:
     name: Release input gate
-    if: github.event_name == 'workflow_dispatch'
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' &&
+      github.event.repository.visibility == 'public'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     env:
@@ -91,18 +106,12 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Require main, public visibility, and manifest version
+      - name: Require manifest release version
         shell: pwsh
-        run: |
-          if ('${{ github.ref }}' -ne 'refs/heads/main') {
-            throw 'Release dispatch must use main.'
-          }
-          if ('${{ github.event.repository.visibility }}' -ne 'public') {
-            throw 'Release publication requires a public repository.'
-          }
-          python scripts/ci.py check-release `
-            --version $env:RELEASE_VERSION `
-            --manifest addon/blender_manifest.toml
+        run: >-
+          python scripts/ci.py check-release
+          --version $env:RELEASE_VERSION
+          --manifest addon/blender_manifest.toml
 
   release:
     name: Publish immutable release
@@ -119,10 +128,36 @@ jobs:
     env:
       RELEASE_VERSION: ${{ inputs.version }}
     steps:
-      - name: Check out source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          persist-credentials: false
+      - name: Fetch exact public source without credentials
+        shell: pwsh
+        env:
+          SOURCE_REPOSITORY: https://github.com/${{ github.repository }}.git
+          SOURCE_SHA: ${{ github.sha }}
+          GIT_TERMINAL_PROMPT: 0
+        run: |
+          git init .
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Could not initialize the release workspace.'
+          }
+          git remote add origin $env:SOURCE_REPOSITORY
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Could not configure the public source remote.'
+          }
+          git fetch --no-tags --depth=1 origin $env:SOURCE_SHA
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Could not fetch the exact release commit.'
+          }
+          git checkout --detach FETCH_HEAD
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Could not check out the exact release commit.'
+          }
+          $Actual = git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Could not read the checked-out release commit.'
+          }
+          if ($Actual.Trim() -ne $env:SOURCE_SHA) {
+            throw 'Checked-out release commit does not match GITHUB_SHA.'
+          }
 
       - name: Verify and extract Blender 5.2.0
         id: blender

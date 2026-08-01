@@ -37,13 +37,13 @@ class CiWorkflowContractTests(unittest.TestCase):
         self.assertIn("permissions:\n  contents: read", self.text)
         self.assertIn(f"actions/checkout@{CHECKOUT_SHA}", self.text)
         self.assertIn("persist-credentials: false", self.text)
-        self.assertEqual(self.text.count("actions/checkout@"), 3)
+        self.assertEqual(self.text.count("actions/checkout@"), 2)
 
     def test_no_unapproved_actions_or_execution_surfaces(self) -> None:
         action_uses = re.findall(r"^\s*uses:\s*(\S+)", self.text, re.MULTILINE)
         self.assertEqual(
             action_uses,
-            [f"actions/checkout@{CHECKOUT_SHA}"] * 3,
+            [f"actions/checkout@{CHECKOUT_SHA}"] * 2,
         )
         for forbidden in (
             "actions/cache",
@@ -71,7 +71,7 @@ class CiWorkflowContractTests(unittest.TestCase):
 
     def test_release_is_manual_main_public_and_environment_gated(self) -> None:
         for text in (
-            "if: github.event_name == 'workflow_dispatch'",
+            "github.event_name == 'workflow_dispatch'",
             "github.ref == 'refs/heads/main'",
             "github.event.repository.visibility == 'public'",
             "needs: [validate, release_gate]",
@@ -79,6 +79,54 @@ class CiWorkflowContractTests(unittest.TestCase):
             "contents: write",
         ):
             self.assertIn(text, self.text)
+
+    def test_release_job_fetches_exact_public_sha_without_credentials(self) -> None:
+        release = self.text.split("\n  release:\n", 1)[1]
+        source_step = release.split(
+            "\n      - name: Refuse an existing tag or release",
+            1,
+        )[0]
+        self.assertNotIn("uses:", release)
+        self.assertIn(
+            "SOURCE_REPOSITORY: https://github.com/${{ github.repository }}.git",
+            source_step,
+        )
+        self.assertIn("SOURCE_SHA: ${{ github.sha }}", source_step)
+        self.assertIn("GIT_TERMINAL_PROMPT: 0", source_step)
+        self.assertIn("git init .", source_step)
+        self.assertIn(
+            "git fetch --no-tags --depth=1 origin $env:SOURCE_SHA",
+            source_step,
+        )
+        self.assertIn("git checkout --detach FETCH_HEAD", source_step)
+        self.assertIn("git rev-parse HEAD", source_step)
+        self.assertIn("$Actual.Trim() -ne $env:SOURCE_SHA", source_step)
+        self.assertNotIn("GH_TOKEN:", source_step)
+        self.assertNotIn("github.token", source_step)
+
+    def test_dispatch_contexts_never_enter_shell_source(self) -> None:
+        self.assertNotIn("if ('${{ github.ref }}'", self.text)
+        self.assertNotIn(
+            "if ('${{ github.event.repository.visibility }}'",
+            self.text,
+        )
+        release_gate = self.text.split(
+            "\n  release_gate:\n",
+            1,
+        )[1].split("\n  release:\n", 1)[0]
+        self.assertIn("github.ref == 'refs/heads/main'", release_gate)
+        self.assertIn(
+            "github.event.repository.visibility == 'public'",
+            release_gate,
+        )
+
+    def test_validation_discovers_exactly_one_versioned_zip(self) -> None:
+        validate = self.text.split("\n  release_gate:\n", 1)[0]
+        self.assertNotIn("alpha_material_separator-1.0.0.zip", validate)
+        self.assertIn("Get-ChildItem", validate)
+        self.assertIn("-Filter 'alpha_material_separator-*.zip'", validate)
+        self.assertIn("$Archives.Count -ne 1", validate)
+        self.assertIn("$Archives[0].FullName", validate)
 
     def test_release_is_draft_first_and_rehashes_downloaded_asset(self) -> None:
         positions = [
