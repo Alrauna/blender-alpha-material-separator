@@ -4,11 +4,9 @@ Updated: 2026-08-01
 
 ## Current objective
 
-Obtain user approval of the test-first human-first README implementation plan
-in `docs/superpowers/plans/2026-08-01-human-first-readme.md`, then execute it
-using the selected workflow. The README rewrite has not begun.
-Separately, the locally corrected Blender bootstrap still requires explicit
-approval before it may be pushed to draft pull request
+Review the completed human-first README rewrite. Separately, the locally
+corrected Blender bootstrap and README commits still require explicit approval
+before they may be pushed to draft pull request
 [#2](https://github.com/Alrauna/blender-alpha-material-separator/pull/2).
 
 ## Completed work
@@ -45,8 +43,11 @@ approval before it may be pushed to draft pull request
   end-user-only, renderer-agnostic README structure. No README content or
   contract test has changed yet.
 - `2b981a5` (`docs: plan human-first README rewrite`) records the self-reviewed
-  RED/GREEN implementation plan. No README content or contract test has changed
-  yet.
+  RED/GREEN implementation plan.
+- `3f5745a` (`docs: simplify the end-user README`) replaces the multipurpose
+  2,317-word README with a 1,076-word renderer-agnostic end-user guide, retains
+  one screenshot, removes repository-local guidance, and updates the semantic
+  README contract.
 - No workflow YAML, extension code, remote, or GitHub setting was changed.
 - Nothing from this local correction has been pushed.
 
@@ -223,6 +224,27 @@ Result: 84/84 unit tests passed; Blender printed
 `ALPHA_MATERIAL_SEPARATOR_BLENDER_TESTS_OK`; source and archive validation
 succeeded; the rebuilt ignored ZIP is 66,755 bytes; diff check was clean.
 
+### Human-first README RED/GREEN
+
+```powershell
+& $Python52 -m unittest tests.unit.test_readme_contract -v
+```
+
+RED result: the new nine-test contract produced one missing-section error and
+two expected failures because the old README retained its previous headings,
+four screenshots, renderer-specific names, and repository-local paths.
+
+GREEN result: 9/9 README contract tests passed after the rewrite.
+
+```powershell
+& $Python52 -m unittest discover -s tests/unit -t . -v
+git diff --check
+```
+
+Result: 86/86 unit tests passed and Git reported no whitespace errors. A
+case-insensitive forbidden-copy scan returned no renderer-specific or
+repository-local terms, and the README contains exactly one image.
+
 ## Known failures, warnings, and unverified assumptions
 
 - The local machine proved Quad9 DoT and three-path byte consensus, but
@@ -240,16 +262,14 @@ succeeded; the rebuilt ignored ZIP is 66,755 bytes; diff check was clean.
 
 ## Remaining tasks in priority order
 
-1. Obtain user approval of the written README implementation plan and select
-   inline or subagent-driven execution.
-2. Rewrite the README and its contract tests, then verify and commit them.
-3. Obtain separate approval to push `ci/automation`.
-4. Observe both required hosted checks and address only demonstrated failures.
-5. Separately approve repository visibility, required-check protection,
+1. Review the completed README rewrite.
+2. Obtain separate approval to push `ci/automation`.
+3. Observe both required hosted checks and address only demonstrated failures.
+4. Separately approve repository visibility, required-check protection,
    release-environment protection, merge, and the first `1.0.0` publication.
-6. Plan Blender native extension-repository hosting as a separate milestone.
+5. Plan Blender native extension-repository hosting as a separate milestone.
 
 ## Recommended next action
 
-Review and approve the written human-first README implementation plan, then
-choose inline or subagent-driven execution.
+Review the completed README, then separately approve pushing `ci/automation`
+when ready to rerun the hosted validation jobs.
