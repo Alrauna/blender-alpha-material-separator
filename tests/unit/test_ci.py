@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import struct
 import subprocess
 import tempfile
 import unittest
@@ -139,6 +140,100 @@ class CiTrustTests(unittest.TestCase):
                     ci.download(ci.CHECKSUM_URL, output)
             self.assertFalse(output.exists())
 
+    def test_quad9_dot_uses_validated_tls_and_returns_a_records(self) -> None:
+        question = b"\x08download\x07blender\x03org\x00"
+        message = (
+            struct.pack("!HHHHHH", 0x1234, 0x8180, 1, 1, 0, 0)
+            + question
+            + struct.pack("!HH", 1, 1)
+            + b"\xc0\x0c"
+            + struct.pack("!HHIH", 1, 1, 60, 4)
+            + b"\xcb\x00\x71\x07"
+        )
+
+        class FakeTls:
+            def __init__(self, payload: bytes) -> None:
+                self.payload = bytearray(payload)
+                self.sent = b""
+
+            def __enter__(self) -> FakeTls:
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+            def sendall(self, payload: bytes) -> None:
+                self.sent = payload
+
+            def recv(self, size: int) -> bytes:
+                chunk = bytes(self.payload[:size])
+                del self.payload[:size]
+                return chunk
+
+        tls = FakeTls(struct.pack("!H", len(message)) + message)
+        raw = mock.MagicMock()
+        raw.__enter__.return_value = raw
+        context = mock.MagicMock()
+        context.wrap_socket.return_value = tls
+        with (
+            mock.patch.object(
+                ci.socket,
+                "create_connection",
+                return_value=raw,
+            ) as connect,
+            mock.patch.object(
+                ci.ssl,
+                "create_default_context",
+                return_value=context,
+            ),
+            mock.patch.object(ci.secrets, "randbits", return_value=0x1234),
+        ):
+            self.assertEqual(
+                ci.quad9_addresses("download.blender.org"),
+                ("203.0.113.7",),
+            )
+        connect.assert_called_once_with(
+            ("dns.quad9.net", 853),
+            timeout=30,
+        )
+        context.wrap_socket.assert_called_once_with(
+            raw,
+            server_hostname="dns.quad9.net",
+        )
+        self.assertEqual(
+            struct.unpack("!H", tls.sent[:2])[0],
+            len(tls.sent) - 2,
+        )
+
+    def test_curl_command_can_pin_validated_hostname_to_address(self) -> None:
+        command = ci.curl_command(
+            ci.CHECKSUM_URL,
+            Path("checksum.txt"),
+            resolved_ip="203.0.113.7",
+        )
+        self.assertEqual(
+            command[command.index("--resolve") + 1],
+            "download.blender.org:443:203.0.113.7",
+        )
+        self.assertNotIn("--doh-url", command)
+
+    def test_quad9_download_uses_resolved_address(self) -> None:
+        output = Path("checksum.txt")
+        with (
+            mock.patch.object(
+                ci,
+                "quad9_addresses",
+                return_value=("203.0.113.7",),
+            ),
+            mock.patch.object(ci, "download") as download,
+        ):
+            ci.download_via_quad9(ci.CHECKSUM_URL, output)
+        download.assert_called_once_with(
+            ci.CHECKSUM_URL,
+            output,
+            resolved_ip="203.0.113.7",
+        )
+
     def test_archive_extraction_uses_safe_linux_tar_filter(self) -> None:
         archive = Path("blender.tar.xz")
         output = Path("blender")
@@ -149,6 +244,27 @@ class CiTrustTests(unittest.TestCase):
         with mock.patch.object(ci.shutil, "unpack_archive") as unpack:
             ci.extract_archive("windows", Path("blender.zip"), output)
             unpack.assert_called_once_with(Path("blender.zip"), output)
+
+    def test_blender_executable_uses_exact_archive_root(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            extracted = Path(directory)
+            expected = (
+                extracted
+                / "blender-5.2.0-linux-x64"
+                / "blender"
+            )
+            expected.parent.mkdir()
+            expected.touch()
+            decoy = extracted / "nested" / "blender"
+            decoy.parent.mkdir()
+            decoy.touch()
+            self.assertEqual(
+                ci.blender_executable_path("linux", extracted),
+                expected.resolve(),
+            )
+            expected.unlink()
+            with self.assertRaisesRegex(ValueError, "expected Blender"):
+                ci.blender_executable_path("linux", extracted)
 
     def test_release_identity_is_strict_and_matches_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

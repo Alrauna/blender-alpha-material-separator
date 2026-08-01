@@ -4,8 +4,13 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import ipaddress
 import re
+import secrets
 import shutil
+import socket
+import ssl
+import struct
 import subprocess
 import tomllib
 from pathlib import Path
@@ -19,10 +24,9 @@ CURL_CONNECT_TIMEOUT_SECONDS = 30
 CURL_TOTAL_TIMEOUT_SECONDS = 600
 CURL_PROCESS_TIMEOUT_SECONDS = 620
 CURL_RETRIES = 2
-DOH_URLS = (
-    "https://cloudflare-dns.com/dns-query",
-    "https://dns.quad9.net/dns-query",
-)
+CLOUDFLARE_DOH_URL = "https://cloudflare-dns.com/dns-query"
+QUAD9_DOT_HOST = "dns.quad9.net"
+QUAD9_DOT_PORT = 853
 PLATFORMS = {
     "windows": {
         "filename": "blender-5.2.0-windows-x64.zip",
@@ -86,13 +90,104 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _read_exact(stream: object, size: int) -> bytes:
+    result = bytearray()
+    while len(result) < size:
+        chunk = stream.recv(size - len(result))  # type: ignore[attr-defined]
+        if not chunk:
+            raise ValueError("truncated DNS-over-TLS response")
+        result.extend(chunk)
+    return bytes(result)
+
+
+def _skip_dns_name(message: bytes, offset: int) -> int:
+    while True:
+        if offset >= len(message):
+            raise ValueError("truncated DNS name")
+        length = message[offset]
+        if length & 0xC0 == 0xC0:
+            if offset + 2 > len(message):
+                raise ValueError("truncated DNS name pointer")
+            return offset + 2
+        offset += 1
+        if length == 0:
+            return offset
+        if length > 63 or offset + length > len(message):
+            raise ValueError("invalid DNS name")
+        offset += length
+
+
+def _parse_dns_a_response(message: bytes, transaction_id: int) -> tuple[str, ...]:
+    if len(message) < 12:
+        raise ValueError("truncated DNS response")
+    response_id, flags, questions, answers, authorities, additional = (
+        struct.unpack("!HHHHHH", message[:12])
+    )
+    if response_id != transaction_id or not flags & 0x8000 or flags & 0xF:
+        raise ValueError("invalid DNS response")
+    offset = 12
+    for _ in range(questions):
+        offset = _skip_dns_name(message, offset)
+        if offset + 4 > len(message):
+            raise ValueError("truncated DNS question")
+        offset += 4
+    addresses: list[str] = []
+    for _ in range(answers + authorities + additional):
+        offset = _skip_dns_name(message, offset)
+        if offset + 10 > len(message):
+            raise ValueError("truncated DNS record")
+        record_type, record_class, _, length = struct.unpack(
+            "!HHIH",
+            message[offset : offset + 10],
+        )
+        offset += 10
+        data = message[offset : offset + length]
+        if len(data) != length:
+            raise ValueError("truncated DNS record data")
+        offset += length
+        if record_type == 1 and record_class == 1 and length == 4:
+            addresses.append(str(ipaddress.IPv4Address(data)))
+    result = tuple(dict.fromkeys(addresses))
+    if not result:
+        raise ValueError("Quad9 returned no IPv4 address")
+    return result
+
+
+def quad9_addresses(hostname: str) -> tuple[str, ...]:
+    labels = hostname.encode("idna").split(b".")
+    if any(not label or len(label) > 63 for label in labels):
+        raise ValueError("invalid DNS hostname")
+    transaction_id = secrets.randbits(16)
+    question = b"".join(bytes((len(label),)) + label for label in labels)
+    message = (
+        struct.pack("!HHHHHH", transaction_id, 0x0100, 1, 0, 0, 0)
+        + question
+        + b"\0"
+        + struct.pack("!HH", 1, 1)
+    )
+    context = ssl.create_default_context()
+    with socket.create_connection(
+        (QUAD9_DOT_HOST, QUAD9_DOT_PORT),
+        timeout=CURL_CONNECT_TIMEOUT_SECONDS,
+    ) as raw:
+        with context.wrap_socket(raw, server_hostname=QUAD9_DOT_HOST) as tls:
+            tls.sendall(struct.pack("!H", len(message)) + message)
+            response_size = struct.unpack("!H", _read_exact(tls, 2))[0]
+            response = _read_exact(tls, response_size)
+    return _parse_dns_a_response(response, transaction_id)
+
+
 def curl_command(
     url: str,
     output: Path,
     doh_url: str | None = None,
+    resolved_ip: str | None = None,
 ) -> list[str]:
-    if urlparse(url).scheme != "https":
+    parsed = urlparse(url)
+    if parsed.scheme != "https":
         raise ValueError("HTTPS is required")
+    if doh_url and resolved_ip:
+        raise ValueError("choose DNS-over-HTTPS or a resolved address")
     command = [
         "curl",
         "--proto",
@@ -121,13 +216,21 @@ def curl_command(
         if urlparse(doh_url).scheme != "https":
             raise ValueError("DNS-over-HTTPS requires HTTPS")
         command.extend(("--doh-url", doh_url))
+    if resolved_ip:
+        address = str(ipaddress.IPv4Address(resolved_ip))
+        command.extend(("--resolve", f"{parsed.hostname}:443:{address}"))
     return [*command, url]
 
 
-def download(url: str, output: Path, doh_url: str | None = None) -> None:
+def download(
+    url: str,
+    output: Path,
+    doh_url: str | None = None,
+    resolved_ip: str | None = None,
+) -> None:
     try:
         result = subprocess.run(
-            curl_command(url, output, doh_url),
+            curl_command(url, output, doh_url, resolved_ip),
             check=False,
             capture_output=True,
             text=True,
@@ -142,6 +245,17 @@ def download(url: str, output: Path, doh_url: str | None = None) -> None:
             f"download failed with curl={result.returncode}, "
             f"http={result.stdout!r}: {result.stderr.strip()}"
         )
+
+
+def download_via_quad9(url: str, output: Path) -> None:
+    hostname = urlparse(url).hostname
+    if hostname is None:
+        raise ValueError("download URL requires a hostname")
+    download(
+        url,
+        output,
+        resolved_ip=quad9_addresses(hostname)[0],
+    )
 
 
 def _write_github_output(path: Path | None, **values: str | Path) -> None:
@@ -162,6 +276,17 @@ def extract_archive(platform: str, archive: Path, output: Path) -> None:
         shutil.unpack_archive(archive, output)
 
 
+def blender_executable_path(platform: str, extracted: Path) -> Path:
+    metadata = PLATFORMS[platform]
+    archive_root = metadata["filename"]
+    for suffix in (".tar.xz", ".zip"):
+        archive_root = archive_root.removesuffix(suffix)
+    executable = extracted / archive_root / metadata["executable"]
+    if not executable.is_file():
+        raise ValueError(f"expected Blender executable at {executable}")
+    return executable.resolve()
+
+
 def prepare_blender(
     platform: str,
     output_dir: Path,
@@ -173,8 +298,8 @@ def prepare_blender(
         output_dir / f"checksums-{index}.txt" for index in range(3)
     )
     download(CHECKSUM_URL, checksum_paths[0])
-    for path, doh_url in zip(checksum_paths[1:], DOH_URLS, strict=True):
-        download(CHECKSUM_URL, path, doh_url)
+    download(CHECKSUM_URL, checksum_paths[1], CLOUDFLARE_DOH_URL)
+    download_via_quad9(CHECKSUM_URL, checksum_paths[2])
     payloads = tuple(path.read_bytes() for path in checksum_paths)
     require_checksum_consensus(
         payloads,
@@ -189,10 +314,7 @@ def prepare_blender(
 
     extract_dir = output_dir / "blender"
     extract_archive(platform, archive, extract_dir)
-    executable_matches = list(extract_dir.rglob(metadata["executable"]))
-    if len(executable_matches) != 1:
-        raise ValueError("expected exactly one Blender executable")
-    blender = executable_matches[0].resolve()
+    blender = blender_executable_path(platform, extract_dir)
 
     python_matches = [
         path.resolve()
