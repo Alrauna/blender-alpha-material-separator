@@ -221,6 +221,7 @@ def quad9_addresses(hostname: str) -> tuple[str, ...]:
         + question
     )
     context = ssl.create_default_context()
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
     with socket.create_connection(
         (QUAD9_DOT_HOST, QUAD9_DOT_PORT),
         timeout=CURL_CONNECT_TIMEOUT_SECONDS,
