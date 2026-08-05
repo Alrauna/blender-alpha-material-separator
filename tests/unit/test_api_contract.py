@@ -28,7 +28,7 @@ class ApiContractTests(unittest.TestCase):
 
         payload = json.loads(first)
         self.assertEqual(payload["api_version"], "1.2")
-        self.assertEqual(payload["extension_version"], "1.0.0")
+        self.assertEqual(payload["extension_version"], "1.1.0")
         manifest = tomllib.loads(MANIFEST.read_text(encoding="utf8"))
         self.assertEqual(manifest["version"], payload["extension_version"])
         self.assertTrue(payload["capabilities"]["query_capabilities"])

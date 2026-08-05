@@ -16,6 +16,7 @@ from .operators.ui_actions import (
     ALPHA_MATERIAL_SEPARATOR_OT_add_override,
     ALPHA_MATERIAL_SEPARATOR_OT_cancel_analysis,
     ALPHA_MATERIAL_SEPARATOR_OT_remove_override,
+    ALPHA_MATERIAL_SEPARATOR_OT_reset_analysis_settings,
 )
 
 _CLASSES = (
@@ -29,6 +30,7 @@ _CLASSES = (
     ALPHA_MATERIAL_SEPARATOR_OT_cancel_analysis,
     ALPHA_MATERIAL_SEPARATOR_OT_add_override,
     ALPHA_MATERIAL_SEPARATOR_OT_remove_override,
+    ALPHA_MATERIAL_SEPARATOR_OT_reset_analysis_settings,
     ALPHA_MATERIAL_SEPARATOR_OT_assign_materials,
     ALPHA_MATERIAL_SEPARATOR_OT_clear_results,
     panel.ALPHA_MATERIAL_SEPARATOR_UL_material_overrides,

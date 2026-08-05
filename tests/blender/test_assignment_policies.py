@@ -294,7 +294,9 @@ def run() -> None:
         == 0
     )
     assert suppressed_move_plan.public_payload()["suppressed_faces_to_alpha"] == 1
-    blocked, blocked_state = _assign(state.analysis_id)
+    blocked, blocked_state = _assign(
+        state.analysis_id, suppressed_policy="CANCEL_SOURCE_MATERIAL"
+    )
     assert blocked == {"CANCELLED"}, blocked_state.last_status_json
     assert object_.data.polygons[0].material_index == 0
 

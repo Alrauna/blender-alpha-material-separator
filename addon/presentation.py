@@ -57,7 +57,7 @@ _GUIDANCE = {
         "Face UVs collapse to a line or point",
         "UVs may be outside 0–1; give this face positive UV area, then analyze again.",
     ),
-    "SUPPRESSED_FACES": ("Alpha evidence is below the significance setting", "Review the affected material group or change its Expert policy deliberately."),
+    "SUPPRESSED_FACES": ("Alpha evidence is below the significance setting", "Set Below-Significance Evidence to Keep on source to assign the rest of this material group."),
     "UNSUPPORTED_FACES": ("Some faces could not be analyzed", "Resolve the listed material source before applying this material group."),
     "FACE_LOCAL_UNSUPPORTED_FACES": ("Some faces have uncertain UV coverage", "Move those faces to alpha, keep them on the source, or skip this material group deliberately."),
     "FACE_LOCAL_UNSUPPORTED_TO_ALPHA": ("Uncertain faces will use the alpha material", "This preserves possible transparency at the cost of some additional transparent rendering."),

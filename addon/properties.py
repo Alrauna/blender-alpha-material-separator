@@ -109,10 +109,24 @@ class ALPHA_MATERIAL_SEPARATOR_PG_ui_state(bpy.types.PropertyGroup):
     override_index: IntProperty(default=0, min=0, options={"SKIP_SAVE"})
 
 
+ANALYSIS_SETTING_NAMES = (
+    "alpha_threshold",
+    "min_affected_texels",
+    "min_affected_fraction",
+    "margin_texels",
+    "address_mode",
+    "max_scanlines",
+    "max_run_emissions",
+)
+
+
 class ALPHA_MATERIAL_SEPARATOR_PG_settings(bpy.types.PropertyGroup):
     alpha_threshold: FloatProperty(
         name="Alpha Threshold",
-        description="Pixels below this value count as alpha-affected",
+        description=(
+            "How opaque a texture pixel must be to count as solid — pixels with "
+            "alpha below this are treated as transparent"
+        ),
         default=0.999,
         min=0.0,
         max=1.0,
@@ -121,14 +135,20 @@ class ALPHA_MATERIAL_SEPARATOR_PG_settings(bpy.types.PropertyGroup):
     )
     min_affected_texels: IntProperty(
         name="Minimum Affected Pixels",
-        description="Minimum affected covered pixels needed for a significant result",
+        description=(
+            "How many transparent texture pixels a face must touch before it needs "
+            "alpha; raise this to ignore faces that clip only a few stray pixels"
+        ),
         default=1,
-        min=0,
+        min=1,
         update=_settings_changed,
     )
     min_affected_fraction: FloatProperty(
         name="Minimum Affected Fraction",
-        description="Minimum affected share needed for a significant result",
+        description=(
+            "What share of a face's texture area must be transparent before it "
+            "needs alpha, from 0 to 1, where 0 turns this check off"
+        ),
         default=0.0,
         min=0.0,
         max=1.0,
@@ -137,21 +157,31 @@ class ALPHA_MATERIAL_SEPARATOR_PG_settings(bpy.types.PropertyGroup):
     )
     margin_texels: IntProperty(
         name="Pixel Margin",
-        description="Expand UV coverage by this many image pixels after face coverage is combined",
+        description=(
+            "Also check this many texture pixels beyond each face's UV outline, "
+            "which catches transparency that texture filtering and mipmaps pull in "
+            "when rendering"
+        ),
         default=0,
         min=0,
         update=_settings_changed,
     )
     max_scanlines: IntProperty(
         name="Maximum Scanlines",
-        description="Deterministic safety limit per polygon",
+        description=(
+            "Safety cap on how many texture pixel rows one face may scan, so an "
+            "extreme face is reported as unanalyzed instead of guessed at"
+        ),
         default=1_000_000,
         min=1,
         update=_settings_changed,
     )
     max_run_emissions: IntProperty(
         name="Maximum Pixel Runs",
-        description="Deterministic raster-run safety limit per polygon",
+        description=(
+            "Safety cap on how many horizontal pixel spans one face may produce, "
+            "so an extreme face is reported as unanalyzed instead of guessed at"
+        ),
         default=2_000_000,
         min=1,
         update=_settings_changed,
@@ -159,7 +189,10 @@ class ALPHA_MATERIAL_SEPARATOR_PG_settings(bpy.types.PropertyGroup):
 
     address_mode: EnumProperty(
         name="Default Addressing",
-        description="Addressing used by automatic sources unless a material override replaces it",
+        description=(
+            "How the texture behaves outside its 0–1 UV tile when a face's UVs run "
+            "past the image edge"
+        ),
         items=ADDRESS_MODE_ITEMS,
         default="AUTO",
         update=_settings_changed,
@@ -200,11 +233,11 @@ class ALPHA_MATERIAL_SEPARATOR_PG_settings(bpy.types.PropertyGroup):
     suppressed_policy: EnumProperty(
         name="Below-Significance Evidence",
         items=(
-            ("CANCEL_SOURCE_MATERIAL", "Skip entire material group", "Conservative default"),
+            ("CANCEL_SOURCE_MATERIAL", "Skip entire material group", "Skip after informed review"),
             ("TO_ALPHA", "Move to alpha", "Move after informed review"),
-            ("KEEP_SOURCE", "Keep on source", "Leave after informed review"),
+            ("KEEP_SOURCE", "Keep on source", "Conservative default"),
         ),
-        default="CANCEL_SOURCE_MATERIAL",
+        default="KEEP_SOURCE",
         update=_policy_changed,
     )
     unsupported_policy: EnumProperty(

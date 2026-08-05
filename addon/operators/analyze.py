@@ -69,7 +69,7 @@ class ALPHA_MATERIAL_SEPARATOR_OT_analyze(bpy.types.Operator):
         name="Alpha Threshold", default=0.999, min=0.0, max=1.0, precision=4
     )
     min_affected_texels: IntProperty(
-        name="Minimum Affected Texels", default=1, min=0
+        name="Minimum Affected Texels", default=1, min=1
     )
     min_affected_fraction: FloatProperty(
         name="Minimum Affected Fraction", default=0.0, min=0.0, max=1.0

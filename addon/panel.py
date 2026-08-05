@@ -566,6 +566,11 @@ class ALPHA_MATERIAL_SEPARATOR_PT_analysis_settings(_ExpertPanel, bpy.types.Pane
         limits.label(text="Deterministic Safety Limits")
         limits.prop(settings, "max_scanlines")
         limits.prop(settings, "max_run_emissions")
+        layout.operator(
+            "alpha_material_separator.reset_analysis_settings",
+            text="Reset to Default Values",
+            icon="LOOP_BACK",
+        )
 
 
 class ALPHA_MATERIAL_SEPARATOR_PT_overrides(_ExpertPanel, bpy.types.Panel):

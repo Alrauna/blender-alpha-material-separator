@@ -136,12 +136,12 @@ class ALPHA_MATERIAL_SEPARATOR_OT_assign_materials(bpy.types.Operator):
             (
                 "CANCEL_SOURCE_MATERIAL",
                 "Skip this entire material group",
-                "Conservative default",
+                "Skip after informed review",
             ),
             ("TO_ALPHA", "Move to Alpha", "Move after informed review"),
-            ("KEEP_SOURCE", "Keep Source", "Leave after informed review"),
+            ("KEEP_SOURCE", "Keep Source", "Conservative default"),
         ),
-        default="CANCEL_SOURCE_MATERIAL",
+        default="KEEP_SOURCE",
     )
     unsupported_policy: EnumProperty(
         name="Unsupported Faces",

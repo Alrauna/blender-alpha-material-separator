@@ -26,7 +26,7 @@ def _assert_policy_rna() -> None:
         ),
         "suppressed_policy": (
             ("CANCEL_SOURCE_MATERIAL", "TO_ALPHA", "KEEP_SOURCE"),
-            "CANCEL_SOURCE_MATERIAL",
+            "KEEP_SOURCE",
         ),
         "derived_conflict_policy": (
             ("CANCEL_SOURCE_MATERIAL", "REUSE_EXISTING", "CREATE_NEW_VARIANT"),

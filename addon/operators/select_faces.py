@@ -70,7 +70,7 @@ class ALPHA_MATERIAL_SEPARATOR_OT_select_faces(bpy.types.Operator):
             ("TO_ALPHA", "Move to Alpha", "Move suppressed faces to alpha"),
             ("KEEP_SOURCE", "Keep Source", "Leave suppressed faces on the source"),
         ),
-        default="CANCEL_SOURCE_MATERIAL",
+        default="KEEP_SOURCE",
         options={"HIDDEN", "SKIP_SAVE"},
     )
     unsupported_policy: EnumProperty(
