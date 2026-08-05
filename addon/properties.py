@@ -140,7 +140,7 @@ class ALPHA_MATERIAL_SEPARATOR_PG_settings(bpy.types.PropertyGroup):
             "alpha; raise this to ignore faces that clip only a few stray pixels"
         ),
         default=1,
-        min=0,
+        min=1,
         update=_settings_changed,
     )
     min_affected_fraction: FloatProperty(

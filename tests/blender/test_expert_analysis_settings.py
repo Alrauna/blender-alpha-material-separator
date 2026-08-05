@@ -64,6 +64,27 @@ def _assert_descriptions_are_artist_readable() -> None:
         assert actual == expected, f"{name}: {actual!r}"
 
 
+def _assert_minimum_affected_pixels_is_reachable() -> None:
+    """0 and 1 were indistinguishable, so 0 is no longer offered.
+
+    A face with no affected texels returns OPAQUE before the gate runs, so the
+    gate can never see a value below 1. Offering 0 gave the setting two dead
+    positions instead of one honest weakest filter.
+    """
+    settings = _settings()
+    settings_min = settings.bl_rna.properties["min_affected_texels"].hard_min
+    assert settings_min == 1, settings_min
+
+    operator_rna = bpy.ops.alpha_material_separator.analyze.get_rna_type()
+    operator_min = operator_rna.properties["min_affected_texels"].hard_min
+    assert operator_min == 1, operator_min
+
+    # Blender clamps rather than raising, which keeps older scripts working.
+    settings.min_affected_texels = 0
+    assert settings.min_affected_texels == 1, settings.min_affected_texels
+    settings.property_unset("min_affected_texels")
+
+
 def _defaults():
     properties = _settings().bl_rna.properties
     return {name: properties[name].default for name in ANALYSIS_SETTING_NAMES}
@@ -120,5 +141,6 @@ def _assert_reset_behavior() -> None:
 def run() -> None:
     _assert_names_cover_the_panel()
     _assert_descriptions_are_artist_readable()
+    _assert_minimum_affected_pixels_is_reachable()
     _assert_reset_behavior()
     print("ALPHA_MATERIAL_SEPARATOR_EXPERT_SETTINGS_TESTS_OK")

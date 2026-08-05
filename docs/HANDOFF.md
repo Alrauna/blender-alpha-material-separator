@@ -33,6 +33,12 @@ significance-settings fix, then decide how to integrate
   `ALPHA_MATERIAL_SEPARATOR_OT_reset_analysis_settings`. The reset uses
   `property_unset()` so no default value is duplicated, and it invalidates a
   completed analysis only when a value actually changes.
+- Minimum Affected Pixels no longer offers a dead value. A face with no
+  affected texels returns `OPAQUE` before the gate runs, so the gate can never
+  see a count below 1, which made 0 and 1 behave identically. The RNA hard
+  minimum is now 1 in both `addon/properties.py` and
+  `addon/operators/analyze.py`. Classification is unchanged, and
+  `AnalysisSettings` in the pure core still accepts 0 as "gate off".
 
 ## The significance-settings fix
 
@@ -143,7 +149,8 @@ reported no whitespace errors.
    policy` rather than blocking its group. Also hover each of the seven Expert
    analysis settings to check the rewritten tooltips at the panel's width, and
    press Reset to Default Values with an existing analysis to confirm the panel
-   reports that inputs changed.
+   reports that inputs changed. Confirm that Minimum Affected Pixels will not go
+   below 1 and that 2 still filters as expected.
 3. Decide how to integrate `feat/blender-alpha-material-separator-1.1.0`. It
    needs a pull request because `main` is protected.
 4. Delete `docs/superpowers/` during this milestone's cleanup.
