@@ -7,6 +7,7 @@ import bpy
 from bpy.props import IntProperty, StringProperty
 
 from .. import runtime
+from ..properties import ANALYSIS_SETTING_NAMES
 
 
 class ALPHA_MATERIAL_SEPARATOR_OT_cancel_analysis(bpy.types.Operator):
@@ -62,4 +63,22 @@ class ALPHA_MATERIAL_SEPARATOR_OT_remove_override(bpy.types.Operator):
             settings.material_overrides.remove(index)
             ui.override_index = max(0, min(index, len(settings.material_overrides) - 1))
             runtime.mark_dirty("SETTINGS_CHANGED")
+        return {"FINISHED"}
+
+
+class ALPHA_MATERIAL_SEPARATOR_OT_reset_analysis_settings(bpy.types.Operator):
+    bl_idname = "alpha_material_separator.reset_analysis_settings"
+    bl_label = "Reset to Default Values"
+    bl_description = "Restore every Expert analysis setting to its default value"
+    bl_options = {"INTERNAL"}
+
+    def execute(self, context):
+        settings = context.window_manager.alpha_material_separator_settings
+        before = tuple(getattr(settings, name) for name in ANALYSIS_SETTING_NAMES)
+        for name in ANALYSIS_SETTING_NAMES:
+            settings.property_unset(name)
+        after = tuple(getattr(settings, name) for name in ANALYSIS_SETTING_NAMES)
+        if before != after:
+            runtime.mark_dirty("SETTINGS_CHANGED")
+            runtime.clear_review(context.window_manager)
         return {"FINISHED"}

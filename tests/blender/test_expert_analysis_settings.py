@@ -7,6 +7,12 @@ import bpy
 
 from addon import runtime
 from addon.properties import ANALYSIS_SETTING_NAMES
+from tests.blender.test_analysis_preview import (
+    _clear_scene,
+    _image,
+    _material,
+    _quad,
+)
 
 EXPECTED_DESCRIPTIONS = {
     "alpha_threshold": (
@@ -58,7 +64,61 @@ def _assert_descriptions_are_artist_readable() -> None:
         assert actual == expected, f"{name}: {actual!r}"
 
 
+def _defaults():
+    properties = _settings().bl_rna.properties
+    return {name: properties[name].default for name in ANALYSIS_SETTING_NAMES}
+
+
+def _analyze_clean_report() -> None:
+    result = bpy.ops.alpha_material_separator.analyze()
+    assert result == {"FINISHED"}, result
+    assert runtime.validation_state() == runtime.VALIDATION_CLEAN, (
+        runtime.validation_state()
+    )
+
+
+def _assert_reset_behavior() -> None:
+    _clear_scene()
+    image = _image("AMS_RESET_IMAGE")
+    material, _tree, _principled, _texture = _material("AMS_RESET_SOURCE", image)
+    _quad("AMS_RESET_OBJECT", material)
+    settings = _settings()
+    defaults = _defaults()
+
+    # A reset that changes nothing must not invalidate a valid report.
+    _analyze_clean_report()
+    result = bpy.ops.alpha_material_separator.reset_analysis_settings()
+    assert result == {"FINISHED"}, result
+    assert runtime.validation_state() == runtime.VALIDATION_CLEAN, (
+        runtime.validation_state()
+    )
+
+    # A reset that restores changed values must mark the report stale.
+    settings.alpha_threshold = 0.5
+    settings.min_affected_texels = 7
+    settings.min_affected_fraction = 0.25
+    settings.margin_texels = 3
+    settings.address_mode = "CLIP"
+    settings.max_scanlines = 12
+    settings.max_run_emissions = 34
+    for name in ANALYSIS_SETTING_NAMES:
+        assert getattr(settings, name) != defaults[name], name
+
+    _analyze_clean_report()
+    result = bpy.ops.alpha_material_separator.reset_analysis_settings()
+    assert result == {"FINISHED"}, result
+    for name in ANALYSIS_SETTING_NAMES:
+        assert getattr(settings, name) == defaults[name], name
+    assert runtime.validation_state() == runtime.VALIDATION_STALE, (
+        runtime.validation_state()
+    )
+    assert runtime.dirty_reason() == "SETTINGS_CHANGED", runtime.dirty_reason()
+
+    _clear_scene()
+
+
 def run() -> None:
     _assert_names_cover_the_panel()
     _assert_descriptions_are_artist_readable()
+    _assert_reset_behavior()
     print("ALPHA_MATERIAL_SEPARATOR_EXPERT_SETTINGS_TESTS_OK")

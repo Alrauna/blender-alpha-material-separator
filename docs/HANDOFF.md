@@ -28,6 +28,11 @@ significance-settings fix, then decide how to integrate
 - The Expert significance-settings defect is fixed on
   `feat/blender-alpha-material-separator-1.1.0`. Root cause, design, plan, and
   four implementation commits are complete and locally verified.
+- The seven Expert Analysis Settings tooltips are rewritten in artist-facing
+  language, and the panel has a Reset to Default Values button backed by
+  `ALPHA_MATERIAL_SEPARATOR_OT_reset_analysis_settings`. The reset uses
+  `property_unset()` so no default value is duplicated, and it invalidates a
+  completed analysis only when a value actually changes.
 
 ## The significance-settings fix
 
@@ -69,6 +74,11 @@ The default is now `KEEP_SOURCE` in `addon/properties.py`,
   `addon/operators/select_faces.py`: default `suppressed_policy` to
   `KEEP_SOURCE` and move the conservative-default description to match.
 - `addon/presentation.py`: name the policy that restores a blocked group.
+- `addon/properties.py`: artist-facing descriptions for the seven analysis
+  settings, plus `ANALYSIS_SETTING_NAMES` as the single source of truth for
+  which settings the Expert Analysis Settings panel owns.
+- `addon/operators/ui_actions.py`, `addon/registration.py`, `addon/panel.py`:
+  the Reset to Default Values operator, its registration, and its button.
 - `addon/api_contract.py`, `addon/blender_manifest.toml`: version `1.1.0`.
 - `tests/unit/test_alpha_classification.py`: gate boundary, no-op, and margin
   characterization.
@@ -130,7 +140,10 @@ reported no whitespace errors.
 2. Perform installed-ZIP interactive acceptance in a clean Blender 5.2
    configuration, including Analyze → Preview → Tab to Object Mode → Apply, and
    confirm that a below-significance face now reports under `Faces kept by
-   policy` rather than blocking its group.
+   policy` rather than blocking its group. Also hover each of the seven Expert
+   analysis settings to check the rewritten tooltips at the panel's width, and
+   press Reset to Default Values with an existing analysis to confirm the panel
+   reports that inputs changed.
 3. Decide how to integrate `feat/blender-alpha-material-separator-1.1.0`. It
    needs a pull request because `main` is protected.
 4. Delete `docs/superpowers/` during this milestone's cleanup.
