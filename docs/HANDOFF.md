@@ -43,6 +43,15 @@ then begin that work with investigation and design.
   restriction becomes an obstacle.
 - Documentation commits stay local for now by explicit user decision. Do not
   push them without separate approval.
+- Deleting `docs/superpowers/` is approved in principle but deferred until
+  after the Expert-mode rework, by explicit user decision. Those 21 files
+  describe `addon/panel.py`, `addon/presentation.py`, and
+  `addon/properties.py`, which the rework will change, and the specs record
+  approved-behavior rationale that the source cannot express. One example is
+  that the preview-token gate on Apply was a guided-UI policy rather than a
+  mutation-safety requirement. Nothing references the directory, no test
+  depends on it, and Git retains it after deletion, so waiting costs nothing.
+  Delete the directory as part of the rework milestone cleanup.
 - Keep the Blender version check exact. Existing checksum consensus, committed
   SHA-256 anchors, safe extraction, and least-privilege workflow controls
   remain unchanged.
@@ -78,8 +87,9 @@ and the diff check reported no whitespace errors.
 
 ## Known failures, warnings, and unverified assumptions
 
-- No known failures. Working tree is clean and `main` matches `origin/main`
-  apart from the local, unpushed `CLAUDE.md` commit.
+- No known failures. The working tree is clean and local `main` matches
+  `origin/main` exactly. The unpushed documentation commits live on the local
+  branch `docs/post-release-state`.
 - `docs/superpowers/plans/2026-08-01-github-actions-ci-cd.md` still has
   unchecked boxes for steps that the merge history and hosted runs show were
   executed. They remain unchecked because the current agent did not run those
@@ -97,8 +107,11 @@ and the diff check reported no whitespace errors.
 
 1. Receive the Expert-mode rework brief, then investigate and design before any
    production edit.
-2. Decide when to push the local documentation commits. They now require a
-   pull request because `main` is protected.
+2. Delete `docs/superpowers/` during the rework milestone cleanup, once the
+   Expert-mode work no longer needs its approved-behavior rationale.
+3. Decide when to push the local documentation commits on
+   `docs/post-release-state`. They now require a pull request because `main`
+   is protected.
 
 ## Recommended next action
 
