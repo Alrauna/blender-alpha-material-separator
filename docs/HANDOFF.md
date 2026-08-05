@@ -149,17 +149,19 @@ reported no whitespace errors.
 
 ## Remaining tasks in priority order
 
-1. Perform installed-ZIP interactive acceptance in a clean Blender 5.2
-   configuration, including Analyze → Preview → Tab to Object Mode → Apply, and
-   confirm that a below-significance face now reports under `Faces kept by
-   policy` rather than blocking its group. Also hover each of the seven Expert
-   analysis settings to check the rewritten tooltips at the panel's width, and
-   press Reset to Default Values with an existing analysis to confirm the panel
-   reports that inputs changed. Confirm that Minimum Affected Pixels will not go
-   below 1 and that 2 still filters as expected.
-3. Decide how to integrate `feat/blender-alpha-material-separator-1.1.0`. It
+1. Finish the installed-ZIP interactive acceptance. The user installed
+   `alpha_material_separator-1.1.0.zip`, restarted Blender, exercised the
+   rewritten Expert analysis tooltips on hover, and reported that the build
+   feels good to use. Still unconfirmed in the installed build:
+   - Analyze → Preview → Tab to Object Mode → Apply without a second analysis.
+   - A below-significance face reporting under `Faces kept by policy` rather
+     than blocking its material group.
+   - Reset to Default Values against an existing analysis reporting that inputs
+     changed.
+   - Minimum Affected Pixels refusing to go below 1, with 2 still filtering.
+2. Decide how to integrate `feat/blender-alpha-material-separator-1.1.0`. It
    needs a pull request because `main` is protected.
-4. Delete `docs/superpowers/` during this milestone's cleanup.
+3. Delete `docs/superpowers/` during this milestone's cleanup.
 
 ## Recommended next action
 
