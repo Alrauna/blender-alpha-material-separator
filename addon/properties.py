@@ -200,11 +200,11 @@ class ALPHA_MATERIAL_SEPARATOR_PG_settings(bpy.types.PropertyGroup):
     suppressed_policy: EnumProperty(
         name="Below-Significance Evidence",
         items=(
-            ("CANCEL_SOURCE_MATERIAL", "Skip entire material group", "Conservative default"),
+            ("CANCEL_SOURCE_MATERIAL", "Skip entire material group", "Skip after informed review"),
             ("TO_ALPHA", "Move to alpha", "Move after informed review"),
-            ("KEEP_SOURCE", "Keep on source", "Leave after informed review"),
+            ("KEEP_SOURCE", "Keep on source", "Conservative default"),
         ),
-        default="CANCEL_SOURCE_MATERIAL",
+        default="KEEP_SOURCE",
         update=_policy_changed,
     )
     unsupported_policy: EnumProperty(
