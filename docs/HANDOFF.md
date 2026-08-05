@@ -1,126 +1,99 @@
 # Repository handoff
 
-Updated: 2026-08-01
+Updated: 2026-08-05
 
 ## Current objective
 
-Restore the Windows and Linux validation jobs on draft pull request
-[#2](https://github.com/Alrauna/blender-alpha-material-separator/pull/2).
+Await the user's detailed brief on the Expert-mode features that need rework,
+then begin that work with investigation and design.
 
 ## Completed work
 
-- The version-banner correction was pushed on `ci/automation` at `8d741b6`.
-- Hosted run
-  [30701872660](https://github.com/Alrauna/blender-alpha-material-separator/actions/runs/30701872660)
-  verified and extracted the fixed Blender archives on both platforms, then
-  rejected Blender's official `Blender 5.2.0 LTS` version banner.
-- Commit `8d741b6` corrected that banner check.
-- Hosted run
-  [30702303585](https://github.com/Alrauna/blender-alpha-material-separator/actions/runs/30702303585)
-  then passed all unit and Blender tests on both platforms, but ZIP creation
-  failed because `${{ runner.temp }}/release` did not exist.
-- The local test-first correction now creates that directory before both the
-  validation and release ZIP builds.
-- Commit `7a3b044` contains the focused workflow and regression-test change.
+- The CI/CD milestone is complete. Pull request
+  [#2](https://github.com/Alrauna/blender-alpha-material-separator/pull/2)
+  merged to `main` at `b8af812` on 2026-08-01, with
+  `CI / Windows — Blender 5.2` and `CI / Linux — Blender 5.2` passing on the
+  pull request, on the merge push, and on a manual dispatch.
+- Release `v1.0.0` was published from `b8af812` on 2026-08-01 with
+  `alpha_material_separator-1.0.0.zip` and `SHA256SUMS.txt`. The user approved
+  and tested that release.
+- Pull request
+  [#3](https://github.com/Alrauna/blender-alpha-material-separator/pull/3)
+  merged at `aabb65a` on 2026-08-03. It is a Copilot Autofix one-line change
+  setting `context.minimum_version` to `ssl.TLSVersion.TLSv1_2` in
+  `quad9_addresses`. Hosted CI passed and CodeQL alert 1
+  (`py/insecure-protocol`) is now `fixed`.
+- `CLAUDE.md` is now tracked and redirects to `AGENTS.md`.
 
 ## Important decisions and constraints
 
-- Keep the version check exact. Do not replace it with prefix or loose regex
-  matching.
-- Existing checksum consensus, committed SHA-256 anchors, safe extraction,
-  and least-privilege workflow controls remain unchanged.
-- Do not merge, tag, release, publish, or change repository settings without
+- The TLS autofix stays as it is, with no retroactive regression test, by
+  explicit user decision. Revisit only when further CI/CD work is required.
+  It is effectively a no-op hardening because the default context already
+  floors at TLS 1.2 on the bundled Python 3.13.
+- Branch protection on `main` is proposed but not applied. The proposal is the
+  two CI checks as required status checks plus blocked force pushes and branch
+  deletion. No required reviews, linear history, or signed commits. This is a
+  repository-settings change and needs explicit approval.
+- Keep the Blender version check exact. Existing checksum consensus, committed
+  SHA-256 anchors, safe extraction, and least-privilege workflow controls
+  remain unchanged.
+- Do not push, merge, tag, release, or change repository settings without
   explicit approval.
 
 ## Files changed and why
 
-- `scripts/ci.py`: validate Blender's exact official 5.2.0 LTS banner.
-- `tests/unit/test_ci.py`: generated regression for accepted and rejected
-  version banners.
-- `.github/workflows/ci.yml`: create each temporary ZIP output directory before
-  invoking Blender.
-- `tests/unit/test_ci_workflow_contract.py`: require both build steps to create
-  their output directory first.
-- `docs/HANDOFF.md`: record the current failure, local correction, and next
-  hosted verification.
+- `CLAUDE.md`: point Claude Code at the shared `AGENTS.md` policy.
+- `docs/HANDOFF.md`: replace the stale pre-merge state with the verified
+  post-release state.
 
 ## Validation commands and results
 
-### Hosted failure
-
-Both `CI / Windows — Blender 5.2` and `CI / Linux — Blender 5.2` failed in
-`Verify and extract Blender 5.2.0` with:
-
-```text
-ValueError: unexpected Blender version: 'Blender 5.2.0 LTS'
-```
-
-### RED
+Run on 2026-08-05 against `main` at `aabb65a` with Blender 5.2.0 LTS
+(built 2026-07-14) and its bundled Python 3.13.13.
 
 ```powershell
-& $Python52 -m unittest `
-  tests.unit.test_ci.CiTrustTests.test_blender_version_requires_official_lts_banner `
-  -v
-```
-
-Result: failed because `require_blender_version` did not exist.
-
-### GREEN
-
-```powershell
-& $Python52 -m unittest `
-  tests.unit.test_ci.CiTrustTests.test_blender_version_requires_official_lts_banner `
-  -v
 & $Python52 -m unittest discover -s tests/unit -t . -v
+& $Blender52 --factory-startup --background --disable-autoexec `
+  --python-exit-code 1 --python tests/blender/run_all.py
+& $Blender52 --factory-startup --command extension validate addon
+& $Blender52 --factory-startup --command extension build `
+  --source-dir addon --output-dir .packaged-releases
+& $Blender52 --factory-startup --command extension validate $Archive
 git diff --check
 ```
 
-Result: focused test passed, all 87 unit tests passed, and diff check reported
-no whitespace errors.
-
-The local executable independently reported:
-
-```text
-Blender 5.2.0 LTS
-```
-
-### ZIP output directory RED/GREEN
-
-```powershell
-& $Python52 -m unittest `
-  tests.unit.test_ci_workflow_contract.CiWorkflowContractTests.test_build_steps_create_their_output_directory_first `
-  -v
-```
-
-RED result: both build-step subtests failed because no directory creation
-preceded Blender.
-
-```powershell
-& $Python52 -m unittest `
-  tests.unit.test_ci_workflow_contract.CiWorkflowContractTests.test_build_steps_create_their_output_directory_first `
-  -v
-& $Python52 -m unittest discover -s tests/unit -t . -v
-```
-
-GREEN result: the focused test and all 88 unit tests passed. A real local
-Blender invocation built and validated
-`alpha_material_separator-1.0.0.zip` in a newly created ignored output
-directory.
+Results: 88 unit tests passed; the headless Blender suite exited 0 with every
+expected completion marker including the revalidation matrix, preservation,
+and FBX export; source validation succeeded; the archive built and validated;
+and the diff check reported no whitespace errors.
 
 ## Known failures, warnings, and unverified assumptions
 
-- The output-directory correction is committed locally but has not been pushed.
-- Windows and Linux hosted packaging remain unverified until the corrected
-  branch is pushed and rerun.
+- No known failures. Working tree is clean and `main` matches `origin/main`
+  apart from the local, unpushed `CLAUDE.md` commit.
+- `docs/superpowers/plans/2026-08-01-github-actions-ci-cd.md` still has
+  unchecked boxes for steps that the merge history and hosted runs show were
+  executed. They remain unchecked because the current agent did not run those
+  exact commands.
+- Three earlier plans still show unchecked installed-ZIP interactive
+  acceptance steps. Whether those acceptances were performed and left unticked
+  is unverified.
+- The local recovery branch `feat/alpha-material-separator-0.1` no longer
+  exists. Its history is contained in `main`, so nothing is lost.
+- The git policy in `AGENTS.md` still directs work to `ci/automation`, which is
+  merged and stale.
 - Expected local output includes LF-to-CRLF Git notices.
 
 ## Remaining tasks in priority order
 
-1. Obtain push authorization, push `ci/automation`, and observe both hosted
-   validation jobs.
-2. Address only any newly demonstrated hosted failure.
+1. Receive the Expert-mode rework brief, then investigate and design before any
+   production edit.
+2. Decide whether to apply the proposed branch protection.
+3. Decide whether to push the local `CLAUDE.md` commit.
 
 ## Recommended next action
 
-Push `ci/automation` after explicit authorization, then observe both hosted
-validation jobs.
+Wait for the Expert-mode rework brief. Expert mode is the `SIMPLE`/`EXPERT`
+toggle in `addon/properties.py` that gates the Analysis Settings, Overrides,
+Inspection, Policies, and Technical child panels in `addon/panel.py`.
