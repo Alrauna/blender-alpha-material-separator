@@ -51,7 +51,7 @@ be resolved does not block safe work on another material.
 | **Stay on opaque material** | No covered pixel is below the alpha threshold. | Keep the face on the source material. |
 | **Move to alpha material** | Every covered pixel is alpha-affected. | Move the face to `__AMS_ALPHA`. |
 | **Mixed—must use alpha without cutting geometry** | One polygon covers opaque and alpha-affected pixels. | Move it to alpha because separating part of the polygon would require cutting geometry. |
-| **Below significance—needs review** | Alpha evidence exists but is below an Expert minimum. | Skip that material group unless you choose another Expert policy. |
+| **Below significance—needs review** | Alpha evidence exists but is below an Expert minimum. | Keep the face on the source material and assign the rest of the group normally. |
 | **Could not analyze** | The result or alpha source could not be proven. | Route resolved face-local uncertainty to alpha; leave an unresolved material unchanged. |
 
 ## When a material needs help

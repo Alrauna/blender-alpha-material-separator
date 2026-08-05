@@ -229,6 +229,11 @@ class PresentationTests(unittest.TestCase):
         self.assertIn("collapse", title)
         self.assertIn("outside 0–1", remedy)
 
+    def test_suppressed_guidance_names_the_recovering_policy(self) -> None:
+        title, remedy = guidance_for("SUPPRESSED_FACES")
+        self.assertEqual(title, "Alpha evidence is below the significance setting")
+        self.assertIn("Keep on source", remedy)
+
     def test_default_preview_classes_and_signature(self) -> None:
         self.assertEqual(
             classes_to_move("TO_ALPHA", "CANCEL_SOURCE_MATERIAL"),
