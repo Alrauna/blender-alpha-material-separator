@@ -120,6 +120,80 @@ class ClassificationTests(unittest.TestCase):
         self.assertEqual(result.classification, FaceClass.UNSUPPORTED)
         self.assertEqual(result.unsupported_reason, "BUDGET_SCANLINES")
 
+    def test_affected_count_equal_to_minimum_is_not_suppressed(self):
+        result = classify_polygon(
+            SQUARE,
+            AlphaGrid(2, 2, (True, False, False, False)),
+            settings=AnalysisSettings(min_affected_texels=1),
+        )
+        self.assertEqual(result.classification, FaceClass.MIXED)
+        self.assertEqual(result.failed_gates, ())
+
+    def test_affected_count_below_minimum_is_suppressed(self):
+        result = classify_polygon(
+            SQUARE,
+            AlphaGrid(2, 2, (True, False, False, False)),
+            settings=AnalysisSettings(min_affected_texels=2),
+        )
+        self.assertEqual(result.classification, FaceClass.SUPPRESSED)
+        self.assertEqual(result.failed_gates, ("MIN_AFFECTED_TEXELS",))
+
+    def test_affected_fraction_equal_to_minimum_is_not_suppressed(self):
+        result = classify_polygon(
+            SQUARE,
+            AlphaGrid(2, 2, (True, False, False, False)),
+            settings=AnalysisSettings(min_affected_fraction=0.25),
+        )
+        self.assertEqual(result.classification, FaceClass.MIXED)
+        self.assertEqual(result.failed_gates, ())
+
+    def test_affected_fraction_below_minimum_is_suppressed(self):
+        result = classify_polygon(
+            SQUARE,
+            AlphaGrid(2, 2, (True, False, False, False)),
+            settings=AnalysisSettings(min_affected_fraction=0.26),
+        )
+        self.assertEqual(result.classification, FaceClass.SUPPRESSED)
+        self.assertEqual(result.failed_gates, ("MIN_AFFECTED_FRACTION",))
+
+    def test_texel_minimums_of_zero_and_one_never_suppress(self):
+        # A face with no affected texels returns OPAQUE before the gates run,
+        # so affected is always at least one here. Both values are no-ops.
+        for minimum in (0, 1):
+            with self.subTest(minimum=minimum):
+                result = classify_polygon(
+                    SQUARE,
+                    AlphaGrid(2, 2, (True, False, False, False)),
+                    settings=AnalysisSettings(min_affected_texels=minimum),
+                )
+                self.assertEqual(result.classification, FaceClass.MIXED)
+                self.assertEqual(result.failed_gates, ())
+
+    def test_margin_expands_coverage_and_can_reclassify_a_face(self):
+        centre = tuple(
+            1 <= x <= 2 and 1 <= y <= 2
+            for y in range(4)
+            for x in range(4)
+        )
+        grid = AlphaGrid(4, 4, centre)
+        face = (
+            ((1.0, 1.0), (3.0, 1.0), (3.0, 3.0)),
+            ((1.0, 1.0), (3.0, 3.0), (1.0, 3.0)),
+        )
+
+        exact = classify_polygon(face, grid, settings=AnalysisSettings())
+        self.assertEqual(exact.classification, FaceClass.ALPHA_AFFECTED)
+        self.assertEqual(exact.covered_texels, 4)
+        self.assertEqual(exact.affected_fraction, 1.0)
+
+        expanded = classify_polygon(
+            face, grid, settings=AnalysisSettings(margin_texels=1)
+        )
+        self.assertEqual(expanded.classification, FaceClass.MIXED)
+        self.assertEqual(expanded.covered_texels, 16)
+        self.assertEqual(expanded.affected_texels, 4)
+        self.assertEqual(expanded.affected_fraction, 0.25)
+
 
 if __name__ == "__main__":
     unittest.main()
