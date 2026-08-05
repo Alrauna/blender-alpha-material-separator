@@ -24,6 +24,12 @@ then begin that work with investigation and design.
   `quad9_addresses`. Hosted CI passed and CodeQL alert 1
   (`py/insecure-protocol`) is now `fixed`.
 - `CLAUDE.md` is now tracked and redirects to `AGENTS.md`.
+- Classic branch protection is applied to `main` with user approval. Both
+  `CI / Windows — Blender 5.2` and `CI / Linux — Blender 5.2` are required
+  status checks bound to the GitHub Actions app (`app_id` 15368), force pushes
+  and branch deletion are blocked, and administrators are included. Strict
+  up-to-date branches, required reviews, linear history, and branch locking
+  are all off. Verified by reading the protection endpoint back.
 
 ## Important decisions and constraints
 
@@ -31,10 +37,12 @@ then begin that work with investigation and design.
   explicit user decision. Revisit only when further CI/CD work is required.
   It is effectively a no-op hardening because the default context already
   floors at TLS 1.2 on the bundled Python 3.13.
-- Branch protection on `main` is proposed but not applied. The proposal is the
-  two CI checks as required status checks plus blocked force pushes and branch
-  deletion. No required reviews, linear history, or signed commits. This is a
-  repository-settings change and needs explicit approval.
+- Because administrators are included in branch protection, `main` no longer
+  accepts a direct push. Every change now needs a pull request whose two CI
+  checks pass. Reverting that single setting is one API call if the
+  restriction becomes an obstacle.
+- Documentation commits stay local for now by explicit user decision. Do not
+  push them without separate approval.
 - Keep the Blender version check exact. Existing checksum consensus, committed
   SHA-256 anchors, safe extraction, and least-privilege workflow controls
   remain unchanged.
@@ -89,8 +97,8 @@ and the diff check reported no whitespace errors.
 
 1. Receive the Expert-mode rework brief, then investigate and design before any
    production edit.
-2. Decide whether to apply the proposed branch protection.
-3. Decide whether to push the local `CLAUDE.md` commit.
+2. Decide when to push the local documentation commits. They now require a
+   pull request because `main` is protected.
 
 ## Recommended next action
 
