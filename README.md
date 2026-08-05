@@ -6,6 +6,16 @@ Blender Alpha Material Separator finds mesh faces whose image pixels use alpha.
 Opaque faces stay on the source material, while affected faces use a local
 `__AMS_ALPHA` material copy.
 
+It exists to eliminate unnecessary overdraw. A game engine or other real-time
+renderer cannot skip hidden pixels on a transparent surface, so it shades the
+same pixel on your screen over and over. That repeated shading is overdraw, and
+it costs frame rate. When one transparent material covers a whole mesh, every
+face pays that cost, including faces that are completely solid.
+
+Most models only need alpha in a few places: hair cards, eyelashes, a lace trim,
+a decal. This extension works out which faces actually use alpha and moves only
+those. The solid faces stay on a material the renderer can draw the cheap way.
+
 The result is one object with separate opaque and alpha material sections. The
 extension does not cut geometry, split objects, or rewrite shaders.
 
@@ -106,10 +116,12 @@ alpha-capable candidate. Configure those material sections for the destination
 renderer after export; copying a Blender material does not configure another
 renderer automatically.
 
-Separating opaque and alpha-affected faces can reduce transparent rendering
-work, but the additional material section may add a draw call. Filtering,
-compression, clipping, mipmaps, and shader behavior can also make the final
-render differ from Blender's image-alpha preview.
+Separating the faces is what removes the overdraw, but the saving is not free.
+The extra material section may add a draw call, so a mesh with only a few alpha
+faces may not be worth separating at all. Filtering, compression, clipping,
+mipmaps, and shader behavior can also make the final render differ from
+Blender's image-alpha preview. Measure in the destination engine rather than
+assuming the change is always a win.
 
 ## Troubleshooting
 

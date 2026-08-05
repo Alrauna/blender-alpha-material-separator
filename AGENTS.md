@@ -2,6 +2,17 @@
 
 ## Goal
 
+The purpose is to eliminate unnecessary overdraw. A real-time renderer cannot
+skip hidden pixels on a transparent surface, so it shades the same screen pixel
+over and over; that repeated shading is overdraw. When one alpha-blended
+material covers a whole mesh, every face pays that cost, including faces that
+are completely solid. Moving only the faces that genuinely need alpha onto their
+own material lets the renderer draw the solid remainder the cheap way.
+
+Every design decision follows from that purpose. Being conservative matters
+because wrongly leaving a transparent face on the opaque material makes the
+model render incorrectly, which is far worse than missing a small optimization.
+
 Build a standalone Blender 5.2 LTS extension that conservatively identifies
 original mesh polygons whose UV-covered image texels require alpha rendering,
 allows review through face selection, and assigns reviewed faces to a distinct
