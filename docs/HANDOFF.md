@@ -65,9 +65,11 @@ The default is now `KEEP_SOURCE` in `addon/properties.py`,
   pass.
 - Documentation and feature commits stay local for now by explicit user
   decision. Do not push without separate approval.
-- Deleting `docs/superpowers/` is approved in principle but deferred until
-  after this rework, by explicit user decision. Delete it during the milestone
-  cleanup, including the two documents added for this change.
+- `docs/superpowers/` was deleted on `chore/remove-superseded-artifacts` after
+  a repository-wide over-engineering audit. Its 25 design and plan documents
+  had no inbound reference and no test depended on them; Git history retains
+  them. The same branch removed two orphaned files that nothing referenced,
+  `tests/blender/prepare_interactive_smoke.py` and `scripts/run_benchmarks.ps1`.
 - `addon/api_contract.py` carries `EXTENSION_VERSION` independently of the
   manifest. A release bump must change both; `tests/unit/test_api_contract.py`
   cross-checks them.
@@ -136,11 +138,10 @@ reported no whitespace errors.
   on until a significance gate is deliberately raised. Faces whose UVs fall
   outside the base tile were analyzed rather than rejected. Aggregate counts,
   raw output, and any identifying detail are deliberately not recorded here.
-- `docs/superpowers/plans/2026-08-01-github-actions-ci-cd.md` still has
-  unchecked boxes for steps that the merge history and hosted runs show were
-  executed.
-- Three earlier plans still show unchecked installed-ZIP interactive
-  acceptance steps whose completion is unverified.
+- The deleted plan documents carried unchecked boxes for steps that the merge
+  history and hosted runs show were executed, and unchecked installed-ZIP
+  acceptance steps whose completion was never verifiable. Deleting them ends
+  that ambiguity rather than resolving it; Git history holds the originals.
 - The local recovery branch `feat/alpha-material-separator-0.1` no longer
   exists. Its history is contained in `main`.
 - The git policy in `AGENTS.md` still directs work to `ci/automation`, which is
@@ -159,11 +160,12 @@ reported no whitespace errors.
    - Reset to Default Values against an existing analysis reporting that inputs
      changed.
    - Minimum Affected Pixels refusing to go below 1, with 2 still filtering.
-2. Decide how to integrate `feat/blender-alpha-material-separator-1.1.0`. It
-   needs a pull request because `main` is protected.
-3. Delete `docs/superpowers/` during this milestone's cleanup.
+2. Decide how to integrate `feat/blender-alpha-material-separator-1.1.0` and
+   `chore/remove-superseded-artifacts`. Both need a pull request because `main`
+   is protected. The cleanup branch descends from the feature branch, so
+   landing the feature branch first keeps each diff readable.
 
 ## Recommended next action
 
-Run the private before/after smoke and the installed-ZIP acceptance. Both need
-the user; neither can run headlessly.
+Finish the installed-ZIP acceptance items above. They need the user; none can
+run headlessly.
