@@ -15,7 +15,7 @@ Version 1.0.0 targets Blender 5.2 LTS.
 
 ## Install
 
-1. Download `alpha_material_separator-1.0.0.zip`. Do not unzip it.
+1. Download `alpha_material_separator-1.1.0.zip`. Do not unzip it.
 2. In Blender 5.2, open **Edit → Preferences → Get Extensions**.
 3. Open the upper-right menu, choose **Install from Disk**, and select the ZIP.
 4. Confirm that **Blender Alpha Material Separator** is enabled.
