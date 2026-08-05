@@ -128,6 +128,14 @@ reported no whitespace errors.
 - The design spec originally claimed no existing test relied on the shipped
   default. That was wrong; two did. The spec's risk section records the
   correction.
+- The private `.local-references/default-example/` acceptance was run with the
+  ignored helper in that directory, against both this branch and the
+  pre-change `main`. Both runs succeeded and produced an identical aggregate
+  summary, which is the expected result: the default `min_affected_texels` of 1
+  never suppresses a face, so the new `KEEP_SOURCE` default has nothing to act
+  on until a significance gate is deliberately raised. Faces whose UVs fall
+  outside the base tile were analyzed rather than rejected. Aggregate counts,
+  raw output, and any identifying detail are deliberately not recorded here.
 - `docs/superpowers/plans/2026-08-01-github-actions-ci-cd.md` still has
   unchecked boxes for steps that the merge history and hosted runs show were
   executed.
@@ -141,9 +149,7 @@ reported no whitespace errors.
 
 ## Remaining tasks in priority order
 
-1. Run the private `.local-references/default-example/` before/after smoke.
-   Required because this change alters assignment plans.
-2. Perform installed-ZIP interactive acceptance in a clean Blender 5.2
+1. Perform installed-ZIP interactive acceptance in a clean Blender 5.2
    configuration, including Analyze → Preview → Tab to Object Mode → Apply, and
    confirm that a below-significance face now reports under `Faces kept by
    policy` rather than blocking its group. Also hover each of the seven Expert
