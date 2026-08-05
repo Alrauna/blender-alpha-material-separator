@@ -4,8 +4,9 @@ id = "alpha_material_separator"
 version = "1.1.0"
 name = "Blender Alpha Material Separator"
 tagline = "Classify alpha-covered faces into material slots"
-maintainer = "Alrauna"
+maintainer = "Alrauna <67886220+Alrauna@users.noreply.github.com>"
 type = "add-on"
+website = "https://github.com/Alrauna/blender-alpha-material-separator"
 
 blender_version_min = "5.2.0"
 license = ["SPDX:GPL-3.0-or-later"]
