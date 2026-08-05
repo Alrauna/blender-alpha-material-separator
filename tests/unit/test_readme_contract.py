@@ -3,18 +3,21 @@
 from __future__ import annotations
 
 import re
+import tomllib
 import unittest
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
 README = ROOT / "README.md"
+MANIFEST = ROOT / "addon" / "blender_manifest.toml"
 
 
 class ReadmeContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.text = README.read_text(encoding="utf8")
+        cls.version = tomllib.loads(MANIFEST.read_text(encoding="utf8"))["version"]
 
     def test_guided_workflow_labels_and_location_are_exact(self) -> None:
         for text in (
@@ -30,8 +33,18 @@ class ReadmeContractTests(unittest.TestCase):
             self.assertIn(text, self.text)
 
     def test_current_release_identity_is_documented(self) -> None:
-        self.assertIn("Version 1.0.0 targets Blender 5.2 LTS.", self.text)
-        self.assertIn("alpha_material_separator-1.0.0.zip", self.text)
+        """The README must name the version the manifest actually ships.
+
+        Deriving the version here keeps the check honest. A hardcoded string
+        only proves the README matches the test, and it makes every release
+        edit this file.
+        """
+        self.assertIn(
+            f"Version {self.version} targets Blender 5.2 LTS.", self.text
+        )
+        self.assertIn(
+            f"alpha_material_separator-{self.version}.zip", self.text
+        )
         self.assertNotIn("still undergoing release validation", self.text)
 
     def test_defaults_and_safety_caveats_are_documented(self) -> None:

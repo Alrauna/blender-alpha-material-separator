@@ -9,7 +9,7 @@ Opaque faces stay on the source material, while affected faces use a local
 The result is one object with separate opaque and alpha material sections. The
 extension does not cut geometry, split objects, or rewrite shaders.
 
-Version 1.0.0 targets Blender 5.2 LTS.
+Version 1.1.0 targets Blender 5.2 LTS.
 
 ![The Simple interface in Blender's AMS sidebar](docs/images/01-panel-simple.png)
 
