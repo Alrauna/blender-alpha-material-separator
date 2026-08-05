@@ -4,70 +4,88 @@ Updated: 2026-08-05
 
 ## Current objective
 
-Await the user's detailed brief on the Expert-mode features that need rework,
-then begin that work with investigation and design.
+Complete the acceptance that cannot run headlessly for the 1.1.0
+significance-settings fix, then decide how to integrate
+`feat/blender-alpha-material-separator-1.1.0`.
 
 ## Completed work
 
 - The CI/CD milestone is complete. Pull request
   [#2](https://github.com/Alrauna/blender-alpha-material-separator/pull/2)
-  merged to `main` at `b8af812` on 2026-08-01, with
-  `CI / Windows — Blender 5.2` and `CI / Linux — Blender 5.2` passing on the
-  pull request, on the merge push, and on a manual dispatch.
-- Release `v1.0.0` was published from `b8af812` on 2026-08-01 with
-  `alpha_material_separator-1.0.0.zip` and `SHA256SUMS.txt`. The user approved
-  and tested that release.
+  merged to `main` at `b8af812` on 2026-08-01, with both platform checks
+  passing.
+- Release `v1.0.0` was published from `b8af812` on 2026-08-01. The user
+  approved and tested it.
 - Pull request
   [#3](https://github.com/Alrauna/blender-alpha-material-separator/pull/3)
-  merged at `aabb65a` on 2026-08-03. It is a Copilot Autofix one-line change
-  setting `context.minimum_version` to `ssl.TLSVersion.TLSv1_2` in
-  `quad9_addresses`. Hosted CI passed and CodeQL alert 1
-  (`py/insecure-protocol`) is now `fixed`.
-- `CLAUDE.md` is now tracked and redirects to `AGENTS.md`.
-- Classic branch protection is applied to `main` with user approval. Both
-  `CI / Windows — Blender 5.2` and `CI / Linux — Blender 5.2` are required
-  status checks bound to the GitHub Actions app (`app_id` 15368), force pushes
-  and branch deletion are blocked, and administrators are included. Strict
-  up-to-date branches, required reviews, linear history, and branch locking
-  are all off. Verified by reading the protection endpoint back.
+  merged at `aabb65a` on 2026-08-03, a Copilot Autofix setting
+  `context.minimum_version` to TLS 1.2 in `quad9_addresses`. CodeQL alert 1 is
+  `fixed`.
+- Classic branch protection is applied to `main` with user approval. Both CI
+  checks are required and bound to the GitHub Actions app (`app_id` 15368),
+  force pushes and branch deletion are blocked, and administrators are
+  included.
+- The Expert significance-settings defect is fixed on
+  `feat/blender-alpha-material-separator-1.1.0`. Root cause, design, plan, and
+  four implementation commits are complete and locally verified.
+
+## The significance-settings fix
+
+Analysis, classification, and settings plumbing were all correct. A face below
+either significance gate is classified `SUPPRESSED`, and
+`build_assignment_plan` blocked the entire material group whenever a group
+contained any suppressed face and `suppressed_policy` was
+`CANCEL_SOURCE_MATERIAL`, which was the shipped default. A face that passed the
+gate was therefore discarded because a sibling face did not. Because a face with
+zero affected texels returns `OPAQUE` before the gates run, `min_affected_texels`
+values of `0` and `1` can never suppress, so the setting moved straight from no
+effect to cancelling a material group.
+
+The default is now `KEEP_SOURCE` in `addon/properties.py`,
+`addon/operators/assign_materials.py`, and `addon/operators/select_faces.py`.
+`CANCEL_SOURCE_MATERIAL` remains selectable and still blocks.
 
 ## Important decisions and constraints
 
 - The TLS autofix stays as it is, with no retroactive regression test, by
-  explicit user decision. Revisit only when further CI/CD work is required.
-  It is effectively a no-op hardening because the default context already
-  floors at TLS 1.2 on the bundled Python 3.13.
+  explicit user decision.
 - Because administrators are included in branch protection, `main` no longer
-  accepts a direct push. Every change now needs a pull request whose two CI
-  checks pass. Reverting that single setting is one API call if the
-  restriction becomes an obstacle.
-- Documentation commits stay local for now by explicit user decision. Do not
-  push them without separate approval.
+  accepts a direct push. Every change needs a pull request whose two CI checks
+  pass.
+- Documentation and feature commits stay local for now by explicit user
+  decision. Do not push without separate approval.
 - Deleting `docs/superpowers/` is approved in principle but deferred until
-  after the Expert-mode rework, by explicit user decision. Those 21 files
-  describe `addon/panel.py`, `addon/presentation.py`, and
-  `addon/properties.py`, which the rework will change, and the specs record
-  approved-behavior rationale that the source cannot express. One example is
-  that the preview-token gate on Apply was a guided-UI policy rather than a
-  mutation-safety requirement. Nothing references the directory, no test
-  depends on it, and Git retains it after deletion, so waiting costs nothing.
-  Delete the directory as part of the rework milestone cleanup.
-- Keep the Blender version check exact. Existing checksum consensus, committed
-  SHA-256 anchors, safe extraction, and least-privilege workflow controls
-  remain unchanged.
+  after this rework, by explicit user decision. Delete it during the milestone
+  cleanup, including the two documents added for this change.
+- `addon/api_contract.py` carries `EXTENSION_VERSION` independently of the
+  manifest. A release bump must change both; `tests/unit/test_api_contract.py`
+  cross-checks them.
 - Do not push, merge, tag, release, or change repository settings without
   explicit approval.
 
 ## Files changed and why
 
+- `addon/properties.py`, `addon/operators/assign_materials.py`,
+  `addon/operators/select_faces.py`: default `suppressed_policy` to
+  `KEEP_SOURCE` and move the conservative-default description to match.
+- `addon/presentation.py`: name the policy that restores a blocked group.
+- `addon/api_contract.py`, `addon/blender_manifest.toml`: version `1.1.0`.
+- `tests/unit/test_alpha_classification.py`: gate boundary, no-op, and margin
+  characterization.
+- `tests/blender/test_significance_settings.py`, `tests/blender/run_all.py`:
+  the sibling-face regression, the resolved defaults, and the end-to-end
+  default assignment outcome.
+- `tests/blender/test_assignment_policies.py`,
+  `tests/blender/test_simplification_contracts.py`,
+  `tests/unit/test_api_contract.py`, `tests/unit/test_presentation.py`:
+  expectations updated for the new default and version.
+- `README.md`, `docs/algorithm.md`: describe the new default action, the
+  Chebyshev margin, and the strict gate comparison.
 - `CLAUDE.md`: point Claude Code at the shared `AGENTS.md` policy.
-- `docs/HANDOFF.md`: replace the stale pre-merge state with the verified
-  post-release state.
 
 ## Validation commands and results
 
-Run on 2026-08-05 against `main` at `aabb65a` with Blender 5.2.0 LTS
-(built 2026-07-14) and its bundled Python 3.13.13.
+Run on 2026-08-05 with Blender 5.2.0 LTS and its bundled Python 3.13.13.
 
 ```powershell
 & $Python52 -m unittest discover -s tests/unit -t . -v
@@ -80,41 +98,44 @@ Run on 2026-08-05 against `main` at `aabb65a` with Blender 5.2.0 LTS
 git diff --check
 ```
 
-Results: 88 unit tests passed; the headless Blender suite exited 0 with every
-expected completion marker including the revalidation matrix, preservation,
-and FBX export; source validation succeeded; the archive built and validated;
-and the diff check reported no whitespace errors.
+Results: 95 unit tests passed; the headless suite exited 0 with every
+completion marker including the new
+`ALPHA_MATERIAL_SEPARATOR_SIGNIFICANCE_TESTS_OK`; source validation succeeded;
+`alpha_material_separator-1.1.0.zip` built and validated; and the diff check
+reported no whitespace errors.
 
 ## Known failures, warnings, and unverified assumptions
 
-- No known failures. The working tree is clean and local `main` matches
-  `origin/main` exactly. The unpushed documentation commits live on the local
-  branch `docs/post-release-state`.
+- No known failures. Local `main` matches `origin/main`. Unpushed work is on
+  `docs/post-release-state` and `feat/blender-alpha-material-separator-1.1.0`,
+  which contains the former plus the four fix commits.
+- The design spec originally claimed no existing test relied on the shipped
+  default. That was wrong; two did. The spec's risk section records the
+  correction.
 - `docs/superpowers/plans/2026-08-01-github-actions-ci-cd.md` still has
   unchecked boxes for steps that the merge history and hosted runs show were
-  executed. They remain unchecked because the current agent did not run those
-  exact commands.
+  executed.
 - Three earlier plans still show unchecked installed-ZIP interactive
-  acceptance steps. Whether those acceptances were performed and left unticked
-  is unverified.
+  acceptance steps whose completion is unverified.
 - The local recovery branch `feat/alpha-material-separator-0.1` no longer
-  exists. Its history is contained in `main`, so nothing is lost.
+  exists. Its history is contained in `main`.
 - The git policy in `AGENTS.md` still directs work to `ci/automation`, which is
   merged and stale.
 - Expected local output includes LF-to-CRLF Git notices.
 
 ## Remaining tasks in priority order
 
-1. Receive the Expert-mode rework brief, then investigate and design before any
-   production edit.
-2. Delete `docs/superpowers/` during the rework milestone cleanup, once the
-   Expert-mode work no longer needs its approved-behavior rationale.
-3. Decide when to push the local documentation commits on
-   `docs/post-release-state`. They now require a pull request because `main`
-   is protected.
+1. Run the private `.local-references/default-example/` before/after smoke.
+   Required because this change alters assignment plans.
+2. Perform installed-ZIP interactive acceptance in a clean Blender 5.2
+   configuration, including Analyze → Preview → Tab to Object Mode → Apply, and
+   confirm that a below-significance face now reports under `Faces kept by
+   policy` rather than blocking its group.
+3. Decide how to integrate `feat/blender-alpha-material-separator-1.1.0`. It
+   needs a pull request because `main` is protected.
+4. Delete `docs/superpowers/` during this milestone's cleanup.
 
 ## Recommended next action
 
-Wait for the Expert-mode rework brief. Expert mode is the `SIMPLE`/`EXPERT`
-toggle in `addon/properties.py` that gates the Analysis Settings, Overrides,
-Inspection, Policies, and Technical child panels in `addon/panel.py`.
+Run the private before/after smoke and the installed-ZIP acceptance. Both need
+the user; neither can run headlessly.

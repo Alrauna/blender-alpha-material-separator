@@ -158,10 +158,25 @@ and planned polygon material-index changes are permitted.
 
 ## Risk
 
-Existing tests pass policies explicitly rather than relying on the default, so
-the blast radius is small. The two headless tests that combine
-`min_affected_texels=2` with an explicit `CANCEL_SOURCE_MATERIAL` continue to
-assert the blocking path and must keep passing unchanged.
+Corrected during implementation. This section originally claimed that every
+existing test named its policy explicitly and that the blast radius was
+therefore small. Two tests did rely on the shipped default:
+
+- `tests/blender/test_assignment_policies.py:297` called the assignment
+  operator without naming a policy and asserted `CANCELLED`. It now names
+  `CANCEL_SOURCE_MATERIAL` so it keeps covering the blocking path. The
+  operator-level default outcome moved into the new regression, so no coverage
+  was lost.
+- `tests/blender/test_simplification_contracts.py:29` pins the public RNA
+  defaults and failed by design. Its pinned value is now `KEEP_SOURCE`. The
+  enum identifier order is unchanged.
+
+Both continue to assert that no face is moved, so the change alters the
+reported status rather than any mutation.
+
+`addon/api_contract.py` carries `EXTENSION_VERSION` independently of the
+manifest, so a release bump must change both. `test_api_contract.py`
+cross-checks them.
 
 Settings live on `WindowManager` (`addon/registration.py:51`) and are not saved
 into blend files, so the new default applies on the next session with no
