@@ -13,7 +13,7 @@ pair was inspected after approval. No identifying names, paths, assets, graph
 dumps, or raw results are retained here, and no prevalence claim is made from a
 single pair.
 
-The guaranteed version 0.1 boundary remains:
+The guaranteed support boundary remains:
 
 - Direct Image Texture **Alpha** output to the Alpha input of the Principled
   BSDF directly connected to the active Material Output.
