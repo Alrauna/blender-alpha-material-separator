@@ -26,7 +26,7 @@ material slot without changing topology.
 - `tests/unit/`: ordinary Python core tests.
 - `tests/blender/`: headless Blender lifecycle and integration tests.
 - `tests/fixtures/`: generated, redistributable fixtures and generators.
-- `scripts/`: characterization, build, test, and benchmark entry points.
+- `scripts/`: characterization, build, and CI entry points.
 - `docs/`: algorithm, support matrix, API, testing, performance, and workflow.
 - `.local-references/`: lawful private inputs; never commit its contents.
 - `.packaged-releases/`: generated ZIPs; never commit.
@@ -47,6 +47,13 @@ material slot without changing topology.
   preservation checks, and commit boundaries. Obtain user approval before
   execution. A plan may be concise for a narrow change, but a small expected
   diff is not a reason to omit it.
+- Design specs and implementation plans live in `docs/superpowers/specs/` and
+  `docs/superpowers/plans/` while the work is in flight, and are committed so
+  the approved wording is reviewable. Delete them from `main` once the milestone
+  they describe is complete and committed. Git history retains them, so a
+  completed milestone leaves its rationale recoverable without carrying
+  superseded documents in the working tree. Do not treat that deletion as
+  optional cleanup; it is the last step of the milestone.
 - Execute approved plans with `executing-plans` by default.
   `subagent-driven-development` or parallel dispatch requires an explicit user
   request and independent work that can be safely isolated.
@@ -92,10 +99,10 @@ material slot without changing topology.
 - Blender dependency-graph notifications are invalidation hints, not proof that
   an analysis is stale. Selection and Object/Edit Mode changes must preserve a
   reviewed report when authoritative input fingerprints remain equal.
-- Version 1.0 assignment may create or reuse a local derived material, write
-  namespaced AMS metadata on that derived material, append/reuse its material
-  slot, and change only reviewed polygon material indices. It must support undo
-  and repeated-run idempotence. Source materials remain unchanged.
+- Assignment may create or reuse a local derived material, write namespaced AMS
+  metadata on that derived material, append/reuse its material slot, and change
+  only reviewed polygon material indices. It must support undo and repeated-run
+  idempotence. Source materials remain unchanged.
 - Never modify unselected objects or silently make linked/shared data local or
   single-user.
 - Preserve armatures, weights, shape keys, UVs, normals, attributes, modifiers,
@@ -111,7 +118,7 @@ material slot without changing topology.
 
 The material-support checkpoint is complete. `docs/material-support.md` is the
 authoritative list of approved automatic patterns, overrides, and unsupported
-cases for version 0.1. Do not duplicate a partial resolver list here.
+cases for the current release. Do not duplicate a partial resolver list here.
 Additional automatic patterns still require user approval before implementation.
 
 Private characterization may inspect lawful `.local-references/` inputs.
@@ -137,8 +144,14 @@ Use all applicable layers of this test pyramid:
 3. Semantic before/after preservation tests. Compare material datablock roles
    and polygon assignments rather than private names or slot numbers.
 4. Installed-ZIP interactive acceptance in a clean Blender 5.2 configuration.
+   This layer is user-performed. An agent cannot drive the Blender UI, so it
+   must report these items as pending and name exactly which interactions remain
+   unconfirmed rather than implying they passed.
 5. Instrumented performance tests covering cold analysis, digest validation,
    component rechecks, and coverage/prefix reuse.
+
+The private `.local-references/` before/after smoke is likewise user-gated: an
+agent may run it only when the user confirms those inputs are available.
 
 For a state-invalidation fix, add the smallest paired harmless/real-change
 regression that demonstrates the defect through both the real dependency-graph
@@ -176,7 +189,10 @@ objects before and after.
 Cache and performance tests must record component-hash calls, image-digest
 rows, rasterized polygons, coverage cache hits/misses, validity transitions,
 and elapsed time. Use one discarded warm-up followed by five measured runs.
-Block unexplained established same-machine regressions over 25 percent.
+Block an unexplained regression over 25 percent against a before/after pair
+measured in the same session on the same machine. No baseline persists between
+sessions: `.test-output/` is ignored, so a cross-session comparison is not
+available and must not be claimed.
 
 Modal-analysis tests must mutate participating inputs between work chunks and
 prove that no hybrid report is published. Cancellation or failed replacement
@@ -218,8 +234,13 @@ edit. Remove or revise items that no longer require immediate attention.
 
 ## CI/CD security
 
-- Keep `CI / Windows — Blender 5.2` and `CI / Linux — Blender 5.2` stable; both
-  are required merge checks once repository protection is configured.
+- Keep `CI / Windows — Blender 5.2` and `CI / Linux — Blender 5.2` stable. Both
+  are required merge checks on `main`, bound to the GitHub Actions app, with
+  force pushes and branch deletion blocked and administrators included.
+  Consequently `main` accepts no direct push: every change lands through a pull
+  request whose two checks pass. The workflow triggers only for pull requests
+  based on `main`, so a pull request aimed at any other branch reports no checks
+  and cannot satisfy protection.
 - Keep workflow permissions at `contents: read` by default. Only the protected
   manual release job may use `contents: write`, and `GH_TOKEN` belongs only on
   individual `gh` command steps.
@@ -259,10 +280,25 @@ $Python52 = 'C:\Program Files\Blender Foundation\Blender 5.2\5.2\python\bin\pyth
 & $Python52 -m unittest discover -s tests/unit -t . -v
 & $Blender52 --factory-startup --background --disable-autoexec --python-exit-code 1 --python tests/blender/run_all.py
 & $Blender52 --factory-startup --command extension validate addon
+Remove-Item .\.packaged-releases\*.zip -ErrorAction SilentlyContinue
 & $Blender52 --factory-startup --command extension build --source-dir addon --output-dir .packaged-releases
-$Archive = (Resolve-Path .\.packaged-releases\alpha_material_separator-1.0.0.zip).Path
+$Archive = (Get-ChildItem .\.packaged-releases\alpha_material_separator-*.zip | Select-Object -ExpandProperty FullName)
 & $Blender52 --factory-startup --command extension validate $Archive
 ```
+
+The benchmark suite is separate because it runs for many minutes and is not part
+of the ordinary change gate:
+
+```powershell
+& $Blender52 --factory-startup --background --python-exit-code 1 `
+  --python tests/blender/run_benchmarks.py `
+  -- --output .test-output/benchmarks/baseline.json
+```
+
+Clear `.packaged-releases` before building. Ordinary validation must find
+exactly one AMS ZIP, so leaving archives from earlier versions there breaks
+discovery. Never name a version in an ordinary validation path; only the strict
+release path derives a filename from the validated version.
 
 ## Change completion gate
 
@@ -285,14 +321,20 @@ SDK/shader results apply only to the exact tested stack.
 
 ## Git policy
 
-Complete the approved release transition on
-`feat/alpha-material-separator-0.1`; after its verified fast-forward to `main`,
-work on `ci/automation`. Retain the feature branch as a local recovery
-reference. Create coherent local commits only at approved milestone
-boundaries. During implementation, commit each coherent, verified unit before
-starting a materially different task; do not accumulate unrelated completed
-work until the end of a long turn. Stage explicit paths and inspect the staged
-diff so each commit contains only its stated scope. Preserve unrelated user
-changes, and never commit ignored/private/generated outputs. Do not initialize
-another repository, rewrite history, alter remotes, or push without separate
-approval.
+Start each piece of work on a topic branch cut from an up-to-date `main`, and
+land it through a pull request. `main` is protected and accepts no direct push.
+
+Base a pull request on `main`, not on another unmerged branch. A stacked pull
+request reports no checks, cannot satisfy protection, and if its base branch is
+deleted on merge the stacked merge silently lands nowhere. When work genuinely
+builds on an unmerged branch, wait for that branch to land, rebase onto the
+updated `main`, then open the pull request.
+
+During implementation, commit each coherent, verified unit before starting a
+materially different task; do not accumulate unrelated completed work until the
+end of a long turn. Stage explicit paths and inspect the staged diff so each
+commit contains only its stated scope. Preserve unrelated user changes, and
+never commit ignored/private/generated outputs. Do not initialize another
+repository, alter remotes, or push without separate approval. Rewriting history
+is allowed only to rebase a branch that has never been pushed; published history
+requires separate approval.

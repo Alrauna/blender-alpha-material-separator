@@ -8,9 +8,10 @@ $Blender52 = 'C:\Program Files\Blender Foundation\Blender 5.2\blender.exe'
 python -m unittest discover -s tests/unit -t . -v
 & $Blender52 --factory-startup --background --python-exit-code 1 --python tests/blender/run_all.py
 & $Blender52 --factory-startup --command extension validate addon
+Remove-Item .\.packaged-releases\*.zip -ErrorAction SilentlyContinue
 .\scripts\build_extension.ps1 -Blender $Blender52
 
-$Archive = (Resolve-Path .\.packaged-releases\alpha_material_separator-1.0.0.zip).Path
+$Archive = (Get-ChildItem .\.packaged-releases\alpha_material_separator-*.zip | Select-Object -ExpandProperty FullName)
 & $Blender52 --factory-startup --command extension validate $Archive
 
 $IsolatedRoot = Join-Path (Resolve-Path .\.test-output).Path "isolated-install-$PID"
@@ -95,10 +96,12 @@ $Python52 = 'C:\Program Files\Blender Foundation\Blender 5.2\5.2\python\bin\pyth
 & $Blender52 --factory-startup --background --disable-autoexec `
   --python-exit-code 1 --python tests/blender/run_all.py
 & $Blender52 --factory-startup --command extension validate addon
+Remove-Item .\.packaged-releases\*.zip -ErrorAction SilentlyContinue
 & $Blender52 --factory-startup --command extension build `
   --source-dir addon --output-dir .packaged-releases
 & $Blender52 --factory-startup --command extension validate `
-  .packaged-releases/alpha_material_separator-1.0.0.zip
+  (Get-ChildItem .\.packaged-releases\alpha_material_separator-*.zip |
+    Select-Object -ExpandProperty FullName)
 ```
 
 ## Required test layers

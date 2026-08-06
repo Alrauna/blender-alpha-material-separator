@@ -1,17 +1,17 @@
-# Version 1.0 material-support matrix
+# Material-support matrix
 
-Status: **approved and implemented for version 1.0**.
+Status: **approved and implemented**.
 
 ## Status meanings
 
-- **Guaranteed**: required for version 0.1 regardless of private survey inputs.
+- **Guaranteed**: required regardless of private survey inputs.
 - **Supported**: approved deterministic resolver behavior.
-- **Deferred**: remain unsupported in version 0.1 unless separately approved.
+- **Deferred**: remain unsupported unless separately approved.
 - **Unsupported**: intentionally rejected rather than guessed.
 
 ## Alpha-source resolution
 
-| Pattern | Status | Version 1.0 behavior |
+| Pattern | Status | Current behavior |
 | --- | --- | --- |
 | Image Texture Alpha directly connected to active Principled Alpha | Guaranteed | Resolve that exact image. Other image nodes do not make it ambiguous because the alpha link is authoritative. |
 | Explicit image and UV-map overrides | Guaranteed | Use the selected raw UV layer and image; do not infer or evaluate the shader graph. |
@@ -27,23 +27,23 @@ Status: **approved and implemented for version 1.0**.
 
 ## UV/vector resolution
 
-| Pattern | Status | Version 1.0 behavior |
+| Pattern | Status | Current behavior |
 | --- | --- | --- |
 | Explicit UV-map override | Guaranteed | Use the named per-loop UV map exactly. |
 | Image vector unlinked, using active render UV | Supported | Resolve the active-render layer, require it to exist, and include active/render selection in cache signatures. |
 | Direct UV Map node to Image Vector | Supported | Use the named UV layer; missing/blank names are unsupported. |
 | Direct Texture Coordinate UV to Image Vector | Supported | Use the active-render UV layer. |
 | Mapping node between UV and Image Vector | Deferred | Do not ignore translation, rotation, scale, vector type, or animated values. |
-| Generated/Object/Normal/Reflection coordinates | Unsupported | The version 0.1 polygon UV rasterizer cannot reproduce them. |
+| Generated/Object/Normal/Reflection coordinates | Unsupported | The polygon UV rasterizer cannot reproduce them. |
 | Non-FLAT Image Texture projection | Unsupported | Report `UNSUPPORTED_PROJECTION`. |
 
 ## Addressing and images
 
-| Input | Status | Version 1.0 behavior |
+| Input | Status | Current behavior |
 | --- | --- | --- |
 | Repeat, Extend, Clip, Mirror | Guaranteed | Honor the resolved node mode; explicit image override defaults to Repeat unless overridden. |
 | Static FILE, packed, GENERATED image | Guaranteed baseline adapter scope | Read current in-memory pixels in bounded complete-row chunks; malformed/unreadable images are unsupported. |
-| TILED/UDIM, movie, sequence, viewer/render result | Deferred | No arbitrary tile/frame/source selection in version 0.1. |
+| TILED/UDIM, movie, sequence, viewer/render result | Deferred | No arbitrary tile/frame/source selection. |
 
 ## Decision record
 
