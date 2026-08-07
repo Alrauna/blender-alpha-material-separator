@@ -4,8 +4,40 @@ Updated: 2026-08-07
 
 ## Current objective
 
-Finish the installed-ZIP interactive acceptance for 1.1.0. Nothing else is in
-flight.
+Land `feat/credits-support-panel-1.1.1`, then finish the installed-ZIP
+interactive acceptance.
+
+## In flight: 1.1.1 on feat/credits-support-panel-1.1.1
+
+Four commits, verified locally, not yet pushed.
+
+- `addon/manifest.py` is a new bpy-free reader for the packaged manifest. It
+  reads once, degrades to empty values rather than raising, and applies the
+  Windows extended-length prefix because an installed extension can sit past
+  `MAX_PATH` where a plain path will not open.
+- `EXTENSION_VERSION` in `addon/api_contract.py` is now derived from that module
+  instead of hand-edited. **A release now edits `addon/blender_manifest.toml`
+  and `README.md` only.** That was proved rather than assumed: bumping the
+  manifest alone left `test_api_contract` passing untouched and failed only
+  `test_readme_contract`.
+- `ALPHA_MATERIAL_SEPARATOR_PT_credits` is a new Credits & Support panel above
+  the workflow panel, showing version, maintainer, and issue tracker from the
+  manifest. Ordering is explicit through `bl_order` on both panels rather than
+  relying on registration order. It uses the built-in `wm.url_open`, so there is
+  no new operator and no icon system.
+- The second box in that panel deliberately repeats the issue tracker. It is a
+  placeholder for a Discord link that does not exist yet, and a comment in
+  `addon/panel.py` says so.
+- The manifest is confirmed present at the root of the built archive, which is
+  what the panel reads once installed.
+
+Verified on this branch: 101 unit tests, headless suite exit 0 with 15 markers
+including `ALPHA_MATERIAL_SEPARATOR_CREDITS_PANEL_TESTS_OK`, source validation,
+and `alpha_material_separator-1.1.1.zip` built and validated.
+
+Delete `docs/superpowers/plans/2026-08-07-credits-support-panel.md` when this
+milestone lands. That deletion is the last step of the milestone, not optional
+cleanup.
 
 ## State
 
@@ -104,7 +136,14 @@ use. Still unconfirmed in the installed build:
   changed.
 - Minimum Affected Pixels refusing to go below 1, with 2 still filtering.
 
+New in 1.1.1, also unconfirmed in an installed build:
+
+- Credits & Support appears **above** Alpha Material Separator in the AMS tab.
+- The version and maintainer read correctly, and **Report Bug on GitHub** opens
+  the issue tracker.
+
 ## Recommended next action
 
-Walk the four unconfirmed interactions above in the installed build. They need
+Push `feat/credits-support-panel-1.1.1` and open a pull request based on `main`,
+then walk the unconfirmed interactions above in the installed build. Those need
 the user; an agent cannot drive the Blender UI.
