@@ -35,9 +35,10 @@ Verified on this branch: 101 unit tests, headless suite exit 0 with 15 markers
 including `ALPHA_MATERIAL_SEPARATOR_CREDITS_PANEL_TESTS_OK`, source validation,
 and `alpha_material_separator-1.1.1.zip` built and validated.
 
-Delete `docs/superpowers/plans/2026-08-07-credits-support-panel.md` when this
-milestone lands. That deletion is the last step of the milestone, not optional
-cleanup.
+The user installed that archive and confirmed the panel reads correctly, which
+closes the 1.1.1 interactive acceptance for this scope.
+`docs/superpowers/plans/2026-08-07-credits-support-panel.md` is deleted as the
+last step of the milestone; git history retains the approved wording.
 
 ## State
 
@@ -70,10 +71,11 @@ Pixels no longer offers a value that does nothing.
 
 ## Important decisions and constraints
 
-- `addon/api_contract.py` carries `EXTENSION_VERSION` independently of
-  `addon/blender_manifest.toml`. A release bump must change both;
-  `tests/unit/test_api_contract.py` cross-checks them and will fail if only one
-  moves. This caught a real mistake during the 1.1.0 bump.
+- `EXTENSION_VERSION` in `addon/api_contract.py` is derived from
+  `addon/blender_manifest.toml` as of this branch, so a release edits the
+  manifest and `README.md` only. `tests/unit/test_api_contract.py` still
+  cross-checks the two, which is what caught the hand-edited mismatch during the
+  1.1.0 bump.
 - `README.md` is the only document that names a version, and
   `tests/unit/test_readme_contract.py` derives that version from the manifest.
   Keep other documents version-neutral rather than bumping them each release.
@@ -136,14 +138,55 @@ use. Still unconfirmed in the installed build:
   changed.
 - Minimum Affected Pixels refusing to go below 1, with 2 still filtering.
 
-New in 1.1.1, also unconfirmed in an installed build:
+The 1.1.1 credits panel is confirmed in an installed build: it appears above
+Alpha Material Separator, and version, maintainer, and the issue-tracker button
+all read correctly.
 
-- Credits & Support appears **above** Alpha Material Separator in the AMS tab.
-- The version and maintainer read correctly, and **Report Bug on GitHub** opens
-  the issue tracker.
+## Follow-up work, not started
+
+Two separate objectives came out of 1.1.1 testing. Neither belongs on the
+credits-panel branch.
+
+**Manual alpha source usability.** The Image field is a real image-ID selector,
+but the flow dead-ends. An override carrying a material and no image resolves
+through the automatic path that already failed, so `Set Manual Alpha Source`
+followed by Analyze reports the identical failure; the field that must be filled
+lives in a `DEFAULT_CLOSED` child panel the button does not open; adding the
+override marks the report stale, so the Material Details list the user clicked
+from is replaced by **Inputs Changed**; there is no way to load an image from
+disk; and `uv_map_name` is free text where a typo makes the whole material
+unsupported. Candidate fixes, smallest first: treat an image-less override as
+incomplete through the existing `invalid_overrides` path, use `template_ID` with
+`open="image.open"`, `prop_search` the UV name against the active object's
+layers, and drop or grey overrides whose material left the selection instead of
+raising `OVERRIDE_TARGET_NOT_SELECTED`. Drawing the override editor inline in
+Material Details is the real fix and needs its own spec.
+
+**Integration-contract defects,** on `feat/api-fixes-1.2`, from a reviewer
+working on CATS integration. All six were verified against the code:
+
+- `capability_payload()["address_modes"]` strips `AUTO`, but the parser accepts
+  it, `docs/integration-api.md` documents it, and it is the property default
+  every override starts at. The payload contradicts its own documentation.
+- `analyze`'s legacy `image_name`, `uv_map_name`, and `image_channel` lack
+  `SKIP_SAVE`, which is the only reason the panel resets three fields per draw.
+- The modal cancel path calls `_finish_modal` — which tags a redraw — before
+  publishing `ANALYSIS_CANCELLED`. Every other path publishes first.
+- `validation_state` flips to `STALE` while `last_status_code` still reads
+  `ANALYSIS_COMPLETE`, so a consumer reading either field alone is wrong.
+- `ANALYSIS_SETTING_NAMES` is load-bearing for callers but lives in
+  `properties.py`, outside anything `api_major` guards.
+- A count-asserting test is missing for panel-built `material_overrides_json`.
+
+`reset_analysis_settings` is deliberately excluded: it is `INTERNAL` and absent
+from `PUBLIC_OPERATOR_IDS`, so promoting it would create a contract obligation
+that does not exist today.
 
 ## Recommended next action
 
-Push `feat/credits-support-panel-1.1.1` and open a pull request based on `main`,
-then walk the unconfirmed interactions above in the installed build. Those need
-the user; an agent cannot drive the Blender UI.
+Land `feat/credits-support-panel-1.1.1`, then execute the API fixes on
+`feat/api-fixes-1.2`. Two decisions are open there: whether correcting
+`address_modes` warrants an API minor bump (the recommendation is no, because
+the published list contradicted documented 1.2 behavior rather than adding a
+feature), and whether `mark_dirty` should publish a `RESULT_STALE` status rather
+than only documenting that `validation_state` must be read alongside the code.
