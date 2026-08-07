@@ -1,171 +1,110 @@
 # Repository handoff
 
-Updated: 2026-08-05
+Updated: 2026-08-07
 
 ## Current objective
 
-Complete the acceptance that cannot run headlessly for the 1.1.0
-significance-settings fix, then decide how to integrate
-`feat/blender-alpha-material-separator-1.1.0`.
+Finish the installed-ZIP interactive acceptance for 1.1.0. Nothing else is in
+flight.
 
-## Completed work
+## State
 
-- The CI/CD milestone is complete. Pull request
-  [#2](https://github.com/Alrauna/blender-alpha-material-separator/pull/2)
-  merged to `main` at `b8af812` on 2026-08-01, with both platform checks
-  passing.
-- Release `v1.0.0` was published from `b8af812` on 2026-08-01. The user
-  approved and tested it.
-- Pull request
-  [#3](https://github.com/Alrauna/blender-alpha-material-separator/pull/3)
-  merged at `aabb65a` on 2026-08-03, a Copilot Autofix setting
-  `context.minimum_version` to TLS 1.2 in `quad9_addresses`. CodeQL alert 1 is
-  `fixed`.
-- Classic branch protection is applied to `main` with user approval. Both CI
-  checks are required and bound to the GitHub Actions app (`app_id` 15368),
-  force pushes and branch deletion are blocked, and administrators are
-  included.
-- The Expert significance-settings defect is fixed on
-  `feat/blender-alpha-material-separator-1.1.0`. Root cause, design, plan, and
-  four implementation commits are complete and locally verified.
-- The seven Expert Analysis Settings tooltips are rewritten in artist-facing
-  language, and the panel has a Reset to Default Values button backed by
-  `ALPHA_MATERIAL_SEPARATOR_OT_reset_analysis_settings`. The reset uses
-  `property_unset()` so no default value is duplicated, and it invalidates a
-  completed analysis only when a value actually changes.
-- Minimum Affected Pixels no longer offers a dead value. A face with no
-  affected texels returns `OPAQUE` before the gate runs, so the gate can never
-  see a count below 1, which made 0 and 1 behave identically. The RNA hard
-  minimum is now 1 in both `addon/properties.py` and
-  `addon/operators/analyze.py`. Classification is unchanged, and
-  `AnalysisSettings` in the pure core still accepts 0 as "gate off".
+`main` is at `1ed2a22`. There are no open pull requests, no other branches
+local or remote, and no unpushed work. Release `v1.1.0` is published from
+`098f13c` with `alpha_material_separator-1.1.0.zip` and `SHA256SUMS.txt`.
 
-## The significance-settings fix
+Four pull requests merged after that release, but none of them touched
+`addon/`. The published artifact is therefore still byte-identical to the
+current `addon/` tree, so no re-release is needed:
 
-Analysis, classification, and settings plumbing were all correct. A face below
-either significance gate is classified `SUPPRESSED`, and
-`build_assignment_plan` blocked the entire material group whenever a group
-contained any suppressed face and `suppressed_policy` was
-`CANCEL_SOURCE_MATERIAL`, which was the shipped default. A face that passed the
-gate was therefore discarded because a sibling face did not. Because a face with
-zero affected texels returns `OPAQUE` before the gates run, `min_affected_texels`
-values of `0` and `1` can never suppress, so the setting moved straight from no
-effect to cancelling a material group.
+- [#6](https://github.com/Alrauna/blender-alpha-material-separator/pull/6)
+  removed `docs/superpowers/` and two orphaned files after a repository-wide
+  over-engineering audit.
+- [#8](https://github.com/Alrauna/blender-alpha-material-separator/pull/8)
+  documented 1.1.0 and made `test_readme_contract.py` derive the version from
+  the manifest instead of hardcoding it.
+- [#9](https://github.com/Alrauna/blender-alpha-material-separator/pull/9)
+  stated the overdraw purpose in plain English in the README and `AGENTS.md`.
+- [#10](https://github.com/Alrauna/blender-alpha-material-separator/pull/10)
+  refreshed `AGENTS.md` against reality and removed hardcoded versions from the
+  remaining documents.
 
-The default is now `KEEP_SOURCE` in `addon/properties.py`,
-`addon/operators/assign_materials.py`, and `addon/operators/select_faces.py`.
-`CANCEL_SOURCE_MATERIAL` remains selectable and still blocks.
+The 1.1.0 behavior work itself landed in
+[#4](https://github.com/Alrauna/blender-alpha-material-separator/pull/4):
+below-significance faces now default to `KEEP_SOURCE` instead of cancelling
+their whole material group, the seven Expert analysis tooltips are written for
+artists, the panel has a Reset to Default Values button, and Minimum Affected
+Pixels no longer offers a value that does nothing.
 
 ## Important decisions and constraints
 
-- The TLS autofix stays as it is, with no retroactive regression test, by
-  explicit user decision.
-- Because administrators are included in branch protection, `main` no longer
-  accepts a direct push. Every change needs a pull request whose two CI checks
-  pass.
-- Documentation and feature commits stay local for now by explicit user
-  decision. Do not push without separate approval.
-- `docs/superpowers/` was deleted on `chore/remove-superseded-artifacts` after
-  a repository-wide over-engineering audit. Its 25 design and plan documents
-  had no inbound reference and no test depended on them; Git history retains
-  them. The same branch removed two orphaned files that nothing referenced,
-  `tests/blender/prepare_interactive_smoke.py` and `scripts/run_benchmarks.ps1`.
-- `addon/api_contract.py` carries `EXTENSION_VERSION` independently of the
-  manifest. A release bump must change both; `tests/unit/test_api_contract.py`
-  cross-checks them.
+- `addon/api_contract.py` carries `EXTENSION_VERSION` independently of
+  `addon/blender_manifest.toml`. A release bump must change both;
+  `tests/unit/test_api_contract.py` cross-checks them and will fail if only one
+  moves. This caught a real mistake during the 1.1.0 bump.
+- `README.md` is the only document that names a version, and
+  `tests/unit/test_readme_contract.py` derives that version from the manifest.
+  Keep other documents version-neutral rather than bumping them each release.
+- The TLS autofix in `quad9_addresses` stays as it is, with no retroactive
+  regression test, by explicit user decision. Revisit only when further CI/CD
+  work is required.
+- The GitHub Advanced Security "Code scanning AI findings" run fails on every
+  pull request with `400 The requested model is not supported`. It is a
+  GitHub-side model availability problem inside Copilot Autofix, it fails before
+  analyzing anything, and it is not a required check. Ignore it; do not change
+  code to satisfy it.
 - Do not push, merge, tag, release, or change repository settings without
   explicit approval.
 
-## Files changed and why
-
-- `addon/properties.py`, `addon/operators/assign_materials.py`,
-  `addon/operators/select_faces.py`: default `suppressed_policy` to
-  `KEEP_SOURCE` and move the conservative-default description to match.
-- `addon/presentation.py`: name the policy that restores a blocked group.
-- `addon/properties.py`: artist-facing descriptions for the seven analysis
-  settings, plus `ANALYSIS_SETTING_NAMES` as the single source of truth for
-  which settings the Expert Analysis Settings panel owns.
-- `addon/operators/ui_actions.py`, `addon/registration.py`, `addon/panel.py`:
-  the Reset to Default Values operator, its registration, and its button.
-- `addon/api_contract.py`, `addon/blender_manifest.toml`: version `1.1.0`.
-- `tests/unit/test_alpha_classification.py`: gate boundary, no-op, and margin
-  characterization.
-- `tests/blender/test_significance_settings.py`, `tests/blender/run_all.py`:
-  the sibling-face regression, the resolved defaults, and the end-to-end
-  default assignment outcome.
-- `tests/blender/test_assignment_policies.py`,
-  `tests/blender/test_simplification_contracts.py`,
-  `tests/unit/test_api_contract.py`, `tests/unit/test_presentation.py`:
-  expectations updated for the new default and version.
-- `README.md`, `docs/algorithm.md`: describe the new default action, the
-  Chebyshev margin, and the strict gate comparison.
-- `CLAUDE.md`: point Claude Code at the shared `AGENTS.md` policy.
-
 ## Validation commands and results
 
-Run on 2026-08-05 with Blender 5.2.0 LTS and its bundled Python 3.13.13.
+Run on 2026-08-05 with Blender 5.2.0 LTS and its bundled Python 3.13.13, on
+`main` content:
 
-```powershell
-& $Python52 -m unittest discover -s tests/unit -t . -v
-& $Blender52 --factory-startup --background --disable-autoexec `
-  --python-exit-code 1 --python tests/blender/run_all.py
-& $Blender52 --factory-startup --command extension validate addon
-& $Blender52 --factory-startup --command extension build `
-  --source-dir addon --output-dir .packaged-releases
-& $Blender52 --factory-startup --command extension validate $Archive
-git diff --check
-```
+- 95 unit tests passed.
+- The headless Blender suite exited 0 with every completion marker, including
+  `ALPHA_MATERIAL_SEPARATOR_SIGNIFICANCE_TESTS_OK` and
+  `ALPHA_MATERIAL_SEPARATOR_EXPERT_SETTINGS_TESTS_OK`.
+- Source validation succeeded, and a cleared `.packaged-releases` produced
+  exactly one archive that validated.
+- The benchmark suite exited 0 and wrote `.test-output/benchmarks/baseline.json`
+  after more than ten minutes. That directory is ignored, so the baseline does
+  not survive into another session.
+- `git diff --check` reported no whitespace errors.
 
-Results: 95 unit tests passed; the headless suite exited 0 with every
-completion marker including the new
-`ALPHA_MATERIAL_SEPARATOR_SIGNIFICANCE_TESTS_OK`; source validation succeeded;
-`alpha_material_separator-1.1.0.zip` built and validated; and the diff check
-reported no whitespace errors.
+The private `.local-references/default-example/` acceptance was run with the
+ignored helper in that directory, against both the 1.1.0 branch and the
+pre-change `main`. Both runs succeeded and produced an identical aggregate
+result, which is the expected outcome: the default `min_affected_texels` of 1
+never suppresses a face, so the `KEEP_SOURCE` default has nothing to act on
+until a significance gate is deliberately raised. Faces whose UVs fall outside
+the base tile were analyzed rather than rejected. Aggregate counts, raw output,
+and identifying detail are deliberately not recorded here.
 
-## Known failures, warnings, and unverified assumptions
+## Known warnings and unverified assumptions
 
-- No known failures. Local `main` matches `origin/main`. Unpushed work is on
-  `docs/post-release-state` and `feat/blender-alpha-material-separator-1.1.0`,
-  which contains the former plus the four fix commits.
-- The design spec originally claimed no existing test relied on the shipped
-  default. That was wrong; two did. The spec's risk section records the
-  correction.
-- The private `.local-references/default-example/` acceptance was run with the
-  ignored helper in that directory, against both this branch and the
-  pre-change `main`. Both runs succeeded and produced an identical aggregate
-  summary, which is the expected result: the default `min_affected_texels` of 1
-  never suppresses a face, so the new `KEEP_SOURCE` default has nothing to act
-  on until a significance gate is deliberately raised. Faces whose UVs fall
-  outside the base tile were analyzed rather than rejected. Aggregate counts,
-  raw output, and any identifying detail are deliberately not recorded here.
-- The deleted plan documents carried unchecked boxes for steps that the merge
-  history and hosted runs show were executed, and unchecked installed-ZIP
-  acceptance steps whose completion was never verifiable. Deleting them ends
-  that ambiguity rather than resolving it; Git history holds the originals.
-- The local recovery branch `feat/alpha-material-separator-0.1` no longer
-  exists. Its history is contained in `main`.
-- The git policy in `AGENTS.md` still directs work to `ci/automation`, which is
-  merged and stale.
+- No known failures.
+- A large share of faces in the private example report `UNSUPPORTED`. That share
+  was identical before and after the 1.1.0 change, so it is not a regression,
+  but it is unexplained and worth a separate investigation into whether those
+  materials are genuinely unresolvable or the resolver has a gap.
 - Expected local output includes LF-to-CRLF Git notices.
 
-## Remaining tasks in priority order
+## Remaining tasks
 
-1. Finish the installed-ZIP interactive acceptance. The user installed
-   `alpha_material_separator-1.1.0.zip`, restarted Blender, exercised the
-   rewritten Expert analysis tooltips on hover, and reported that the build
-   feels good to use. Still unconfirmed in the installed build:
-   - Analyze → Preview → Tab to Object Mode → Apply without a second analysis.
-   - A below-significance face reporting under `Faces kept by policy` rather
-     than blocking its material group.
-   - Reset to Default Values against an existing analysis reporting that inputs
-     changed.
-   - Minimum Affected Pixels refusing to go below 1, with 2 still filtering.
-2. Decide how to integrate `feat/blender-alpha-material-separator-1.1.0` and
-   `chore/remove-superseded-artifacts`. Both need a pull request because `main`
-   is protected. The cleanup branch descends from the feature branch, so
-   landing the feature branch first keeps each diff readable.
+Finish the installed-ZIP interactive acceptance. The user installed
+`alpha_material_separator-1.1.0.zip`, restarted Blender, exercised the rewritten
+Expert analysis tooltips on hover, and reported that the build feels good to
+use. Still unconfirmed in the installed build:
+
+- Analyze → Preview → Tab to Object Mode → Apply without a second analysis.
+- A below-significance face reporting under `Faces kept by policy` rather than
+  blocking its material group.
+- Reset to Default Values against an existing analysis reporting that inputs
+  changed.
+- Minimum Affected Pixels refusing to go below 1, with 2 still filtering.
 
 ## Recommended next action
 
-Finish the installed-ZIP acceptance items above. They need the user; none can
-run headlessly.
+Walk the four unconfirmed interactions above in the installed build. They need
+the user; an agent cannot drive the Blender UI.
