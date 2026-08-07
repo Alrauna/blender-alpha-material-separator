@@ -6,10 +6,12 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from .manifest import version_tuple as _manifest_version
 from .overrides import ADDRESS_MODES as OVERRIDE_ADDRESS_MODES
 
 API_VERSION = (1, 2)
-EXTENSION_VERSION = (1, 1, 0)
+# Derived so a release bumps blender_manifest.toml and nothing else.
+EXTENSION_VERSION = _manifest_version()
 
 PUBLIC_OPERATOR_IDS = (
     "alpha_material_separator.query_capabilities",
