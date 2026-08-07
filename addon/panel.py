@@ -9,6 +9,7 @@ import bpy
 
 from . import runtime
 from .adapters.assignment import build_assignment_plan
+from .manifest import issues_url, maintainer_name, version_tuple
 from .overrides import dumps_material_overrides
 from .presentation import (
     CLASS_COPY,
@@ -209,6 +210,60 @@ class ALPHA_MATERIAL_SEPARATOR_UL_material_overrides(bpy.types.UIList):
         layout.label(text=f"{material_name} - {image_name}", icon="MATERIAL")
 
 
+class ALPHA_MATERIAL_SEPARATOR_PT_credits(bpy.types.Panel):
+    """Show maintainer and support links read from the packaged manifest."""
+
+    bl_idname = "ALPHA_MATERIAL_SEPARATOR_PT_credits"
+    bl_label = "Credits & Support"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "AMS"
+    bl_order = 0
+
+    def draw(self, _context: bpy.types.Context) -> None:
+        layout = self.layout
+        self._draw_header(layout)
+        self._draw_contact(layout)
+        self._draw_support(layout)
+
+    @staticmethod
+    def _draw_header(layout: bpy.types.UILayout) -> None:
+        box = layout.box()
+        column = box.column()
+        column.scale_y = 1.2
+        version = ".".join(str(part) for part in version_tuple())
+        column.label(text=f"Alpha Material Separator {version}".strip())
+        maintainer = maintainer_name()
+        if maintainer:
+            row = box.row(align=True)
+            row.scale_y = 1.2
+            row.alignment = "LEFT"
+            row.label(text="Maintained by:")
+            row.label(text=maintainer)
+
+    @staticmethod
+    def _link(layout: bpy.types.UILayout, text: str, url: str) -> None:
+        row = layout.row()
+        row.enabled = bool(url)
+        row.operator("wm.url_open", text=text, icon="URL").url = url
+
+    def _draw_contact(self, layout: bpy.types.UILayout) -> None:
+        box = layout.box()
+        column = box.column(align=True)
+        column.scale_y = 1.2
+        column.label(text="Found an issue?")
+        self._link(column, "Report Bug on GitHub", issues_url())
+
+    def _draw_support(self, layout: bpy.types.UILayout) -> None:
+        # Second box is a placeholder for a Discord link that does not exist
+        # yet; it deliberately repeats the issue tracker until then.
+        box = layout.box()
+        column = box.column(align=True)
+        column.scale_y = 1.2
+        column.label(text="Report Issues:")
+        self._link(column, "GitHub Issues", issues_url())
+
+
 class ALPHA_MATERIAL_SEPARATOR_PT_main(bpy.types.Panel):
     """Display the guided Analyze, Review, and Apply workflow."""
 
@@ -217,6 +272,7 @@ class ALPHA_MATERIAL_SEPARATOR_PT_main(bpy.types.Panel):
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "AMS"
+    bl_order = 1
 
     def draw(self, context: bpy.types.Context) -> None:
         layout = self.layout

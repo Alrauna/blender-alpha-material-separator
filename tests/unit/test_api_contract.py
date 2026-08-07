@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from addon import api_contract
+from addon import api_contract, manifest
 from addon.overrides import ADDRESS_MODES as OVERRIDE_ADDRESS_MODES
 
 
@@ -28,9 +28,12 @@ class ApiContractTests(unittest.TestCase):
 
         payload = json.loads(first)
         self.assertEqual(payload["api_version"], "1.2")
-        self.assertEqual(payload["extension_version"], "1.1.0")
-        manifest = tomllib.loads(MANIFEST.read_text(encoding="utf8"))
-        self.assertEqual(manifest["version"], payload["extension_version"])
+        self.assertEqual(
+            payload["extension_version"],
+            api_contract.dotted(manifest.version_tuple()),
+        )
+        manifest_data = tomllib.loads(MANIFEST.read_text(encoding="utf8"))
+        self.assertEqual(manifest_data["version"], payload["extension_version"])
         self.assertTrue(payload["capabilities"]["query_capabilities"])
         self.assertTrue(payload["capabilities"]["material_support_matrix_ready"])
         self.assertTrue(payload["capabilities"]["analysis"])
