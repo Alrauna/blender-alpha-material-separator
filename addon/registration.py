@@ -34,6 +34,7 @@ _CLASSES = (
     ALPHA_MATERIAL_SEPARATOR_OT_assign_materials,
     ALPHA_MATERIAL_SEPARATOR_OT_clear_results,
     panel.ALPHA_MATERIAL_SEPARATOR_UL_material_overrides,
+    panel.ALPHA_MATERIAL_SEPARATOR_PT_credits,
     panel.ALPHA_MATERIAL_SEPARATOR_PT_main,
     panel.ALPHA_MATERIAL_SEPARATOR_PT_analysis_settings,
     panel.ALPHA_MATERIAL_SEPARATOR_PT_overrides,
