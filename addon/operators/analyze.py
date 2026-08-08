@@ -257,12 +257,12 @@ class ALPHA_MATERIAL_SEPARATOR_OT_analyze(bpy.types.Operator):
             context.window_manager
         ):
             self._engine.cancel()
-            self._finish_modal(context)
             self._status(
                 context,
                 "ANALYSIS_CANCELLED",
                 "Analysis cancelled; no partial result was retained",
             )
+            self._finish_modal(context)
             return {"CANCELLED"}
         if event.type != "TIMER":
             return {"PASS_THROUGH"}
