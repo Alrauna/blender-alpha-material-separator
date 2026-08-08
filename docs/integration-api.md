@@ -173,7 +173,7 @@ when Preview and Apply become available or unavailable. It carries:
 | Field | Meaning |
 | --- | --- |
 | `state` | `IDLE`, `READY_TO_ANALYZE`, `READY_TO_REVIEW`, `REVIEWED`, `NO_CHANGE`, `STALE`, `RUNNING`, or `COMPLETED`. |
-| `can_analyze`, `can_preview`, `can_apply` | Exactly what the extension's own buttons enable. |
+| `can_analyze`, `can_preview`, `can_apply` | What the extension's own buttons enable, with one exception noted below. |
 | `running` | An analysis is in progress. |
 | `stale` | Confirmed stale. `RECHECK_PENDING` is not stale and leaves the gating booleans true. |
 | `reviewed` | The current exact plan has been previewed. |
@@ -182,6 +182,15 @@ when Preview and Apply become available or unavailable. It carries:
 | `eligible_object_count` | Disambiguates the two causes of `can_analyze: false`. |
 | `analysis_id`, `validation_state` | Match the same-named properties. |
 | `expected_review_signature` | Pass unchanged to `assign_materials`. |
+
+The exception is `can_analyze`. The extension's own Analyze button carries one
+further term the snapshot does not: it is also disabled while
+`material_overrides` holds an incomplete or duplicated manual alpha source,
+which only that panel can edit. A consumer whose user configured a broken
+override therefore sees `can_analyze: true` while the extension's button is
+greyed, and `analyze` then returns `INVALID_MATERIAL_OVERRIDES` or
+`DUPLICATE_MATERIAL_OVERRIDE` rather than misbehaving. Folding that term into
+`can_analyze` is a published-behavior change and is deferred to its own change.
 
 Passing `expected_review_signature` is what gives an external Apply the same
 `REVIEW_CHANGED` protection and not-previewed confirmation the guided panel

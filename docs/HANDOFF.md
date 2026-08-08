@@ -333,6 +333,29 @@ plan-shaped data a consumer receives after analyze, and it misreports. Needs its
 own reproduction and branch; deliberately excluded from the workflow-surface
 work.
 
+**`can_analyze` carries one term less than the Analyze button.** The final
+whole-branch review found it: `addon/panel.py:288` ANDs `view["can_analyze"]`
+with `not invalid_overrides`, and override validity is not in the snapshot, so
+a consumer whose user configured an incomplete or duplicated manual alpha
+source sees `can_analyze: true` against a greyed button. The call then fails
+with `INVALID_MATERIAL_OVERRIDES` or `DUPLICATE_MATERIAL_OVERRIDE` — reported,
+not silent. `docs/integration-api.md` now states the exception rather than
+claiming an exactness the code does not honor. Folding the term into
+`workflow.snapshot` is the real fix, changes a published field, and therefore
+needs design approval; it is naturally paired with the manual alpha source work
+below, which touches the same `material_overrides` validity.
+
+Three code minors from that review stay deferred, all with a stated reason they
+are unreachable today: `addon/properties.py:38` puts the lazy
+`from . import api_contract, workflow` outside the `try`, so an import failure
+would escape a getter documented as total (unreachable — `addon/panel.py:6`
+imports `workflow` at module scope, so registration fails first);
+`addon/api_contract.py:199` sets `severity` before `payload.update(details)`,
+so a future caller passing `severity=` as a detail would silently override it
+(no caller does); and `addon/panel.py:640` builds a second plan unguarded by
+staleness and unwrapped by a `try`, which is pre-existing from `main` and was
+only renamed by this branch.
+
 Two smaller items stay deferred: the two missing PEP 8 blank lines at
 `addon/runtime.py:328-329`, and `docs/integration-api.md` gaining a worked
 example of reading `last_status_code` and `validation_state` together. The
@@ -351,6 +374,12 @@ acceptance named above.
 Then pick a following branch from the deferred list: `report_json`'s
 `default_planned_action`, manual alpha source usability, or the two PEP 8 blank
 lines. None of them belong on the completed branch.
+
+One question for whoever runs the release gate: with this branch merged, the
+tree ships extension version `1.2.0` carrying `API_VERSION = (1, 3)`. No
+published artifact conflicts, since the newest release is `v1.1.1` and 1.2.0
+was never released, so `extension_version` stays unambiguous for consumers.
+Confirm that pairing is intended rather than bumping the manifest to `1.3.0`.
 
 The 1.2.0 release gate is still outstanding and independent: clean-ZIP install,
 save/reopen, FBX material assignment, performance baselines, the interactive UI
