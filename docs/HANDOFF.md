@@ -45,10 +45,14 @@ redirect, or network source was added. The overengineering review found nothing
 to cut: standard-library `plistlib`, native `hdiutil`, and the existing shared
 matrix/helper are reused without a platform-specific job or dependency.
 
-Hosted macOS execution remains unverified because the branch has not been
-pushed and no pull request has been opened. Keep the design and plan until the
-Windows, Linux, and macOS hosted checks all pass. Private-reference smoke,
-benchmarks, and installed interactive checks are not required for this CI-only
+Draft pull request #15 is open against `main` at
+`https://github.com/Alrauna/blender-alpha-material-separator/pull/15`. Its
+first hosted run passed `CI / macOS — Blender 5.2` in 33 seconds, `CI / Windows
+— Blender 5.2` in 38 seconds, and `CI / Linux — Blender 5.2` in 46 seconds;
+CodeQL also passed. That run supplies the missing Apple Silicon integration
+proof. The completed design and implementation plan were then removed as
+required; Git history retains their approved wording. Private-reference smoke,
+benchmarks, and installed interactive checks were not required for this CI-only
 change because no addon runtime or material-analysis behavior changed.
 
 ## Completed and merged: `fix/stale-analysis-privacy`
@@ -414,12 +418,10 @@ worked example of the pairing was written. Add it, or close it as superseded.
 
 ## Recommended next action
 
-Obtain explicit approval to push `codex/ci-macos-arm64` and open a pull request
-against `main`. Require `CI / Windows — Blender 5.2`, `CI / Linux — Blender
-5.2`, and `CI / macOS — Blender 5.2` to pass without exclusions or
-`continue-on-error`. Only after that hosted proof should the completed design
-and plan be removed and the milestone handoff closed. Branch protection remains
-unchanged unless separately approved.
+Review draft pull request #15 after its post-cleanup checks pass. The branch is
+complete for its stated CI objective; do not add adjacent CI cleanup or branch
+protection changes. Making `CI / macOS — Blender 5.2` a required merge check
+remains a separate repository-setting decision requiring explicit approval.
 
 The 1.3.0 release gate is still outstanding and independent: clean-ZIP install,
 save/reopen, FBX material assignment, performance baselines, the interactive UI
