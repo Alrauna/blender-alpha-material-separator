@@ -9,7 +9,7 @@ installed-ZIP interactive acceptance.
 
 ## In flight: the integration-contract fixes on feat/api-fixes-1.2
 
-Twelve commits, rebased onto `origin/main` at `042a084` after 1.1.1 landed, and
+Thirteen commits, rebased onto `origin/main` at `042a084` after 1.1.1 landed, and
 not yet pushed. All six defects a reviewer found while integrating CATS are
 fixed. `API_VERSION` stays `(1, 2)` and the manifest is untouched: every change
 either corrects a payload that already contradicted documented 1.2 behavior or
@@ -39,6 +39,19 @@ adds a status code, and neither is a new API surface.
   own status is the later write.
 - `tests/blender/test_ux_overrides.py` now asserts the panel-built
   `material_overrides_json` through classification counts, not only its shape.
+
+Adding that status code broke the panel until the whole-branch review caught it,
+and the interaction is worth remembering. `_draw_status_problem` in
+`addon/panel.py` holds a closed-world `normal` set of codes that are *not*
+problems and renders anything else as a red alert box with
+`presentation.guidance_for`'s unknown-code default. `RESULT_STALE` was absent
+from both, so nudging any Expert setting drew **"This input needs review"**
+directly above the correct **"Inputs Changed — Analyze Again"** copy. The fix is
+one entry in that set, because staleness is not a status problem; the workflow
+box already owns it. A panel-drawing regression test now asserts both halves —
+no alert, and the workflow copy present — so suppressing all feedback fails too.
+**Any future status code must be added to that set or to `_GUIDANCE`**, and
+nothing yet couples the two automatically.
 
 `reset_analysis_settings` remains deliberately excluded: it is `INTERNAL` and
 absent from `PUBLIC_OPERATOR_IDS`, so promoting it would create a contract
