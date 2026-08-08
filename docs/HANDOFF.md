@@ -4,8 +4,32 @@ Updated: 2026-08-07
 
 ## Current objective
 
-Review `feat/api-fixes-1.2` and open its pull request, then finish the
-installed-ZIP interactive acceptance.
+Land `feat/api-fixes-1.2` and `chore/release-1.2.0`, then run the 1.2.0 release
+gate.
+
+## In flight: 1.2.0 on chore/release-1.2.0
+
+One commit, branched from the `feat/api-fixes-1.2` tip rather than from `main`,
+because 1.2.0 is the release that ships those fixes and a bump sitting on `main`
+alone would name a version whose behavior is not there yet. **That makes this a
+locally stacked branch.** No pull request exists for either branch, and a
+stacked pull request needs explicit approval; the ordinary path is to land
+`feat/api-fixes-1.2` first, update `main`, then rebase this branch onto it.
+
+The bump is `addon/blender_manifest.toml` and `README.md` only, which is the
+release process the manifest-derived `EXTENSION_VERSION` bought in 1.1.1. The
+unit suite passing untouched after the bump is the proof that no third file
+carries the version.
+
+`alpha_material_separator-1.2.0.zip` is built and validated locally, and the
+manifest sits at the archive root where the credits panel reads it. The archive
+is in the ignored `.packaged-releases/`, so it does not survive a clean, and
+a release rebuilds from the validated commit anyway.
+
+**The 1.2.0 release gate is not run.** Only archive build and validation are
+done. Clean-ZIP installation, save/reopen, FBX material assignment, performance
+baselines, the interactive UI checklist, and Unity material/submesh validation
+all remain outstanding, and none of them can run headlessly.
 
 ## In flight: the integration-contract fixes on feat/api-fixes-1.2
 
@@ -64,9 +88,10 @@ obligation that does not exist today.
 manifest-derived extension version, the Credits & Support panel, and the 1.1.1
 manifest bump. The newest published GitHub release is still `v1.1.0` from
 `098f13c` with `alpha_material_separator-1.1.0.zip` and `SHA256SUMS.txt`.
-**1.1.1 is not released.** `addon/` has changed since `v1.1.0`, so the published
-artifact is no longer byte-identical to the tree and a 1.1.1 release is
-outstanding whenever the user wants one.
+**Neither 1.1.1 nor 1.2.0 is released.** `addon/` has changed since `v1.1.0`, so
+the published artifact is no longer byte-identical to the tree. 1.1.1 is now
+superseded: `chore/release-1.2.0` bumps the manifest straight to 1.2.0, so 1.1.1
+never gets its own release.
 
 Four pull requests merged between `v1.1.0` and 1.1.1 without touching `addon/`:
 
@@ -226,5 +251,5 @@ published `address_modes` list contradicted documented 1.2 behavior rather than
 adding a feature, and `RESULT_STALE` is published rather than merely documented,
 from the shared sync point instead of from `mark_dirty` alone.
 
-A 1.1.1 release is outstanding whenever the user wants it; the branch does not
-block it.
+Then land `chore/release-1.2.0` and run the 1.2.0 release gate. 1.1.1 is
+superseded and never gets a release of its own.
