@@ -118,6 +118,7 @@ def _assert_panel_built_overrides_change_the_result(manual_material, override_im
     item.material = manual_material
     payload, invalid = _override_payload(settings)
     assert not invalid, payload
+    assert json.loads(payload), payload
     assert json.loads(payload)[0]["image_name"] == "", payload
     # An override with no image resolves through the automatic path that already
     # failed, so the panel currently lets a user build a no-op. Counts prove it.
@@ -127,6 +128,7 @@ def _assert_panel_built_overrides_change_the_result(manual_material, override_im
     item.image_channel = "RED"
     payload, invalid = _override_payload(settings)
     assert not invalid, payload
+    assert json.loads(payload), payload
     assert json.loads(payload)[0]["image_channel"] == "RED", payload
     changed = _counts_for(payload)
     assert changed != baseline, (changed, baseline)
@@ -219,6 +221,15 @@ def run() -> None:
     assert groups[manual_material.name]["image"] == override_image.name
     assert groups[manual_material.name]["uv_map"] == "UVMap"
     _assert_panel_built_overrides_change_the_result(manual_material, override_image)
+    # The helper above runs its own analyze() calls, leaving state.report_json /
+    # state.analysis_id pointed at its last (no-panel-settings) run instead of the
+    # explicit override_json analysis the rest of this function depends on.
+    # Re-run the exact original analysis so downstream code inspects the same
+    # subject it did before this helper call existed.
+    restored = bpy.ops.alpha_material_separator.analyze(
+        api_major=1, material_overrides_json=override_json
+    )
+    assert restored == {"FINISHED"}, restored
     assert payload["counts"]["MIXED"] == 1, payload
     assert payload["counts"]["OPAQUE"] == 1, payload
 
