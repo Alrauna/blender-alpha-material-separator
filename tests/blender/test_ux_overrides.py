@@ -21,6 +21,7 @@ from addon.panel import (
     ALPHA_MATERIAL_SEPARATOR_PT_main,
     _draw_completion,
     _label_lines,
+    _override_payload,
 )
 from addon.presentation import review_signature
 from tests.blender.test_analysis_preview import _clear_scene, _image, _material, _quad
@@ -95,6 +96,45 @@ def _file_backed_image(name: str, directory: str):
         image.is_dirty,
     )
     return image
+
+
+def _counts_for(override_json: str) -> dict[str, int]:
+    result = bpy.ops.alpha_material_separator.analyze(
+        api_major=1, material_overrides_json=override_json
+    )
+    assert result == {"FINISHED"}, result
+    state = bpy.context.window_manager.alpha_material_separator_api
+    return json.loads(state.report_json)["counts"]
+
+
+def _assert_panel_built_overrides_change_the_result(manual_material, override_image):
+    """Prove the panel's payload reaches classification, by counts not by pixels."""
+
+    settings = bpy.context.window_manager.alpha_material_separator_settings
+    settings.material_overrides.clear()
+    baseline = _counts_for("[]")
+
+    item = settings.material_overrides.add()
+    item.material = manual_material
+    payload, invalid = _override_payload(settings)
+    assert not invalid, payload
+    assert json.loads(payload), payload
+    assert json.loads(payload)[0]["image_name"] == "", payload
+    # An override with no image resolves through the automatic path that already
+    # failed, so the panel currently lets a user build a no-op. Counts prove it.
+    assert _counts_for(payload) == baseline, payload
+
+    item.image = override_image
+    item.image_channel = "RED"
+    payload, invalid = _override_payload(settings)
+    assert not invalid, payload
+    assert json.loads(payload), payload
+    assert json.loads(payload)[0]["image_channel"] == "RED", payload
+    changed = _counts_for(payload)
+    assert changed != baseline, (changed, baseline)
+    assert changed["UNSUPPORTED"] < baseline["UNSUPPORTED"], (changed, baseline)
+
+    settings.material_overrides.clear()
 
 
 def run() -> None:
@@ -180,6 +220,16 @@ def run() -> None:
     assert groups[manual_material.name]["channel"] == "RED"
     assert groups[manual_material.name]["image"] == override_image.name
     assert groups[manual_material.name]["uv_map"] == "UVMap"
+    _assert_panel_built_overrides_change_the_result(manual_material, override_image)
+    # The helper above runs its own analyze() calls, leaving state.report_json /
+    # state.analysis_id pointed at its last (no-panel-settings) run instead of the
+    # explicit override_json analysis the rest of this function depends on.
+    # Re-run the exact original analysis so downstream code inspects the same
+    # subject it did before this helper call existed.
+    restored = bpy.ops.alpha_material_separator.analyze(
+        api_major=1, material_overrides_json=override_json
+    )
+    assert restored == {"FINISHED"}, restored
     assert payload["counts"]["MIXED"] == 1, payload
     assert payload["counts"]["OPAQUE"] == 1, payload
 
@@ -224,8 +274,16 @@ def run() -> None:
     active_report = runtime.report(state.analysis_id)
     assert active_report is not None
     runtime.mark_dirty("SETTINGS_CHANGED")
+    assert state.last_status_code == "RESULT_STALE", state.last_status_code
     stale_panel = _draw_main_panel()
     assert ("Inputs Changed — Analyze Again", "ERROR") in stale_panel.labels
+    # RESULT_STALE is not a status *problem* -- the workflow box above already
+    # owns the "Inputs Changed" copy. A second alert box telling the user
+    # their input is broken would be wrong and misleading (see finding 1).
+    assert not any(icon == "ERROR" and text != "Inputs Changed — Analyze Again" for text, icon in stale_panel.labels), (
+        stale_panel.labels,
+        state.last_status_code,
+    )
     runtime.set_report(active_report)
 
     completion_layout = _RecordingLayout()

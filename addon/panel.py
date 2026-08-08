@@ -74,9 +74,6 @@ def _override_payload(settings) -> tuple[str, bool]:
 
 
 def _set_analysis_properties(operator, settings, material_overrides_json: str) -> None:
-    operator.image_name = ""
-    operator.uv_map_name = ""
-    operator.image_channel = "ALPHA"
     operator.material_overrides_json = material_overrides_json
     operator.address_mode = settings.address_mode
     operator.alpha_threshold = settings.alpha_threshold
@@ -185,6 +182,7 @@ def _draw_status_problem(layout, state, *, available_width: int) -> None:
         "ASSIGNMENT_COMPLETE_WITH_SKIPS",
         "ASSIGNMENT_NO_CHANGES",
         "CLEARED",
+        "RESULT_STALE",
     }
     if state.last_status_code in normal:
         return

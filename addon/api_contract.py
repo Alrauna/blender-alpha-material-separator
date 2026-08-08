@@ -29,7 +29,22 @@ CLASSIFICATIONS = (
     "UNSUPPORTED",
 )
 
-ADDRESS_MODES = tuple(mode for mode in OVERRIDE_ADDRESS_MODES if mode != "AUTO")
+# Public: these are analyze() keyword arguments. Renaming one inside API major 1
+# breaks scripted callers silently, so the names are guarded here rather than in
+# the panel module that happens to draw them.
+ANALYSIS_SETTING_NAMES = (
+    "alpha_threshold",
+    "min_affected_texels",
+    "min_affected_fraction",
+    "margin_texels",
+    "address_mode",
+    "max_scanlines",
+    "max_run_emissions",
+)
+
+# Published unfiltered: AUTO is parser-accepted, documented since API 1.2, and
+# the default every override starts at. A resolved report never reports AUTO.
+ADDRESS_MODES = OVERRIDE_ADDRESS_MODES
 UNSUPPORTED_SCOPES = ("FACE_LOCAL", "MATERIAL_SOURCE", "DATA_SAFETY")
 UNSUPPORTED_POLICIES = ("CANCEL_SOURCE_MATERIAL", "KEEP_SOURCE", "TO_ALPHA")
 VALIDATION_STATES = ("CLEAN", "RECHECK_PENDING", "STALE")

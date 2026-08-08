@@ -138,7 +138,25 @@ def _assert_reset_behavior() -> None:
     _clear_scene()
 
 
+def _assert_public_setting_names_are_guarded() -> None:
+    """Every guarded name must exist on the real analyze operator RNA."""
+
+    from addon import api_contract
+    from addon.properties import ANALYSIS_SETTING_NAMES as PANEL_NAMES
+
+    assert api_contract.ANALYSIS_SETTING_NAMES == PANEL_NAMES, (
+        api_contract.ANALYSIS_SETTING_NAMES,
+        PANEL_NAMES,
+    )
+    properties = bpy.ops.alpha_material_separator.analyze.get_rna_type().properties
+    missing = [
+        name for name in api_contract.ANALYSIS_SETTING_NAMES if name not in properties
+    ]
+    assert not missing, missing
+
+
 def run() -> None:
+    _assert_public_setting_names_are_guarded()
     _assert_names_cover_the_panel()
     _assert_descriptions_are_artist_readable()
     _assert_minimum_affected_pixels_is_reachable()

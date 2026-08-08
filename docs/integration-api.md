@@ -37,6 +37,13 @@ detection and may override only the UV or addressing. Materials absent from the
 list remain automatic. Invalid, duplicate, or unused records are rejected
 instead of ignored.
 
+`capability_payload()["address_modes"]` publishes the addressing values
+`material_overrides_json` accepts, including `AUTO`, which is the default every
+override record starts at. A resolved `groups[].address_mode` in a report is
+always a concrete mode: `AUTO` means "use the resolved Image Texture setting" on
+input, and an explicit image override resolves it to `REPEAT`. Builds before this
+correction published the list without `AUTO`, which contradicted this section.
+
 The selection-wide `image_name`, `image_channel`, and `uv_map_name` arguments
 remain available for API 1.0 compatibility and are now considered legacy.
 Combining a selection-wide image override with material-specific records is
@@ -143,6 +150,16 @@ assignment performs authoritative stale-input validation.
 | Guided-UI plan changed after Preview | `CANCELLED` | `REVIEW_CHANGED` |
 | Warning preflight changed while its dialog was open | `CANCELLED` | `PREFLIGHT_CHANGED` |
 | Unexpected execution error | `CANCELLED` | `ASSIGNMENT_FAILED`; transactional rollback is attempted and failures are reported |
+| A completed report became stale | published outside any operator result; an operator that then runs reports `STALE_ANALYSIS` | `RESULT_STALE` |
+
+`RESULT_STALE` is published whenever a completed report transitions to
+`validation_state == "STALE"`, including a settings change and an
+authoritatively confirmed input change. It carries `analysis_id` and
+`dirty_reason`. Before this existed, `last_status_code` kept reading
+`ANALYSIS_COMPLETE` while `validation_state` said `STALE`, so a consumer reading
+one field alone could act on a stale report. Read both, and treat the previous
+`report_json` as advisory once either says stale. A depsgraph hint alone does not
+publish it; `RECHECK_PENDING` is not stale.
 
 The unresolved-only `ASSIGNMENT_NO_CHANGES` result is the API 1.2 semantic
 correction. API 1.0/1.1 integrations that treated any non-actionable unresolved

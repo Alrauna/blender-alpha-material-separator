@@ -4,51 +4,71 @@ Updated: 2026-08-07
 
 ## Current objective
 
-Land `feat/credits-support-panel-1.1.1`, then finish the installed-ZIP
-interactive acceptance.
+Review `feat/api-fixes-1.2` and open its pull request, then finish the
+installed-ZIP interactive acceptance.
 
-## In flight: 1.1.1 on feat/credits-support-panel-1.1.1
+## In flight: the integration-contract fixes on feat/api-fixes-1.2
 
-Four commits, verified locally, not yet pushed.
+Thirteen commits, rebased onto `origin/main` at `042a084` after 1.1.1 landed, and
+not yet pushed. All six defects a reviewer found while integrating CATS are
+fixed. `API_VERSION` stays `(1, 2)` and the manifest is untouched: every change
+either corrects a payload that already contradicted documented 1.2 behavior or
+adds a status code, and neither is a new API surface.
 
-- `addon/manifest.py` is a new bpy-free reader for the packaged manifest. It
-  reads once, degrades to empty values rather than raising, and applies the
-  Windows extended-length prefix because an installed extension can sit past
-  `MAX_PATH` where a plain path will not open.
-- `EXTENSION_VERSION` in `addon/api_contract.py` is now derived from that module
-  instead of hand-edited. **A release now edits `addon/blender_manifest.toml`
-  and `README.md` only.** That was proved rather than assumed: bumping the
-  manifest alone left `test_api_contract` passing untouched and failed only
-  `test_readme_contract`.
-- `ALPHA_MATERIAL_SEPARATOR_PT_credits` is a new Credits & Support panel above
-  the workflow panel, showing version, maintainer, and issue tracker from the
-  manifest. Ordering is explicit through `bl_order` on both panels rather than
-  relying on registration order. It uses the built-in `wm.url_open`, so there is
-  no new operator and no icon system.
-- The second box in that panel deliberately repeats the issue tracker. It is a
-  placeholder for a Discord link that does not exist yet, and a comment in
-  `addon/panel.py` says so.
-- The manifest is confirmed present at the root of the built archive, which is
-  what the panel reads once installed.
+- `capability_payload()["address_modes"]` no longer strips `AUTO`. It is now
+  `OVERRIDE_ADDRESS_MODES` outright, so the published list is the list the
+  parser accepts and the property defaults to. A new test drives every
+  published mode through `parse_material_overrides_json` so the payload cannot
+  drift from the parser again.
+- `ANALYSIS_SETTING_NAMES` now lives in `addon/api_contract.py`, inside what
+  `api_major` guards, and `addon/properties.py` re-exports it. Both existing
+  importers are unchanged.
+- `analyze`'s legacy `image_name`, `uv_map_name`, and `image_channel` carry
+  `options={"SKIP_SAVE"}`, which let three per-draw reset assignments come out
+  of `_set_analysis_properties` in `addon/panel.py`. `SKIP_SAVE` does not affect
+  explicitly passed keyword arguments, so callers are unaffected.
+- The modal cancel path publishes `ANALYSIS_CANCELLED` before `_finish_modal`
+  tags a redraw, matching every other path.
+- `RESULT_STALE` is published from `runtime._sync_public_validation_state`, the
+  single choke point both `mark_dirty` and the stale branch of
+  `record_validation` funnel through, so `last_status_code` can no longer read
+  `ANALYSIS_COMPLETE` while `validation_state` reads `STALE`. This was the
+  defect the integrator actually hit. Assignment still reports `STALE_ANALYSIS`,
+  which is verified from call ordering rather than assumed:
+  `validate_report` publishes `RESULT_STALE` inside itself and the operator's
+  own status is the later write.
+- `tests/blender/test_ux_overrides.py` now asserts the panel-built
+  `material_overrides_json` through classification counts, not only its shape.
 
-Verified on this branch: 101 unit tests, headless suite exit 0 with 15 markers
-including `ALPHA_MATERIAL_SEPARATOR_CREDITS_PANEL_TESTS_OK`, source validation,
-and `alpha_material_separator-1.1.1.zip` built and validated.
+Adding that status code broke the panel until the whole-branch review caught it,
+and the interaction is worth remembering. `_draw_status_problem` in
+`addon/panel.py` holds a closed-world `normal` set of codes that are *not*
+problems and renders anything else as a red alert box with
+`presentation.guidance_for`'s unknown-code default. `RESULT_STALE` was absent
+from both, so nudging any Expert setting drew **"This input needs review"**
+directly above the correct **"Inputs Changed — Analyze Again"** copy. The fix is
+one entry in that set, because staleness is not a status problem; the workflow
+box already owns it. A panel-drawing regression test now asserts both halves —
+no alert, and the workflow copy present — so suppressing all feedback fails too.
+**Any future status code must be added to that set or to `_GUIDANCE`**, and
+nothing yet couples the two automatically.
 
-The user installed that archive and confirmed the panel reads correctly, which
-closes the 1.1.1 interactive acceptance for this scope.
-`docs/superpowers/plans/2026-08-07-credits-support-panel.md` is deleted as the
-last step of the milestone; git history retains the approved wording.
+`reset_analysis_settings` remains deliberately excluded: it is `INTERNAL` and
+absent from `PUBLIC_OPERATOR_IDS`, so promoting it would create a contract
+obligation that does not exist today.
 
 ## State
 
-`main` is at `1ed2a22`. There are no open pull requests, no other branches
-local or remote, and no unpushed work. Release `v1.1.0` is published from
+`main` is at `042a084`, which merged
+[#11](https://github.com/Alrauna/blender-alpha-material-separator/pull/11): the
+manifest-derived extension version, the Credits & Support panel, and the 1.1.1
+manifest bump. The newest published GitHub release is still `v1.1.0` from
 `098f13c` with `alpha_material_separator-1.1.0.zip` and `SHA256SUMS.txt`.
+**1.1.1 is not released.** `addon/` has changed since `v1.1.0`, so the published
+artifact is no longer byte-identical to the tree and a 1.1.1 release is
+outstanding whenever the user wants one.
 
-Four pull requests merged after that release, but none of them touched
-`addon/`. The published artifact is therefore still byte-identical to the
-current `addon/` tree, so no re-release is needed:
+Four pull requests merged between `v1.1.0` and 1.1.1 without touching `addon/`:
 
 - [#6](https://github.com/Alrauna/blender-alpha-material-separator/pull/6)
   removed `docs/superpowers/` and two orphaned files after a repository-wide
@@ -72,7 +92,7 @@ Pixels no longer offers a value that does nothing.
 ## Important decisions and constraints
 
 - `EXTENSION_VERSION` in `addon/api_contract.py` is derived from
-  `addon/blender_manifest.toml` as of this branch, so a release edits the
+  `addon/blender_manifest.toml` as of 1.1.1, so a release edits the
   manifest and `README.md` only. `tests/unit/test_api_contract.py` still
   cross-checks the two, which is what caught the hand-edited mismatch during the
   1.1.0 bump.
@@ -92,8 +112,24 @@ Pixels no longer offers a value that does nothing.
 
 ## Validation commands and results
 
-Run on 2026-08-05 with Blender 5.2.0 LTS and its bundled Python 3.13.13, on
-`main` content:
+Run on 2026-08-07 with Blender 5.2.0 LTS and its bundled Python 3.13.13, on
+`feat/api-fixes-1.2` after the rebase onto `042a084`:
+
+- 103 unit tests passed.
+- The headless Blender suite exited 0, ending
+  `ALPHA_MATERIAL_SEPARATOR_BLENDER_TESTS_OK`, with the new
+  `ALPHA_MATERIAL_SEPARATOR_INTEGRATION_CONTRACT_TESTS_OK` among the markers.
+- `extension validate addon` succeeded.
+- `git diff --check` reported no whitespace errors.
+
+Archive build and validation were not re-run for this branch, and the benchmark
+suite was not run. Nothing here changes packaging or performance behavior. The
+private `.local-references/default-example/` smoke is deliberately **not**
+required either: no change on this branch touches material resolution,
+rasterization, classification, cache validity, preview plans, assignment plans,
+or mutation safety.
+
+Run on 2026-08-05 with the same toolchain, on `main` content:
 
 - 95 unit tests passed.
 - The headless Blender suite exited 0 with every completion marker, including
@@ -118,6 +154,21 @@ and identifying detail are deliberately not recorded here.
 ## Known warnings and unverified assumptions
 
 - No known failures.
+- The panel-override count test proves that dropping the override collection
+  entirely is caught. It holds one override at a time, so it does not prove that
+  dropping one material out of several would be caught. Closing that gap needs a
+  second override-needing material and new fixtures, which is why it was left
+  out of this branch.
+- The cancel-path ordering test captures the live operator instance by
+  monkeypatching `execute()`, because `bpy.types.Operator` subclasses cannot be
+  instantiated directly in Blender 5.2. It asserts that background-mode dispatch
+  really goes through the patch and resets `is_analyzing` if not, but an orphaned
+  timer and modal handler would remain in that case; no public Blender API
+  reclaims them. The test fails loudly rather than silently, and the assumption
+  held on every run.
+- `RESULT_STALE`'s companion test — that a clean result keeps its success status
+  — passes with the production change reverted. It is an over-firing guard, not
+  evidence for the fix.
 - A large share of faces in the private example report `UNSUPPORTED`. That share
   was identical before and after the 1.1.0 change, so it is not a regression,
   but it is unexplained and worth a separate investigation into whether those
@@ -144,11 +195,9 @@ all read correctly.
 
 ## Follow-up work, not started
 
-Two separate objectives came out of 1.1.1 testing. Neither belongs on the
-credits-panel branch.
-
-**Manual alpha source usability.** The Image field is a real image-ID selector,
-but the flow dead-ends. An override carrying a material and no image resolves
+**Manual alpha source usability** is the one objective from 1.1.1 testing still
+unstarted, and it does not belong on `feat/api-fixes-1.2`. The Image field is a
+real image-ID selector, but the flow dead-ends. An override carrying a material and no image resolves
 through the automatic path that already failed, so `Set Manual Alpha Source`
 followed by Analyze reports the identical failure; the field that must be filled
 lives in a `DEFAULT_CLOSED` child panel the button does not open; adding the
@@ -162,31 +211,20 @@ layers, and drop or grey overrides whose material left the selection instead of
 raising `OVERRIDE_TARGET_NOT_SELECTED`. Drawing the override editor inline in
 Material Details is the real fix and needs its own spec.
 
-**Integration-contract defects,** on `feat/api-fixes-1.2`, from a reviewer
-working on CATS integration. All six were verified against the code:
-
-- `capability_payload()["address_modes"]` strips `AUTO`, but the parser accepts
-  it, `docs/integration-api.md` documents it, and it is the property default
-  every override starts at. The payload contradicts its own documentation.
-- `analyze`'s legacy `image_name`, `uv_map_name`, and `image_channel` lack
-  `SKIP_SAVE`, which is the only reason the panel resets three fields per draw.
-- The modal cancel path calls `_finish_modal` — which tags a redraw — before
-  publishing `ANALYSIS_CANCELLED`. Every other path publishes first.
-- `validation_state` flips to `STALE` while `last_status_code` still reads
-  `ANALYSIS_COMPLETE`, so a consumer reading either field alone is wrong.
-- `ANALYSIS_SETTING_NAMES` is load-bearing for callers but lives in
-  `properties.py`, outside anything `api_major` guards.
-- A count-asserting test is missing for panel-built `material_overrides_json`.
-
-`reset_analysis_settings` is deliberately excluded: it is `INTERNAL` and absent
-from `PUBLIC_OPERATOR_IDS`, so promoting it would create a contract obligation
-that does not exist today.
+Three smaller items are deliberately deferred rather than carried on the
+fixes branch: the partial-drop override coverage named under known warnings
+above, the two missing PEP 8 blank lines at `addon/runtime.py:328-329`, and
+`docs/integration-api.md` gaining a worked example of reading
+`last_status_code` and `validation_state` together.
 
 ## Recommended next action
 
-Land `feat/credits-support-panel-1.1.1`, then execute the API fixes on
-`feat/api-fixes-1.2`. Two decisions are open there: whether correcting
-`address_modes` warrants an API minor bump (the recommendation is no, because
-the published list contradicted documented 1.2 behavior rather than adding a
-feature), and whether `mark_dirty` should publish a `RESULT_STALE` status rather
-than only documenting that `validation_state` must be read alongside the code.
+Review the `feat/api-fixes-1.2` diff, then open its pull request against `main`
+and let both CI checks run. Nothing on the branch needs a decision: both open
+questions were settled during planning — no `API_VERSION` bump, because the
+published `address_modes` list contradicted documented 1.2 behavior rather than
+adding a feature, and `RESULT_STALE` is published rather than merely documented,
+from the shared sync point instead of from `mark_dirty` alone.
+
+A 1.1.1 release is outstanding whenever the user wants it; the branch does not
+block it.
