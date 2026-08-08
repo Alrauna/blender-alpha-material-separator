@@ -538,6 +538,16 @@ class CiTrustTests(unittest.TestCase):
             ci.extract_archive("windows", Path("blender.zip"), output)
             unpack.assert_called_once_with(Path("blender.zip"), output)
 
+    def test_macos_archive_extraction_uses_dmg_adapter(self) -> None:
+        archive = Path("blender.dmg")
+        output = Path("blender")
+        with (
+            mock.patch.object(ci, "extract_dmg") as extract_dmg,
+            mock.patch.object(ci.shutil, "unpack_archive"),
+        ):
+            ci.extract_archive("macos", archive, output)
+        extract_dmg.assert_called_once_with(archive, output, "Blender.app")
+
     def test_platform_paths_cover_archives_and_application_bundles(
         self,
     ) -> None:
