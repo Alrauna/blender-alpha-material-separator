@@ -13,12 +13,43 @@ The approved design is
 `docs/superpowers/specs/2026-08-08-macos-apple-silicon-ci-design.md`.
 The design was committed as `ae1097b` and approved by the user. The test-first
 implementation plan is
-`docs/superpowers/plans/2026-08-08-macos-apple-silicon-ci.md`; implementation
-has not started and plan approval is pending. The clean branch baseline is 111
-passing unit tests. The reference implementation is
+`docs/superpowers/plans/2026-08-08-macos-apple-silicon-ci.md`; the user approved
+it and implementation is locally complete. Commit `7ed6d7b` adds the pinned
+Apple Silicon DMG identity, explicit platform roots/Python directories,
+plist-parsed read-only `hdiutil` extraction, symlink-preserving `Blender.app`
+copy, and guaranteed detach after bundle-copy attempts. Commit `8c059d9` adds
+the single `macos-15` matrix row, full-parity workflow contracts, and testing
+documentation. Review found and `cd207a2` closes the missing regression for the
+real `extract_archive("macos", ...)` dispatch. The reference implementation is
 `Alrauna/material-combiner-addon`, whose `macos-15` runner verifies the official
 Blender 5.2.0 Apple Silicon DMG and extracts `Blender.app` through plist-parsed
 `hdiutil` output.
+
+Local validation passed on 2026-08-08:
+
+- the focused CI/helper and workflow-contract suite: 40 tests;
+- the complete unit suite: 117 tests;
+- `tests/blender/run_all.py` with factory startup, background mode,
+  `--disable-autoexec`, and `--python-exit-code 1`;
+- Blender source validation;
+- a fresh, exactly-one `alpha_material_separator-1.3.0.zip` build and archive
+  validation; the ignored `.packaged-releases` directory had to be created in
+  the fresh worktree before the direct Blender build command;
+- `git diff --check`.
+
+The security/scope review found no remaining Critical, Important, or Minor
+issues: existing resolver/TLS/hash controls, triggers, permissions, checkout
+pinning, credential isolation, and Windows-only release behavior are unchanged.
+No action, dependency, cache, artifact transfer, permission, trigger, container,
+redirect, or network source was added. The overengineering review found nothing
+to cut: standard-library `plistlib`, native `hdiutil`, and the existing shared
+matrix/helper are reused without a platform-specific job or dependency.
+
+Hosted macOS execution remains unverified because the branch has not been
+pushed and no pull request has been opened. Keep the design and plan until the
+Windows, Linux, and macOS hosted checks all pass. Private-reference smoke,
+benchmarks, and installed interactive checks are not required for this CI-only
+change because no addon runtime or material-analysis behavior changed.
 
 ## Completed and merged: `fix/stale-analysis-privacy`
 
@@ -383,12 +414,12 @@ worked example of the pairing was written. Add it, or close it as superseded.
 
 ## Recommended next action
 
-Review and approve
-`docs/superpowers/plans/2026-08-08-macos-apple-silicon-ci.md`, then execute it
-with `superpowers:executing-plans`. The implementation must extend the existing
-matrix, preserve every current security control, and leave repository settings
-unchanged. A hosted macOS run is required before claiming Apple Silicon
-integration success.
+Obtain explicit approval to push `codex/ci-macos-arm64` and open a pull request
+against `main`. Require `CI / Windows — Blender 5.2`, `CI / Linux — Blender
+5.2`, and `CI / macOS — Blender 5.2` to pass without exclusions or
+`continue-on-error`. Only after that hosted proof should the completed design
+and plan be removed and the milestone handoff closed. Branch protection remains
+unchanged unless separately approved.
 
 The 1.3.0 release gate is still outstanding and independent: clean-ZIP install,
 save/reopen, FBX material assignment, performance baselines, the interactive UI
