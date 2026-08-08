@@ -11,6 +11,15 @@ _UI_AVERAGE_CHARACTER_WIDTH = 7
 _UI_HORIZONTAL_PADDING = 32
 _UI_MIN_LINE_CHARACTERS = 12
 
+
+def json_object(value: str) -> dict:
+    """Parse a published JSON string, treating anything unusable as empty."""
+    try:
+        result = json.loads(value or "{}")
+        return result if isinstance(result, dict) else {}
+    except (TypeError, json.JSONDecodeError):
+        return {}
+
 CLASS_COPY = {
     "OPAQUE": ("Stay on opaque material", "No covered image pixel is below the threshold."),
     "ALPHA_AFFECTED": ("Move to alpha material", "Every covered image pixel needs alpha."),

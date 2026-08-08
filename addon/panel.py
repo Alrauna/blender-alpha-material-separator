@@ -3,33 +3,20 @@
 
 from __future__ import annotations
 
-import json
-
 import bpy
 
-from . import runtime
-from .adapters.assignment import build_assignment_plan
+from . import runtime, workflow
 from .manifest import issues_url, maintainer_name, version_tuple
 from .overrides import dumps_material_overrides
 from .presentation import (
     CLASS_COPY,
     alpha_source_advisory,
-    already_separated_tooltip,
     classes_to_move,
     guidance_for,
+    json_object,
     review_material_cards,
-    review_signature,
     ui_text_lines,
-    workflow_view,
 )
-
-
-def _json(value: str) -> dict:
-    try:
-        result = json.loads(value or "{}")
-        return result if isinstance(result, dict) else {}
-    except (TypeError, json.JSONDecodeError):
-        return {}
 
 
 def _label_lines(
@@ -43,10 +30,6 @@ def _label_lines(
 
     for index, line in enumerate(ui_text_lines(text, available_width)):
         layout.label(text=line, icon=icon if index == 0 else "NONE")
-
-
-def _eligible_objects(context) -> tuple[bpy.types.Object, ...]:
-    return tuple(obj for obj in context.selected_objects if obj.type == "MESH")
 
 
 def _override_payload(settings) -> tuple[str, bool]:
@@ -84,33 +67,10 @@ def _set_analysis_properties(operator, settings, material_overrides_json: str) -
     operator.max_run_emissions = settings.max_run_emissions
 
 
-def _policy_signature(state, settings, plan_payload=None) -> str:
-    return review_signature(
-        state.analysis_id,
-        settings.mixed_policy,
-        settings.suppressed_policy,
-        settings.unsupported_policy,
-        settings.derived_conflict_policy,
-        plan_payload,
-    )
-
-
-def _plan(report, settings):
-    if report is None:
-        return None
-    return build_assignment_plan(
-        report,
-        mixed_policy=settings.mixed_policy,
-        suppressed_policy=settings.suppressed_policy,
-        unsupported_policy=settings.unsupported_policy,
-        conflict_policy=settings.derived_conflict_policy,
-    )
-
-
 def _draw_completion(layout, ui, state, *, available_width: int) -> None:
-    payload = _json(ui.last_completion_json)
+    payload = json_object(ui.last_completion_json)
     if not payload and state.last_status_code.startswith("ASSIGNMENT_"):
-        payload = _json(state.last_status_json)
+        payload = json_object(state.last_status_json)
     if not payload:
         return
     box = layout.box()
@@ -186,7 +146,7 @@ def _draw_status_problem(layout, state, *, available_width: int) -> None:
     }
     if state.last_status_code in normal:
         return
-    payload = _json(state.last_status_json)
+    payload = json_object(state.last_status_json)
     title, remedy = guidance_for(state.last_status_code)
     box = layout.box()
     box.alert = True
@@ -280,47 +240,18 @@ class ALPHA_MATERIAL_SEPARATOR_PT_main(bpy.types.Panel):
         state = window_manager.alpha_material_separator_api
         settings = window_manager.alpha_material_separator_settings
         ui = window_manager.alpha_material_separator_ui
-        eligible = _eligible_objects(context)
+        view = workflow.snapshot(context)
+        eligible = view["eligible_objects"]
         material_overrides_json, invalid_overrides = _override_payload(settings)
-        current_report = runtime.report(state.analysis_id)
-        report_payload = _json(state.report_json) if current_report else {}
-        stale = bool(runtime.dirty_reason())
-        try:
-            current_plan = (
-                _plan(current_report, settings)
-                if current_report is not None and not stale
-                else None
-            )
-        except (AttributeError, KeyError, ReferenceError, RuntimeError):
-            current_plan = None
-            stale = True
-        plan_payload = current_plan.public_payload() if current_plan else {}
-        reviewed = runtime.review_matches(
-            window_manager,
-            state.analysis_id,
-            _policy_signature(state, settings, plan_payload),
-        )
-        actionable = bool(current_plan and current_plan.actionable)
-        no_change_tooltip = already_separated_tooltip(
-            already_derived=bool(current_plan and current_plan.already_derived),
-            actionable=actionable,
-        )
-        already_separated = bool(no_change_tooltip)
-        view = workflow_view(
-            eligible_objects=len(eligible),
-            running=ui.is_analyzing,
-            has_report=bool(current_report),
-            stale=stale,
-            reviewed=reviewed,
-            actionable=actionable,
-            completed=bool(
-                _json(ui.last_completion_json)
-                or (
-                    state.last_status_code.startswith("ASSIGNMENT_")
-                    and _json(state.last_status_json)
-                )
-            ),
-        )
+        current_report = view["report"]
+        report_payload = json_object(state.report_json) if current_report else {}
+        stale = view["stale"]
+        current_plan = view["plan"]
+        plan_payload = view["plan_payload"]
+        reviewed = view["reviewed"]
+        actionable = view["actionable"]
+        no_change_tooltip = view["no_change_tooltip"]
+        already_separated = view["already_separated"]
 
         layout.label(text="Opaque faces keep the original material.")
         layout.label(text="Alpha faces use a copied material slot.")
@@ -579,9 +510,7 @@ class ALPHA_MATERIAL_SEPARATOR_PT_main(bpy.types.Panel):
             assign.suppressed_policy = settings.suppressed_policy
             assign.unsupported_policy = settings.unsupported_policy
             assign.derived_conflict_policy = settings.derived_conflict_policy
-            assign.expected_review_signature = _policy_signature(
-                state, settings, plan_payload
-            )
+            assign.expected_review_signature = view["expected_review_signature"]
 
         footer = layout.row(align=True)
         footer.operator(
@@ -701,7 +630,7 @@ class ALPHA_MATERIAL_SEPARATOR_PT_policies(_ExpertPanel, bpy.types.Panel):
         layout = self.layout
         state = context.window_manager.alpha_material_separator_api
         settings = context.window_manager.alpha_material_separator_settings
-        report = _json(state.report_json)
+        report = json_object(state.report_json)
         counts = report.get("counts", {})
         shown = False
         if counts.get("MIXED", 0):
@@ -718,7 +647,7 @@ class ALPHA_MATERIAL_SEPARATOR_PT_policies(_ExpertPanel, bpy.types.Panel):
         if has_face_local_unsupported:
             layout.prop(settings, "unsupported_policy")
             shown = True
-        current_plan = _plan(runtime.report(state.analysis_id), settings)
+        current_plan = workflow.build_plan(runtime.report(state.analysis_id), settings)
         conflict_reasons = {
             item.get("reason")
             for item in (current_plan.blocked if current_plan else ())

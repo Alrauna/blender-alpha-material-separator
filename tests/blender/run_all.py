@@ -49,6 +49,9 @@ from tests.blender.test_simplification_contracts import (  # noqa: E402
 from tests.blender.test_integration_contract import (  # noqa: E402
     run as run_integration_contract_tests,
 )
+from tests.blender.test_published_workflow import (  # noqa: E402
+    run as run_published_workflow_tests,
+)
 
 
 def assert_operator_registered() -> None:
@@ -114,6 +117,7 @@ def run() -> None:
             run_credits_panel_tests()
             run_simplification_contracts()
             run_integration_contract_tests()
+            run_published_workflow_tests()
             run_identity_transition_tests()
             run_fbx_export_tests()
             run_preservation_tests()
