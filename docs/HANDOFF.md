@@ -51,9 +51,11 @@ first hosted run passed `CI / macOS — Blender 5.2` in 33 seconds, `CI / Window
 — Blender 5.2` in 38 seconds, and `CI / Linux — Blender 5.2` in 46 seconds;
 CodeQL also passed. That run supplies the missing Apple Silicon integration
 proof. The completed design and implementation plan were then removed as
-required; Git history retains their approved wording. Private-reference smoke,
-benchmarks, and installed interactive checks were not required for this CI-only
-change because no addon runtime or material-analysis behavior changed.
+required in commit `8f9e3a8`; Git history retains their approved wording. The
+post-cleanup run passed macOS in 38 seconds, Windows in 38 seconds, Linux in 41
+seconds, and CodeQL. Private-reference smoke, benchmarks, and installed
+interactive checks were not required for this CI-only change because no addon
+runtime or material-analysis behavior changed.
 
 ## Completed and merged: `fix/stale-analysis-privacy`
 
@@ -418,10 +420,11 @@ worked example of the pairing was written. Add it, or close it as superseded.
 
 ## Recommended next action
 
-Review draft pull request #15 after its post-cleanup checks pass. The branch is
-complete for its stated CI objective; do not add adjacent CI cleanup or branch
-protection changes. Making `CI / macOS — Blender 5.2` a required merge check
-remains a separate repository-setting decision requiring explicit approval.
+Review draft pull request #15. Its implementation and post-cleanup checks pass,
+and the branch is complete for its stated CI objective; do not add adjacent CI
+cleanup or branch-protection changes. Making `CI / macOS — Blender 5.2` a
+required merge check remains a separate repository-setting decision requiring
+explicit approval.
 
 The 1.3.0 release gate is still outstanding and independent: clean-ZIP install,
 save/reopen, FBX material assignment, performance baselines, the interactive UI
