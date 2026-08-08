@@ -59,7 +59,7 @@ def assert_operator_registered() -> None:
     state = bpy.context.window_manager.alpha_material_separator_api
     capabilities = json.loads(state.capabilities_json)
     status = json.loads(state.last_status_json)
-    assert capabilities["api_version"] == "1.2", capabilities
+    assert capabilities["api_version"] == "1.3", capabilities
     assert capabilities["capabilities"]["query_capabilities"] is True
     assert capabilities["capabilities"]["analysis"] is True
     assert capabilities["capabilities"]["face_selection_preview"] is True
@@ -69,6 +69,7 @@ def assert_operator_registered() -> None:
     assert state.validation_state in {"CLEAN", "RECHECK_PENDING", "STALE"}
     assert json.loads(state.pending_scopes_json) == []
     assert capabilities["capabilities"]["plan_derived_preview"] is True
+    assert capabilities["capabilities"]["published_workflow_state"] is True
     assert capabilities["capabilities"]["reason_scoped_unsupported"] is True
     assert status["code"] == "OK", status
 

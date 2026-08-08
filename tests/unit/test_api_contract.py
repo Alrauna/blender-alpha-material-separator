@@ -31,7 +31,7 @@ class ApiContractTests(unittest.TestCase):
         self.assertEqual(first, second)
 
         payload = json.loads(first)
-        self.assertEqual(payload["api_version"], "1.2")
+        self.assertEqual(payload["api_version"], "1.3")
         self.assertEqual(
             payload["extension_version"],
             api_contract.dotted(manifest.version_tuple()),
@@ -83,8 +83,8 @@ class ApiContractTests(unittest.TestCase):
         default = MaterialOverride(material_name="Body").address_mode
         self.assertIn(default, api_contract.capability_payload()["address_modes"])
 
-    def test_public_operator_ids_remain_api_1_2_compatible(self) -> None:
-        self.assertEqual(api_contract.API_VERSION, (1, 2))
+    def test_public_operator_ids_remain_api_1_compatible(self) -> None:
+        self.assertEqual(api_contract.API_VERSION, (1, 3))
         self.assertEqual(
             api_contract.PUBLIC_OPERATOR_IDS,
             (
@@ -105,7 +105,7 @@ class ApiContractTests(unittest.TestCase):
         )
         self.assertEqual(
             encoded,
-            '{"a_value":2,"api_version":"1.2","code":"OK","message":"done","z_value":1}',
+            '{"a_value":2,"api_version":"1.3","code":"OK","message":"done","z_value":1}',
         )
 
     def test_publish_status_updates_state_and_returns_payload(self) -> None:
@@ -116,6 +116,72 @@ class ApiContractTests(unittest.TestCase):
         self.assertEqual(state.last_status_code, "EXAMPLE")
         self.assertEqual(json.loads(state.last_status_json), payload)
         self.assertEqual(payload["count"], 3)
+
+    def test_workflow_payload_publishes_the_documented_field_set(self) -> None:
+        view = {
+            "state": "READY_TO_REVIEW",
+            "can_analyze": True,
+            "can_preview": True,
+            "can_apply": True,
+            "running": False,
+            "stale": False,
+            "reviewed": False,
+            "actionable": True,
+            "already_separated": False,
+            "eligible_object_count": 2,
+            "analysis_id": "abc123",
+            "validation_state": "CLEAN",
+            "expected_review_signature": "deadbeef",
+            # Live objects the panel needs are never published.
+            "plan": object(),
+            "report": object(),
+        }
+        payload = api_contract.workflow_payload(view)
+        self.assertEqual(
+            set(payload),
+            set(api_contract.WORKFLOW_FIELDS) | {"api_version"},
+        )
+        self.assertEqual(payload["api_version"], "1.3")
+        self.assertEqual(payload["state"], "READY_TO_REVIEW")
+        self.assertTrue(payload["can_apply"])
+        self.assertEqual(payload["eligible_object_count"], 2)
+        # Must survive the documented serializer.
+        self.assertEqual(json.loads(api_contract.dumps(payload)), payload)
+
+    def test_degraded_workflow_payload_offers_nothing(self) -> None:
+        degraded = api_contract.degraded_workflow_payload()
+        self.assertEqual(set(degraded), set(api_contract.WORKFLOW_FIELDS) | {"api_version"})
+        self.assertTrue(degraded["stale"])
+        self.assertFalse(degraded["can_analyze"])
+        self.assertFalse(degraded["can_preview"])
+        self.assertFalse(degraded["can_apply"])
+        self.assertIn(degraded["state"], api_contract.WORKFLOW_STATES)
+
+    def test_published_workflow_states_match_the_presentation_states(self) -> None:
+        from addon.presentation import workflow_view
+
+        produced = set()
+        for arguments in (
+            dict(eligible_objects=0),
+            dict(eligible_objects=1),
+            dict(eligible_objects=1, has_report=True, actionable=True),
+            dict(eligible_objects=1, has_report=True, actionable=True, reviewed=True),
+            dict(eligible_objects=1, has_report=True, actionable=False),
+            dict(eligible_objects=1, has_report=True, stale=True),
+            dict(eligible_objects=1, running=True),
+            dict(eligible_objects=1, completed=True),
+        ):
+            defaults = dict(
+                eligible_objects=0,
+                running=False,
+                has_report=False,
+                stale=False,
+                reviewed=False,
+                actionable=False,
+                completed=False,
+            )
+            produced.add(workflow_view(**(defaults | arguments))["state"])
+        self.assertEqual(produced, set(api_contract.WORKFLOW_STATES))
 
 
 if __name__ == "__main__":
