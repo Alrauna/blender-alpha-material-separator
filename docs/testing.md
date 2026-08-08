@@ -39,15 +39,18 @@ because the source-tree headless suite passed.
 
 ## GitHub Actions CI/CD
 
-Pull requests targeting `main` and pushes to `main` run two stable checks:
+Pull requests targeting `main` and pushes to `main` run three stable checks:
 
 - `CI / Windows — Blender 5.2`
 - `CI / Linux — Blender 5.2`
+- `CI / macOS — Blender 5.2`
 
-Both use Blender 5.2.0 exactly and run the unit suite, complete headless Blender
-suite with auto-execution disabled, source validation, extension build, and
-version-independent discovery and validation of the one generated AMS ZIP.
-Each runner builds and discards its own ZIP.
+All three use Blender 5.2.0 exactly and run the unit suite, complete headless
+Blender suite with auto-execution disabled, source validation, extension build,
+and version-independent discovery and validation of the one generated AMS ZIP.
+Each runner builds and discards its own ZIP. The `macos-15` runner is Apple
+Silicon; macOS is not excluded from or allowed to ignore any shared validation
+step.
 Workflow artifacts, caches, setup actions, package installers, containers,
 self-hosted runners, and third-party actions are not used.
 
@@ -64,16 +67,27 @@ curl, which keeps `download.blender.org` as the validated TLS hostname. Curl has
 30-second connection timeout, a fixed total limit, and two retries. Linux tar
 extraction uses Python's safe data filter and selects Blender from the exact
 archive root. Any malformed response, disagreement, or timeout fails closed.
+On macOS, the pinned archive is
+`blender-5.2.0-macos-arm64.dmg`, with committed SHA-256
+`ed4d8390166dec5ea0a2813a03db6221f206ce016442be7f59f41d760972568a`.
+The helper mounts it read-only with `hdiutil`, parses the mount point from plist
+output, requires exactly one mounted volume containing `Blender.app`, preserves
+bundle symlinks while copying, and detaches the volume even when copying fails.
 
 The first hosted run showed that Quad9's HTTP/2-only DoH endpoint is
 incompatible with the Windows runner's curl path. The approved standard-library
 Quad9 DoT replacement passed a live local resolution and pinned HTTPS checksum
-download. Hosted Windows and Linux must still prove port 853 availability; do
-not weaken or remove the independent resolver or byte-consensus gate.
+download. Hosted Windows, Linux, and macOS must still prove port 853
+availability; do not weaken or remove the independent resolver or
+byte-consensus gate.
+
+The existing protected checks remain Windows and Linux. Making the macOS check
+required in branch protection is a separate repository-setting change and must
+wait for explicit approval after the hosted Apple Silicon job is confirmed.
 
 Manual dispatch requires a strict `X.Y.Z` version. Publication additionally
-requires `main`, a public repository, successful Windows and Linux checks, and
-the protected `release` environment. The write-authorized job uses
+requires `main`, a public repository, successful Windows, Linux, and macOS
+checks, and the protected `release` environment. The write-authorized job uses
 unauthenticated native Git to fetch and verify the exact `GITHUB_SHA`; no action
 or Git command receives the release token. It rebuilds a fresh ZIP, validates
 it, writes `SHA256SUMS.txt`, refuses an existing tag or release, creates a
