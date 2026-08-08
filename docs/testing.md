@@ -27,8 +27,9 @@ New-Item -ItemType Directory -Force -Path $env:BLENDER_USER_DATAFILES | Out-Null
 
 When all commands above pass, the checkpoint verifies ordinary-Python import
 without `bpy`, deterministic
-coverage/classification and API 1.2 capability JSON, registration/unregistration,
-Simple and Expert workflow state, per-material overrides, analysis progress and
+coverage/classification and API 1.3 capability JSON, registration/unregistration,
+Simple and Expert workflow state, the published workflow surface and its
+RECHECK_PENDING gating, per-material overrides, analysis progress and
 cancellation, review-token invalidation, warning confirmation, preview,
 stale-result refusal, safe assignment, every documented material-identity
 transition, completion summaries, preservation, save/reopen, FBX

@@ -1,9 +1,9 @@
 # Public integration API
 
-- API version: `1.2`
+- API version: `1.3`
 - Extension version: see `version` in `addon/blender_manifest.toml`
 
-API 1.2 is additive over 1.1. Existing API 1.0/1.1 callers keep the same
+API 1.3 is additive over 1.2. Existing API 1.0/1.1/1.2 callers keep the same
 operator IDs, existing arguments, scripted defaults, and classifications.
 One intentional status correction is documented below: an unresolved-only
 selection is now a successful no-change result instead of a global assignment
@@ -14,6 +14,30 @@ failure. The current build implements:
 - `bpy.ops.alpha_material_separator.select_faces`
 - `bpy.ops.alpha_material_separator.assign_materials`
 - `bpy.ops.alpha_material_separator.clear_results`
+
+## Versioning
+
+The API minor bumps whenever the published surface gains a field, property,
+status code, or operator. `extension_version`, published both as
+`capability_payload()["extension_version"]` and as
+`WindowManager.alpha_material_separator_api.extension_version`, distinguishes
+builds within one minor and is derived from `addon/blender_manifest.toml`.
+
+Under this policy the `RESULT_STALE` status code added in 1.2.0 should have
+bumped the minor and did not. A consumer that must distinguish 1.2.0 from an
+earlier 1.2 build compares `extension_version` tuples after running
+`query_capabilities`:
+
+```python
+bpy.ops.alpha_material_separator.query_capabilities(requested_api_major=1)
+state = bpy.context.window_manager.alpha_material_separator_api
+capabilities = json.loads(state.capabilities_json)
+version = tuple(int(part) for part in capabilities["extension_version"].split("."))
+supported = version >= (1, 2, 0)
+```
+
+Prefer a capability flag over a version comparison where one exists.
+`published_workflow_state` covers the workflow surface below.
 
 ## Analysis and material-specific overrides
 
@@ -63,6 +87,7 @@ Machine-readable JSON strings are exposed through
 - `validation_state`
 - `pending_scopes_json`
 - API and extension versions
+- `workflow_json`
 
 API 1.1 reports add resolved image, UV, channel, addressing, source method,
 per-material counts, unsupported reasons, suppressed-gate details, and planned
@@ -138,6 +163,35 @@ review token to decide whether confirmation is mandatory. It does not gate
 direct scripted assignment: scripts still supply the expected analysis ID, and
 assignment performs authoritative stale-input validation.
 
+## Workflow state
+
+`workflow_json` is a read-only computed property. Each read recomputes from
+current Blender state, because two of its inputs — the selected objects and the
+four policy enums — change with no extension operator running, which is exactly
+when Preview and Apply become available or unavailable. It carries:
+
+| Field | Meaning |
+| --- | --- |
+| `state` | `IDLE`, `READY_TO_ANALYZE`, `READY_TO_REVIEW`, `REVIEWED`, `NO_CHANGE`, `STALE`, `RUNNING`, or `COMPLETED`. |
+| `can_analyze`, `can_preview`, `can_apply` | Exactly what the extension's own buttons enable. |
+| `running` | An analysis is in progress. |
+| `stale` | Confirmed stale. `RECHECK_PENDING` is not stale and leaves the gating booleans true. |
+| `reviewed` | The current exact plan has been previewed. |
+| `actionable` | The plan would change at least one face or metadata record. |
+| `already_separated` | Nothing left to move; report "no change needed" rather than only greying buttons. |
+| `eligible_object_count` | Disambiguates the two causes of `can_analyze: false`. |
+| `analysis_id`, `validation_state` | Match the same-named properties. |
+| `expected_review_signature` | Pass unchanged to `assign_materials`. |
+
+Passing `expected_review_signature` is what gives an external Apply the same
+`REVIEW_CHANGED` protection and not-previewed confirmation the guided panel
+gets. Omitting it, or passing an empty string, reads as *already previewed* and
+silently drops both.
+
+If the snapshot cannot be computed, the property publishes `stale: true` with
+every `can_*` false rather than raising, because the getter runs during panel
+draw.
+
 ## Assignment return and status behavior
 
 | Situation | Operator return | `last_status_code` |
@@ -151,6 +205,11 @@ assignment performs authoritative stale-input validation.
 | Warning preflight changed while its dialog was open | `CANCELLED` | `PREFLIGHT_CHANGED` |
 | Unexpected execution error | `CANCELLED` | `ASSIGNMENT_FAILED`; transactional rollback is attempted and failures are reported |
 | A completed report became stale | published outside any operator result; an operator that then runs reports `STALE_ANALYSIS` | `RESULT_STALE` |
+
+Every payload in `last_status_json` carries `severity`: `OK`, `INFO`, or
+`ERROR`. The extension's own panel renders an alert box for `ERROR` only. A code
+absent from the published table is an `ERROR`, so a consumer written against
+this document stays correct when a later release adds one.
 
 `RESULT_STALE` is published whenever a completed report transitions to
 `validation_state == "STALE"`, including a settings change and an

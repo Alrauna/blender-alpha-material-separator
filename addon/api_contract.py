@@ -71,6 +71,7 @@ def severity_for(code: str) -> str:
     """Classify a public status code. Unknown codes are errors."""
     return STATUS_SEVERITIES.get(code, DEFAULT_STATUS_SEVERITY)
 
+
 # The published guided-workflow surface. WORKFLOW_FIELDS is the exact key set of
 # `WindowManager.alpha_material_separator_api.workflow_json` minus api_version,
 # so a consumer can validate a payload without version-sniffing.
