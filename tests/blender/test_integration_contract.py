@@ -56,6 +56,7 @@ def _assert_cancel_publishes_before_teardown() -> None:
         original_finish(window_manager)
 
     def _replacement_execute(self, context):
+        captured["dispatched_through_execute"] = True
         self._engine = _StubEngine()
         self._timer = None
         runtime.finish_analysis = _recording_finish
@@ -94,7 +95,9 @@ def _assert_cancel_publishes_before_teardown() -> None:
             # left thinking an analysis is still running.
             runtime.finish_analysis(bpy.context.window_manager)
 
-    assert captured, "analyze() did not dispatch through execute() in background mode"
+    assert captured.get("dispatched_through_execute"), (
+        "analyze() did not dispatch through execute() in background mode"
+    )
     assert captured.get("result") == {"CANCELLED"}, captured
     assert captured.get("engine_after") is None
     assert observed == ["ANALYSIS_CANCELLED"], observed
@@ -102,7 +105,7 @@ def _assert_cancel_publishes_before_teardown() -> None:
     state.last_status_code = original_status_code
 
 
-def _assert_stale_result_publishes_a_status() -> None:
+def _assert_stale_result_publishes_a_status():
     """A stale report must not leave a success code as the last status."""
 
     from addon import runtime
@@ -133,9 +136,10 @@ def _assert_stale_result_publishes_a_status() -> None:
     assert payload["dirty_reason"] == "SETTINGS_CHANGED", payload
 
     settings.property_unset("alpha_threshold")
+    return quad
 
 
-def _assert_a_clean_result_keeps_its_success_status() -> None:
+def _assert_a_clean_result_keeps_its_success_status(quad) -> None:
     """The stale status must not fire for a harmless transition."""
 
     from addon import runtime
@@ -143,15 +147,18 @@ def _assert_a_clean_result_keeps_its_success_status() -> None:
     assert bpy.ops.alpha_material_separator.analyze(api_major=1) == {"FINISHED"}
     state = bpy.context.window_manager.alpha_material_separator_api
     bpy.ops.object.select_all(action="DESELECT")
-    bpy.context.view_layer.objects.active = bpy.context.view_layer.objects[0]
-    bpy.context.view_layer.objects[0].select_set(True)
+    bpy.context.view_layer.objects.active = quad
+    quad.select_set(True)
     assert state.validation_state != runtime.VALIDATION_STALE, state.validation_state
     assert state.last_status_code == "ANALYSIS_COMPLETE", state.last_status_code
 
 
 def run() -> None:
+    from tests.blender.test_analysis_preview import _clear_scene
+
     _assert_legacy_arguments_do_not_persist()
     _assert_cancel_publishes_before_teardown()
-    _assert_stale_result_publishes_a_status()
-    _assert_a_clean_result_keeps_its_success_status()
+    quad = _assert_stale_result_publishes_a_status()
+    _assert_a_clean_result_keeps_its_success_status(quad)
+    _clear_scene()
     print("ALPHA_MATERIAL_SEPARATOR_INTEGRATION_CONTRACT_TESTS_OK")

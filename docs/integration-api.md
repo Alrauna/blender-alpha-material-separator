@@ -150,7 +150,7 @@ assignment performs authoritative stale-input validation.
 | Guided-UI plan changed after Preview | `CANCELLED` | `REVIEW_CHANGED` |
 | Warning preflight changed while its dialog was open | `CANCELLED` | `PREFLIGHT_CHANGED` |
 | Unexpected execution error | `CANCELLED` | `ASSIGNMENT_FAILED`; transactional rollback is attempted and failures are reported |
-| A completed report became stale | not applicable, no operator ran | `RESULT_STALE` |
+| A completed report became stale | published outside any operator result; an operator that then runs reports `STALE_ANALYSIS` | `RESULT_STALE` |
 
 `RESULT_STALE` is published whenever a completed report transitions to
 `validation_state == "STALE"`, including a settings change and an

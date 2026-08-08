@@ -9,7 +9,7 @@ installed-ZIP interactive acceptance.
 
 ## In flight: the integration-contract fixes on feat/api-fixes-1.2
 
-Nine commits, rebased onto `origin/main` at `042a084` after 1.1.1 landed, and
+Twelve commits, rebased onto `origin/main` at `042a084` after 1.1.1 landed, and
 not yet pushed. All six defects a reviewer found while integrating CATS are
 fixed. `API_VERSION` stays `(1, 2)` and the manifest is untouched: every change
 either corrects a payload that already contradicted documented 1.2 behavior or
@@ -200,7 +200,7 @@ Material Details is the real fix and needs its own spec.
 
 Three smaller items are deliberately deferred rather than carried on the
 fixes branch: the partial-drop override coverage named under known warnings
-above, the two missing PEP 8 blank lines at `addon/runtime.py:315-316`, and
+above, the two missing PEP 8 blank lines at `addon/runtime.py:328-329`, and
 `docs/integration-api.md` gaining a worked example of reading
 `last_status_code` and `validation_state` together.
 
