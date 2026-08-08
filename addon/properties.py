@@ -31,6 +31,21 @@ def _policy_changed(_self, context) -> None:
     runtime.clear_review(context.window_manager if context else None)
 
 
+def _workflow_json(_self) -> str:
+    # Imported lazily inside the getter, matching _settings_changed above: the
+    # workflow module reaches adapters.assignment, which must not be imported
+    # while this module is being defined.
+    from . import api_contract, workflow
+
+    try:
+        payload = api_contract.workflow_payload(workflow.snapshot(bpy.context))
+    except Exception:  # noqa: BLE001
+        # A get= callback runs during panel draw. Raising here would break the
+        # panel that reads it, so an unexpected failure offers no operation.
+        payload = api_contract.degraded_workflow_payload()
+    return api_contract.dumps(payload)
+
+
 class ALPHA_MATERIAL_SEPARATOR_PG_api_state(bpy.types.PropertyGroup):
     """Machine-readable capability and last-operation state."""
 
@@ -46,6 +61,11 @@ class ALPHA_MATERIAL_SEPARATOR_PG_api_state(bpy.types.PropertyGroup):
     )
     pending_scopes_json: StringProperty(
         name="Pending Validation Scopes", default="[]", options={"SKIP_SAVE"}
+    )
+    workflow_json: StringProperty(
+        name="Workflow State",
+        description="Read-only published Analyze, Preview, and Apply gating",
+        get=_workflow_json,
     )
 
 

@@ -42,9 +42,12 @@ def _sync_public_validation_state() -> None:
         if hasattr(state, "pending_scopes_json"):
             state.pending_scopes_json = pending_json
         if _VALIDATION_STATE == VALIDATION_STALE and state.analysis_id:
-            # Published here, not at each call site, so every current and future
-            # stale transition carries a status. A consumer must never have to
-            # read validation_state to discover that ANALYSIS_COMPLETE is false.
+            # Published here, not at each call site, so every current and
+            # future confirmed-stale transition carries a status. RECHECK_PENDING
+            # deliberately publishes nothing: a depsgraph hint is not proof of
+            # staleness, and the panel gates on dirty_reason() for the same
+            # reason. A consumer reads workflow_json or both last_status_code
+            # and validation_state; neither field alone is sufficient.
             api_contract.publish_status(
                 state,
                 "RESULT_STALE",

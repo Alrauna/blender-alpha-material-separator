@@ -334,6 +334,24 @@ class PresentationTests(unittest.TestCase):
                 if expected == "NO_CHANGE":
                     self.assertFalse(view["can_preview"])
 
+    def test_stale_results_have_real_guidance(self) -> None:
+        title, remedy = guidance_for("RESULT_STALE")
+        self.assertEqual(title, "Inputs Changed — Analyze Again")
+        self.assertNotEqual(title, guidance_for("A_CODE_WITH_NO_ENTRY")[0])
+        self.assertTrue(remedy)
+
+    def test_no_silent_status_code_carries_user_facing_guidance(self) -> None:
+        """A code with remedy copy must never be classified as nothing to see.
+
+        Marking a code OK suppresses its alert box entirely. Writing guidance
+        for such a code is the drift that hid the missing RESULT_STALE entry,
+        so the two tables are coupled here.
+        """
+        from addon.api_contract import STATUS_SEVERITIES, severity_for
+
+        silent = {code for code in STATUS_SEVERITIES if severity_for(code) == "OK"}
+        self.assertEqual(silent & KNOWN_GUIDANCE_CODES, set())
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -49,6 +49,9 @@ from tests.blender.test_simplification_contracts import (  # noqa: E402
 from tests.blender.test_integration_contract import (  # noqa: E402
     run as run_integration_contract_tests,
 )
+from tests.blender.test_published_workflow import (  # noqa: E402
+    run as run_published_workflow_tests,
+)
 
 
 def assert_operator_registered() -> None:
@@ -59,7 +62,7 @@ def assert_operator_registered() -> None:
     state = bpy.context.window_manager.alpha_material_separator_api
     capabilities = json.loads(state.capabilities_json)
     status = json.loads(state.last_status_json)
-    assert capabilities["api_version"] == "1.2", capabilities
+    assert capabilities["api_version"] == "1.3", capabilities
     assert capabilities["capabilities"]["query_capabilities"] is True
     assert capabilities["capabilities"]["analysis"] is True
     assert capabilities["capabilities"]["face_selection_preview"] is True
@@ -69,6 +72,7 @@ def assert_operator_registered() -> None:
     assert state.validation_state in {"CLEAN", "RECHECK_PENDING", "STALE"}
     assert json.loads(state.pending_scopes_json) == []
     assert capabilities["capabilities"]["plan_derived_preview"] is True
+    assert capabilities["capabilities"]["published_workflow_state"] is True
     assert capabilities["capabilities"]["reason_scoped_unsupported"] is True
     assert status["code"] == "OK", status
 
@@ -113,6 +117,7 @@ def run() -> None:
             run_credits_panel_tests()
             run_simplification_contracts()
             run_integration_contract_tests()
+            run_published_workflow_tests()
             run_identity_transition_tests()
             run_fbx_export_tests()
             run_preservation_tests()

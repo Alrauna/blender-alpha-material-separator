@@ -11,6 +11,16 @@ _UI_AVERAGE_CHARACTER_WIDTH = 7
 _UI_HORIZONTAL_PADDING = 32
 _UI_MIN_LINE_CHARACTERS = 12
 
+
+def json_object(value: str) -> dict:
+    """Parse a published JSON string, treating anything unusable as empty."""
+    try:
+        result = json.loads(value or "{}")
+        return result if isinstance(result, dict) else {}
+    except (TypeError, json.JSONDecodeError):
+        return {}
+
+
 CLASS_COPY = {
     "OPAQUE": ("Stay on opaque material", "No covered image pixel is below the threshold."),
     "ALPHA_AFFECTED": ("Move to alpha material", "Every covered image pixel needs alpha."),
@@ -89,6 +99,10 @@ _GUIDANCE = {
     "INPUTS_CHANGED": ("Analyzed inputs changed", "Analyze again before previewing or applying."),
     "OBJECT_DELETED_OR_REPLACED": ("An analyzed object was deleted or replaced", "Select the current mesh objects and analyze again."),
     "STALE_ANALYSIS": ("Inputs changed after analysis", "Analyze again before previewing or applying."),
+    "RESULT_STALE": (
+        "Inputs Changed — Analyze Again",
+        "Analyze again before previewing or applying.",
+    ),
     "ANALYSIS_ID_MISMATCH": ("The reviewed result is unavailable", "Run Analyze Selected Meshes again."),
     "OVERRIDE_CONFLICT": ("Override styles cannot be combined", "Use either legacy selection-wide image override or per-material overrides, not both."),
     "INVALID_MATERIAL_OVERRIDES": ("Manual alpha-source settings are invalid", "Review the target material, image, channel, UV map, and addressing."),
