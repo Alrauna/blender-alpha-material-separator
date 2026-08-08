@@ -32,6 +32,7 @@ def _assert_cancel_publishes_before_teardown() -> None:
     from addon.operators.analyze import ALPHA_MATERIAL_SEPARATOR_OT_analyze
 
     state = bpy.context.window_manager.alpha_material_separator_api
+    original_status_code = state.last_status_code
     state.last_status_code = "ANALYSIS_COMPLETE"
     observed: list[str] = []
     captured: dict[str, object] = {}
@@ -67,6 +68,12 @@ def _assert_cancel_publishes_before_teardown() -> None:
 
     ALPHA_MATERIAL_SEPARATOR_OT_analyze.execute = _replacement_execute
     try:
+        # 'INVOKE_DEFAULT' is safe here only because --background has no
+        # event loop, so Blender dispatches through execute() (patched
+        # above) rather than the real invoke()/modal() path. If that
+        # dispatch assumption is ever wrong, the `captured` check below
+        # catches it and the cleanup in `finally` resets any real
+        # analysis state before the assertion fails loudly.
         bpy.ops.alpha_material_separator.analyze(
             "INVOKE_DEFAULT",
             api_major=1,
@@ -77,11 +84,20 @@ def _assert_cancel_publishes_before_teardown() -> None:
         )
     finally:
         ALPHA_MATERIAL_SEPARATOR_OT_analyze.execute = original_execute
+        if not captured and runtime.snapshot().get("is_analyzing"):
+            # The real invoke() ran instead of the patched execute(): it
+            # started a real analysis, timer, and modal handler that
+            # nothing will ever tick or tear down in this process. Reset
+            # the shared analysis-state flags so later suites are not
+            # left thinking an analysis is still running.
+            runtime.finish_analysis(bpy.context.window_manager)
 
+    assert captured, "analyze() did not dispatch through execute() in background mode"
     assert captured.get("result") == {"CANCELLED"}, captured
     assert captured.get("engine_after") is None
     assert observed == ["ANALYSIS_CANCELLED"], observed
     assert state.last_status_code == "ANALYSIS_CANCELLED", state.last_status_code
+    state.last_status_code = original_status_code
 
 
 def run() -> None:
