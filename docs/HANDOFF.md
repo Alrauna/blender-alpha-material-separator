@@ -5,8 +5,9 @@ Updated: 2026-08-08
 ## Current objective
 
 `fix/stale-analysis-privacy` is complete and unpushed, staying local for review.
-The 1.2.0 release gate remains outstanding and is unaffected by that branch; see
-"Remaining tasks" below for what a following session should pick up.
+It also carries the manifest to `1.3.0`, so the release gate that was pending
+for 1.2.0 is now a 1.3.0 gate; that number never shipped. See "Remaining tasks"
+below for what a following session should pick up.
 
 ## Completed: `fix/stale-analysis-privacy`
 
@@ -51,11 +52,12 @@ from `blender_manifest.toml` since 1.1.1; what was missing was a documented
 minor-bump policy and a worked example, which `docs/integration-api.md`'s new
 `## Versioning` section now supplies.
 
-What shipped, across six commits (`4ad1f20` design approval,
+What shipped, across nine commits (`4ad1f20` design approval,
 `30d91e9` plan, `75b6e1e` `api_contract.py` payload shape,
 `8d1cd97`/`77f58f0` shared `addon/workflow.py` snapshot and `workflow_json` RNA
-getter, `f227782` status severity and the `RESULT_STALE` guidance fix) plus this
-documentation commit:
+getter, `f227782` status severity and the `RESULT_STALE` guidance fix,
+`d89cf2f` documentation, `22d326f` the `can_analyze` correction the final review
+found) plus the version bump:
 
 - `addon/api_contract.py`: `WORKFLOW_STATES`, `WORKFLOW_FIELDS`,
   `workflow_payload()`, `degraded_workflow_payload()`, `STATUS_SEVERITIES`, and
@@ -75,6 +77,12 @@ documentation commit:
   a `workflow_json` bullet, and a `severity` paragraph after the assignment
   status table. `docs/testing.md` names the new coverage in its checkpoint
   paragraph.
+- `addon/blender_manifest.toml` and `README.md`: version `1.3.0`, so the
+  extension version matches the API minor it publishes. Those two files are the
+  only ones naming a version; `EXTENSION_VERSION` derives from the manifest and
+  `tests/unit/test_readme_contract.py` derives README's from it too, which is
+  why the unit suite passing untouched after the bump is the proof no third
+  file carries it.
 
 Validation actually performed on this branch (2026-08-08, Blender 5.2.0 LTS,
 bundled Python 3.13.13):
@@ -86,9 +94,10 @@ bundled Python 3.13.13):
   `ALPHA_MATERIAL_SEPARATOR_PUBLISHED_WORKFLOW_TESTS_OK` marker.
 - `extension validate addon` succeeded.
 - A cleared `.packaged-releases` produced exactly one archive,
-  `alpha_material_separator-1.2.0.zip` at 72,584 bytes (up from 69,608 on
+  `alpha_material_separator-1.3.0.zip` at 72,581 bytes (up from 69,608 on
   `chore/release-1.2.0`, consistent with the added workflow surface), which
-  validated by its discovered path.
+  validated by its discovered path. Its embedded manifest reads
+  `version = "1.3.0"`.
 - `git diff main...HEAD --check` and the final `git diff --check` reported no
   whitespace errors.
 - `git diff main...HEAD --stat` was reviewed; the `default_planned_action`
@@ -142,15 +151,12 @@ explicit user decision rather than because they belong together:
   precision-4 setting 0.03 at a time. Blender's step unit is 1/100, so `step=1`
   gives 0.01 increments. The integer settings already stepped by 1.
 
-`alpha_material_separator-1.2.0.zip` is built and validated locally, and the
-manifest sits at the archive root where the credits panel reads it. The archive
-is in the ignored `.packaged-releases/`, so it does not survive a clean, and a
-release rebuilds from the validated commit anyway.
-
-**The 1.2.0 release gate is not run.** Only archive build and validation are
-done. Clean-ZIP installation, save/reopen, FBX material assignment, performance
-baselines, the interactive UI checklist, and Unity material/submesh validation
-all remain outstanding, and none of them can run headlessly.
+**That 1.2.0 version number never shipped.** `fix/stale-analysis-privacy`
+carried the manifest to `1.3.0` so the extension version matches the `API 1.3`
+surface it publishes, which is the minor bump `RESULT_STALE` should have had.
+Nothing was released in between, so 1.2.x does not exist as a published
+extension version and no consumer can observe the gap. The release sequence is
+1.0.0, 1.1.0, 1.1.1, then 1.3.0.
 
 ## State
 
@@ -165,9 +171,9 @@ behavior or added a status code. `feat/api-fixes-1.2` is merged and deleted on
 GitHub; the local branch still exists and can be pruned.
 
 The newest published GitHub release is `v1.1.1`, tagged at `042a084`, carrying
-`alpha_material_separator-1.1.1.zip` and `SHA256SUMS.txt`. **1.2.0 is not
-released.** `addon/` has changed since `v1.1.1`, so the published artifact is no
-longer byte-identical to the tree.
+`alpha_material_separator-1.1.1.zip` and `SHA256SUMS.txt`. **1.3.0 is not
+released**, and 1.2.0 never will be. `addon/` has changed since `v1.1.1`, so the
+published artifact is no longer byte-identical to the tree.
 
 Earlier releases: `v1.1.0` from `098f13c`, `v1.0.0`. The 1.1.0 behavior work
 landed in
@@ -375,13 +381,7 @@ Then pick a following branch from the deferred list: `report_json`'s
 `default_planned_action`, manual alpha source usability, or the two PEP 8 blank
 lines. None of them belong on the completed branch.
 
-One question for whoever runs the release gate: with this branch merged, the
-tree ships extension version `1.2.0` carrying `API_VERSION = (1, 3)`. No
-published artifact conflicts, since the newest release is `v1.1.1` and 1.2.0
-was never released, so `extension_version` stays unambiguous for consumers.
-Confirm that pairing is intended rather than bumping the manifest to `1.3.0`.
-
-The 1.2.0 release gate is still outstanding and independent: clean-ZIP install,
+The 1.3.0 release gate is still outstanding and independent: clean-ZIP install,
 save/reopen, FBX material assignment, performance baselines, the interactive UI
 checklist above, and Unity material/submesh validation, then publication through
 the protected manual job.

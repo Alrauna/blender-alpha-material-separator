@@ -23,17 +23,21 @@ status code, or operator. `extension_version`, published both as
 `WindowManager.alpha_material_separator_api.extension_version`, distinguishes
 builds within one minor and is derived from `addon/blender_manifest.toml`.
 
-Under this policy the `RESULT_STALE` status code added in 1.2.0 should have
-bumped the minor and did not. A consumer that must distinguish 1.2.0 from an
-earlier 1.2 build compares `extension_version` tuples after running
-`query_capabilities`:
+The policy was written after it was broken: `RESULT_STALE` was added while
+`API_VERSION` stayed `(1, 2)`. That build was never released — the version it
+carried went out as 1.3.0 at API `1.3` instead — so no consumer ever saw the
+violation, and 1.2.x does not exist as a published extension version. The
+releases are 1.0.0, 1.1.0, 1.1.1, then 1.3.0.
+
+Where a version comparison is unavoidable, compare `extension_version` tuples
+after running `query_capabilities`:
 
 ```python
 bpy.ops.alpha_material_separator.query_capabilities(requested_api_major=1)
 state = bpy.context.window_manager.alpha_material_separator_api
 capabilities = json.loads(state.capabilities_json)
 version = tuple(int(part) for part in capabilities["extension_version"].split("."))
-supported = version >= (1, 2, 0)
+supported = version >= (1, 3, 0)
 ```
 
 Prefer a capability flag over a version comparison where one exists.
