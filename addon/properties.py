@@ -120,6 +120,7 @@ class ALPHA_MATERIAL_SEPARATOR_PG_settings(bpy.types.PropertyGroup):
         default=0.999,
         min=0.0,
         max=1.0,
+        step=1,
         precision=4,
         update=_settings_changed,
     )
@@ -142,6 +143,7 @@ class ALPHA_MATERIAL_SEPARATOR_PG_settings(bpy.types.PropertyGroup):
         default=0.0,
         min=0.0,
         max=1.0,
+        step=1,
         precision=4,
         update=_settings_changed,
     )
