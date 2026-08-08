@@ -48,6 +48,11 @@ def _assert_idle_offers_nothing_without_a_selection() -> None:
     assert published["can_analyze"] is False, published
     assert published["eligible_object_count"] == 0, published
     assert published["expected_review_signature"] == "", published
+    # The gate on the published signature must not leak into `reviewed`: a
+    # cleared/idle state has no report, so review_matches(wm, "", "") would
+    # otherwise compare two empty defaults and report reviewed=True before
+    # anything has ever been reviewed.
+    assert published["reviewed"] is False, published
 
 
 def _assert_analysis_publishes_an_actionable_plan(object_) -> dict:

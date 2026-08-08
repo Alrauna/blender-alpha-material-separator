@@ -20,6 +20,7 @@ def json_object(value: str) -> dict:
     except (TypeError, json.JSONDecodeError):
         return {}
 
+
 CLASS_COPY = {
     "OPAQUE": ("Stay on opaque material", "No covered image pixel is below the threshold."),
     "ALPHA_AFFECTED": ("Move to alpha material", "Every covered image pixel needs alpha."),

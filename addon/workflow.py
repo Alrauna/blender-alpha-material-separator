@@ -71,15 +71,20 @@ def snapshot(context) -> dict:
         plan = None
         stale = True
     plan_payload = plan.public_payload() if plan else {}
-    # Only meaningful once a report exists to review; the panel likewise never
-    # draws or assigns this signature outside its "if current_report:" block.
-    signature = policy_signature(state, settings, plan_payload) if report is not None else ""
+    # The real hash always feeds `reviewed`, exactly like pre-refactor
+    # panel.py: a non-empty blake2b hash can never match the "" that
+    # runtime.clear_review() leaves in ui.reviewed_policy_signature, so an
+    # idle read reliably reports not-reviewed. Only the *published*
+    # signature is blanked without a report — the panel likewise never
+    # draws or assigns it outside its "if current_report:" block.
+    raw_signature = policy_signature(state, settings, plan_payload)
+    reviewed = runtime.review_matches(window_manager, state.analysis_id, raw_signature)
+    signature = raw_signature if report is not None else ""
     actionable = bool(plan and plan.actionable)
     no_change_tooltip = already_separated_tooltip(
         already_derived=bool(plan and plan.already_derived),
         actionable=actionable,
     )
-    reviewed = runtime.review_matches(window_manager, state.analysis_id, signature)
     completed = bool(
         json_object(ui.last_completion_json)
         or (
