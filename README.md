@@ -19,13 +19,13 @@ those. The solid faces stay on a material the renderer can draw the cheap way.
 The result is one object with separate opaque and alpha material sections. The
 extension does not cut geometry, split objects, or rewrite shaders.
 
-Version 1.1.1 targets Blender 5.2 LTS.
+Version 1.2.0 targets Blender 5.2 LTS.
 
 ![The Simple interface in Blender's AMS sidebar](docs/images/01-panel-simple.png)
 
 ## Install
 
-1. Download `alpha_material_separator-1.1.1.zip`. Do not unzip it.
+1. Download `alpha_material_separator-1.2.0.zip`. Do not unzip it.
 2. In Blender 5.2, open **Edit → Preferences → Get Extensions**.
 3. Open the upper-right menu, choose **Install from Disk**, and select the ZIP.
 4. Confirm that **Blender Alpha Material Separator** is enabled.
