@@ -29,7 +29,9 @@ CLASSIFICATIONS = (
     "UNSUPPORTED",
 )
 
-ADDRESS_MODES = tuple(mode for mode in OVERRIDE_ADDRESS_MODES if mode != "AUTO")
+# Published unfiltered: AUTO is parser-accepted, documented since API 1.2, and
+# the default every override starts at. A resolved report never reports AUTO.
+ADDRESS_MODES = OVERRIDE_ADDRESS_MODES
 UNSUPPORTED_SCOPES = ("FACE_LOCAL", "MATERIAL_SOURCE", "DATA_SAFETY")
 UNSUPPORTED_POLICIES = ("CANCEL_SOURCE_MATERIAL", "KEEP_SOURCE", "TO_ALPHA")
 VALIDATION_STATES = ("CLEAN", "RECHECK_PENDING", "STALE")

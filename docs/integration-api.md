@@ -37,6 +37,13 @@ detection and may override only the UV or addressing. Materials absent from the
 list remain automatic. Invalid, duplicate, or unused records are rejected
 instead of ignored.
 
+`capability_payload()["address_modes"]` publishes the addressing values
+`material_overrides_json` accepts, including `AUTO`, which is the default every
+override record starts at. A resolved `groups[].address_mode` in a report is
+always a concrete mode: `AUTO` means "use the resolved Image Texture setting" on
+input, and an explicit image override resolves it to `REPEAT`. Builds before this
+correction published the list without `AUTO`, which contradicted this section.
+
 The selection-wide `image_name`, `image_channel`, and `uv_map_name` arguments
 remain available for API 1.0 compatibility and are now considered legacy.
 Combining a selection-wide image override with material-specific records is

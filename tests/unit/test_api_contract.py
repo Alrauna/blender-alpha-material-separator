@@ -10,7 +10,11 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from addon import api_contract, manifest
-from addon.overrides import ADDRESS_MODES as OVERRIDE_ADDRESS_MODES
+from addon.overrides import (
+    ADDRESS_MODES as OVERRIDE_ADDRESS_MODES,
+    MaterialOverride,
+    parse_material_overrides_json,
+)
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -53,10 +57,8 @@ class ApiContractTests(unittest.TestCase):
             payload["validation_states"], ["CLEAN", "RECHECK_PENDING", "STALE"]
         )
         self.assertIn("SUPPRESSED", payload["classifications"])
-        self.assertEqual(
-            payload["address_modes"],
-            [mode for mode in OVERRIDE_ADDRESS_MODES if mode != "AUTO"],
-        )
+        self.assertEqual(payload["address_modes"], list(OVERRIDE_ADDRESS_MODES))
+        self.assertIn("AUTO", payload["address_modes"])
         self.assertIn(
             "SIMPLE_REROUTE_IN_ALPHA_PATH",
             payload["supported_material_patterns"],
@@ -65,6 +67,21 @@ class ApiContractTests(unittest.TestCase):
             "UNIQUE_BASE_COLOR_IMAGE_STORED_ALPHA",
             payload["supported_material_patterns"],
         )
+
+    def test_every_published_address_mode_is_accepted_by_the_parser(self) -> None:
+        published = api_contract.capability_payload()["address_modes"]
+        for mode in published:
+            with self.subTest(mode=mode):
+                parsed = parse_material_overrides_json(
+                    json.dumps(
+                        [{"material_name": "Body", "address_mode": mode}]
+                    )
+                )
+                self.assertEqual(parsed[0].address_mode, mode)
+
+    def test_the_override_default_is_published_as_valid(self) -> None:
+        default = MaterialOverride(material_name="Body").address_mode
+        self.assertIn(default, api_contract.capability_payload()["address_modes"])
 
     def test_public_operator_ids_remain_api_1_2_compatible(self) -> None:
         self.assertEqual(api_contract.API_VERSION, (1, 2))
