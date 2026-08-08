@@ -11,8 +11,11 @@ source-validation, build, and ZIP-validation gates as Windows and Linux.
 
 The approved design is
 `docs/superpowers/specs/2026-08-08-macos-apple-silicon-ci-design.md`.
-Implementation and the test-first plan have not started. The clean branch
-baseline is 111 passing unit tests. The reference implementation is
+The design was committed as `ae1097b` and approved by the user. The test-first
+implementation plan is
+`docs/superpowers/plans/2026-08-08-macos-apple-silicon-ci.md`; implementation
+has not started and plan approval is pending. The clean branch baseline is 111
+passing unit tests. The reference implementation is
 `Alrauna/material-combiner-addon`, whose `macos-15` runner verifies the official
 Blender 5.2.0 Apple Silicon DMG and extracts `Blender.app` through plist-parsed
 `hdiutil` output.
@@ -381,11 +384,11 @@ worked example of the pairing was written. Add it, or close it as superseded.
 ## Recommended next action
 
 Review and approve
-`docs/superpowers/specs/2026-08-08-macos-apple-silicon-ci-design.md`. Then write
-the test-first implementation plan before changing the workflow or CI helper.
-The implementation must extend the existing matrix, preserve every current
-security control, and leave repository settings unchanged. A hosted macOS run
-is required before claiming Apple Silicon integration success.
+`docs/superpowers/plans/2026-08-08-macos-apple-silicon-ci.md`, then execute it
+with `superpowers:executing-plans`. The implementation must extend the existing
+matrix, preserve every current security control, and leave repository settings
+unchanged. A hosted macOS run is required before claiming Apple Silicon
+integration success.
 
 The 1.3.0 release gate is still outstanding and independent: clean-ZIP install,
 save/reopen, FBX material assignment, performance baselines, the interactive UI
