@@ -6,6 +6,7 @@ from __future__ import annotations
 import bpy
 
 from . import runtime, workflow
+from .api_contract import severity_for
 from .manifest import issues_url, maintainer_name, version_tuple
 from .overrides import dumps_material_overrides
 from .presentation import (
@@ -133,18 +134,7 @@ def _draw_completion(layout, ui, state, *, available_width: int) -> None:
 
 
 def _draw_status_problem(layout, state, *, available_width: int) -> None:
-    normal = {
-        "NOT_QUERIED",
-        "OK",
-        "ANALYSIS_COMPLETE",
-        "PREVIEW_COMPLETE",
-        "ASSIGNMENT_COMPLETE",
-        "ASSIGNMENT_COMPLETE_WITH_SKIPS",
-        "ASSIGNMENT_NO_CHANGES",
-        "CLEARED",
-        "RESULT_STALE",
-    }
-    if state.last_status_code in normal:
+    if severity_for(state.last_status_code) in {"OK", "INFO"}:
         return
     payload = json_object(state.last_status_json)
     title, remedy = guidance_for(state.last_status_code)

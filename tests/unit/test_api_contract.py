@@ -105,7 +105,45 @@ class ApiContractTests(unittest.TestCase):
         )
         self.assertEqual(
             encoded,
-            '{"a_value":2,"api_version":"1.3","code":"OK","message":"done","z_value":1}',
+            '{"a_value":2,"api_version":"1.3","code":"OK","message":"done",'
+            '"severity":"OK","z_value":1}',
+        )
+
+    def test_severity_is_published_and_closed_world(self) -> None:
+        self.assertEqual(api_contract.severity_for("ANALYSIS_COMPLETE"), "OK")
+        self.assertEqual(api_contract.severity_for("RESULT_STALE"), "INFO")
+        self.assertEqual(
+            api_contract.severity_for("ASSIGNMENT_COMPLETE_WITH_SKIPS"), "INFO"
+        )
+        # An unlisted code is an error, reproducing the panel's previous
+        # closed-world `normal` set exactly.
+        self.assertEqual(api_contract.severity_for("STALE_ANALYSIS"), "ERROR")
+        self.assertEqual(api_contract.severity_for("ASSIGNMENT_BLOCKED"), "ERROR")
+        self.assertEqual(api_contract.severity_for("A_CODE_ADDED_LATER"), "ERROR")
+
+    def test_the_severity_table_reproduces_the_panels_previous_normal_set(self) -> None:
+        """These nine codes rendered no alert box before severity existed."""
+        previously_normal = {
+            "NOT_QUERIED",
+            "OK",
+            "ANALYSIS_COMPLETE",
+            "PREVIEW_COMPLETE",
+            "ASSIGNMENT_COMPLETE",
+            "ASSIGNMENT_COMPLETE_WITH_SKIPS",
+            "ASSIGNMENT_NO_CHANGES",
+            "CLEARED",
+            "RESULT_STALE",
+        }
+        self.assertEqual(set(api_contract.STATUS_SEVERITIES), previously_normal)
+        for code in previously_normal:
+            with self.subTest(code=code):
+                self.assertIn(api_contract.severity_for(code), {"OK", "INFO"})
+
+    def test_every_status_payload_carries_its_severity(self) -> None:
+        self.assertEqual(api_contract.status_payload("OK", "done")["severity"], "OK")
+        self.assertEqual(
+            api_contract.status_payload("ASSIGNMENT_BLOCKED", "no")["severity"],
+            "ERROR",
         )
 
     def test_publish_status_updates_state_and_returns_payload(self) -> None:

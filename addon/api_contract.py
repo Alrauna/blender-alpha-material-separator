@@ -49,6 +49,28 @@ UNSUPPORTED_SCOPES = ("FACE_LOCAL", "MATERIAL_SOURCE", "DATA_SAFETY")
 UNSUPPORTED_POLICIES = ("CANCEL_SOURCE_MATERIAL", "KEEP_SOURCE", "TO_ALPHA")
 VALIDATION_STATES = ("CLEAN", "RECHECK_PENDING", "STALE")
 
+# Published so a consumer does not reimplement the panel's private set by hand.
+# Only non-error codes are listed; an unlisted code is an error, which keeps the
+# world closed exactly as the panel's previous `normal` set did. There is no
+# WARNING level because no current code needs one.
+STATUS_SEVERITIES = {
+    "NOT_QUERIED": "OK",
+    "OK": "OK",
+    "ANALYSIS_COMPLETE": "OK",
+    "PREVIEW_COMPLETE": "OK",
+    "ASSIGNMENT_COMPLETE": "OK",
+    "ASSIGNMENT_NO_CHANGES": "OK",
+    "CLEARED": "OK",
+    "ASSIGNMENT_COMPLETE_WITH_SKIPS": "INFO",
+    "RESULT_STALE": "INFO",
+}
+DEFAULT_STATUS_SEVERITY = "ERROR"
+
+
+def severity_for(code: str) -> str:
+    """Classify a public status code. Unknown codes are errors."""
+    return STATUS_SEVERITIES.get(code, DEFAULT_STATUS_SEVERITY)
+
 # The published guided-workflow surface. WORKFLOW_FIELDS is the exact key set of
 # `WindowManager.alpha_material_separator_api.workflow_json` minus api_version,
 # so a consumer can validate a payload without version-sniffing.
@@ -173,6 +195,7 @@ def status_payload(code: str, message: str, **details: Any) -> dict[str, Any]:
         "api_version": dotted(API_VERSION),
         "code": code,
         "message": message,
+        "severity": severity_for(code),
     }
     payload.update(details)
     return payload
