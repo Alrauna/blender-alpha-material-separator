@@ -74,9 +74,6 @@ def _override_payload(settings) -> tuple[str, bool]:
 
 
 def _set_analysis_properties(operator, settings, material_overrides_json: str) -> None:
-    operator.image_name = ""
-    operator.uv_map_name = ""
-    operator.image_channel = "ALPHA"
     operator.material_overrides_json = material_overrides_json
     operator.address_mode = settings.address_mode
     operator.alpha_threshold = settings.alpha_threshold

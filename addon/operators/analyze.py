@@ -35,14 +35,18 @@ class ALPHA_MATERIAL_SEPARATOR_OT_analyze(bpy.types.Operator):
     bl_options = {"REGISTER"}
 
     api_major: IntProperty(name="API Major", default=1, min=1)
-    image_name: StringProperty(name="Image Override", default="")
+    image_name: StringProperty(
+        name="Image Override", default="", options={"SKIP_SAVE"}
+    )
     material_overrides_json: StringProperty(
         name="Per-Material Overrides",
         description="JSON list of material-specific image, channel, UV, and addressing overrides",
         default="[]",
         options={"HIDDEN"},
     )
-    uv_map_name: StringProperty(name="UV Map Override", default="")
+    uv_map_name: StringProperty(
+        name="UV Map Override", default="", options={"SKIP_SAVE"}
+    )
     image_channel: EnumProperty(
         name="Image Channel",
         items=(
@@ -53,6 +57,7 @@ class ALPHA_MATERIAL_SEPARATOR_OT_analyze(bpy.types.Operator):
             ("LUMINANCE", "Luminance", "Use RGB luminance"),
         ),
         default="ALPHA",
+        options={"SKIP_SAVE"},
     )
     address_mode: EnumProperty(
         name="Address Mode",
