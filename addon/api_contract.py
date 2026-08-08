@@ -29,6 +29,19 @@ CLASSIFICATIONS = (
     "UNSUPPORTED",
 )
 
+# Public: these are analyze() keyword arguments. Renaming one inside API major 1
+# breaks scripted callers silently, so the names are guarded here rather than in
+# the panel module that happens to draw them.
+ANALYSIS_SETTING_NAMES = (
+    "alpha_threshold",
+    "min_affected_texels",
+    "min_affected_fraction",
+    "margin_texels",
+    "address_mode",
+    "max_scanlines",
+    "max_run_emissions",
+)
+
 # Published unfiltered: AUTO is parser-accepted, documented since API 1.2, and
 # the default every override starts at. A resolved report never reports AUTO.
 ADDRESS_MODES = OVERRIDE_ADDRESS_MODES

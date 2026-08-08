@@ -14,6 +14,7 @@ from bpy.props import (
     StringProperty,
 )
 
+from .api_contract import ANALYSIS_SETTING_NAMES  # re-exported for panel and operators
 from .overrides import ADDRESS_MODE_ITEMS, CHANNEL_ITEMS
 
 
@@ -107,17 +108,6 @@ class ALPHA_MATERIAL_SEPARATOR_PG_ui_state(bpy.types.PropertyGroup):
     show_material_details: BoolProperty(default=False, options={"SKIP_SAVE"})
     last_completion_json: StringProperty(default="{}", options={"SKIP_SAVE"})
     override_index: IntProperty(default=0, min=0, options={"SKIP_SAVE"})
-
-
-ANALYSIS_SETTING_NAMES = (
-    "alpha_threshold",
-    "min_affected_texels",
-    "min_affected_fraction",
-    "margin_texels",
-    "address_mode",
-    "max_scanlines",
-    "max_run_emissions",
-)
 
 
 class ALPHA_MATERIAL_SEPARATOR_PG_settings(bpy.types.PropertyGroup):
