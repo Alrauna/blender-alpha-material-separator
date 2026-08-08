@@ -1,16 +1,43 @@
 # Repository handoff
 
-Updated: 2026-08-07
+Updated: 2026-08-08
 
 ## Current objective
 
-Land `chore/release-1.2.0`, then run the 1.2.0 release gate.
+Implement the approved published workflow surface on
+`fix/stale-analysis-privacy`. The 1.2.0 release gate remains outstanding and is
+unaffected by that branch.
 
-## In flight: `chore/release-1.2.0`
+## In flight: `fix/stale-analysis-privacy`
 
-Three commits, rebased onto `main` at `504027c` after
+The approved design is
+`docs/superpowers/specs/2026-08-08-published-workflow-surface-design.md`. No
+production code is written yet; the next step is an implementation plan under
+`docs/superpowers/plans/`.
+
+The objective is to make the published API sufficient for an external panel —
+the `Alrauna/Cats-Blender-Plugin` Overdraw Prevention panel — to mirror this
+extension's workflow gating without importing internals. Two commits: a
+`workflow_json` snapshot published through a read-only RNA getter shared with
+`panel.draw()`, then a `severity` key on every status payload. `API_VERSION`
+becomes `(1, 3)`; every change is additive and none is breaking.
+
+The branch name is narrower than the work. It was created for the stale-analysis
+privacy question, which is findings 3 and 4 of six; the branch also publishes
+gating, the review signature, and status severity. It is unpushed, so
+`git branch -m` is still free.
+
+Four of the six reported integration gaps are genuine defects. The
+`RECHECK_PENDING` publish guard is correct behavior with an overclaiming comment,
+and release detection already works through the long-published
+`extension_version`. The spec records each verdict with its evidence.
+
+## Completed: `chore/release-1.2.0`
+
+Merged as [#13](https://github.com/Alrauna/blender-alpha-material-separator/pull/13)
+at `e696c4e`. Three commits, rebased onto `main` at `504027c` after
 [#12](https://github.com/Alrauna/blender-alpha-material-separator/pull/12)
-merged. The branch is no longer stacked. Three separate objectives ride here by
+merged. The branch was not stacked. Three separate objectives rode there by
 explicit user decision rather than because they belong together:
 
 - **The 1.2.0 bump** is `addon/blender_manifest.toml` and `README.md` only,
@@ -37,7 +64,9 @@ all remain outstanding, and none of them can run headlessly.
 
 ## State
 
-`main` is at `504027c`, which merged
+`main` is at `e696c4e`, which merged
+[#13](https://github.com/Alrauna/blender-alpha-material-separator/pull/13).
+Before that it was at `504027c`, which merged
 [#12](https://github.com/Alrauna/blender-alpha-material-separator/pull/12): the
 six integration-contract defects a reviewer found while integrating CATS.
 `API_VERSION` stayed `(1, 2)` and the manifest was untouched, because every
@@ -205,14 +234,28 @@ layers, and drop or grey overrides whose material left the selection instead of
 raising `OVERRIDE_TARGET_NOT_SELECTED`. Drawing the override editor inline in
 Material Details is the real fix and needs its own spec.
 
+**`report_json`'s `default_planned_action` is stale relative to shipped
+defaults.** Found while investigating the integration API on 2026-08-08.
+`AnalysisReport.public_payload` returns `SKIP_GROUP` for any group holding
+`SUPPRESSED` faces, but the shipped `suppressed_policy` has been `KEEP_SOURCE`
+since 1.1.0, which produces `PARTIAL_MOVE_KEEP_POLICY`. It is the only
+plan-shaped data a consumer receives after analyze, and it misreports. Needs its
+own reproduction and branch; deliberately excluded from the workflow-surface
+work.
+
 Two smaller items stay deferred: the two missing PEP 8 blank lines at
 `addon/runtime.py:328-329`, and `docs/integration-api.md` gaining a worked
-example of reading `last_status_code` and `validation_state` together.
+example of reading `last_status_code` and `validation_state` together. The
+second is folded into the workflow-surface branch, which rewrites that
+document's version and status sections anyway.
 
 ## Recommended next action
 
-Open the `chore/release-1.2.0` pull request against `main` and let both CI
-checks run. After it merges, run the 1.2.0 release gate — clean-ZIP install,
+Write the implementation plan for the approved published workflow surface into
+`docs/superpowers/plans/`, obtain approval, then execute it on
+`fix/stale-analysis-privacy`.
+
+The 1.2.0 release gate is still outstanding and independent: clean-ZIP install,
 save/reopen, FBX material assignment, performance baselines, the interactive UI
-checklist above, and Unity material/submesh validation — then publish the
-release through the protected manual job.
+checklist above, and Unity material/submesh validation, then publication through
+the protected manual job.
