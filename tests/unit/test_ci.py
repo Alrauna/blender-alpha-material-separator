@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import plistlib
 import struct
 import subprocess
 import tempfile
@@ -20,6 +21,10 @@ WINDOWS_SHA256 = (
 LINUX_SHA256 = (
     "96f6c181a30f4950607839dc84d42a35"
     "4b250d8a0231b098b59b7bc69c351c48"
+)
+MACOS_SHA256 = (
+    "ed4d8390166dec5ea0a2813a03db6221"
+    "f206ce016442be7f59f41d760972568a"
 )
 DNS_QUESTION = (
     b"\x08download\x07blender\x03org\x00"
@@ -66,6 +71,16 @@ def dns_a_record(owner: bytes, address: bytes) -> bytes:
     return owner + struct.pack("!HHIH", 1, 1, 60, 4) + address
 
 
+def dmg_plist(*mount_points: Path) -> bytes:
+    return plistlib.dumps(
+        {
+            "system-entities": [
+                {"mount-point": str(mount)} for mount in mount_points
+            ]
+        }
+    )
+
+
 class CiTrustTests(unittest.TestCase):
     def test_fixed_blender_5_2_0_trust_anchors(self) -> None:
         self.assertEqual(ci.BLENDER_VERSION, "5.2.0")
@@ -84,6 +99,19 @@ class CiTrustTests(unittest.TestCase):
             "blender-5.2.0-linux-x64.tar.xz",
         )
         self.assertEqual(ci.PLATFORMS["linux"]["sha256"], LINUX_SHA256)
+        macos = ci.PLATFORMS["macos"]
+        self.assertEqual(
+            macos["filename"],
+            "blender-5.2.0-macos-arm64.dmg",
+        )
+        self.assertEqual(macos["sha256"], MACOS_SHA256)
+        self.assertEqual(macos["root"], "Blender.app")
+        self.assertEqual(macos["executable"], "Contents/MacOS/Blender")
+        self.assertEqual(
+            macos["python_dir"],
+            "Contents/Resources/5.2/python/bin",
+        )
+        self.assertEqual(macos["python_pattern"], "python3.*")
 
     def test_blender_version_requires_official_lts_banner(self) -> None:
         ci.require_blender_version("Blender 5.2.0 LTS")
@@ -509,6 +537,149 @@ class CiTrustTests(unittest.TestCase):
         with mock.patch.object(ci.shutil, "unpack_archive") as unpack:
             ci.extract_archive("windows", Path("blender.zip"), output)
             unpack.assert_called_once_with(Path("blender.zip"), output)
+
+    def test_platform_paths_cover_archives_and_application_bundles(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            extracted = Path(directory)
+            expected = {
+                "windows": (
+                    "blender-5.2.0-windows-x64",
+                    "blender.exe",
+                    "5.2/python/bin/python.exe",
+                ),
+                "linux": (
+                    "blender-5.2.0-linux-x64",
+                    "blender",
+                    "5.2/python/bin/python3.13",
+                ),
+                "macos": (
+                    "Blender.app",
+                    "Contents/MacOS/Blender",
+                    "Contents/Resources/5.2/python/bin/python3.13",
+                ),
+            }
+            for platform, (root_name, blender_name, python_name) in (
+                expected.items()
+            ):
+                with self.subTest(platform=platform):
+                    root = extracted / root_name
+                    blender = root / blender_name
+                    python = root / python_name
+                    blender.parent.mkdir(parents=True, exist_ok=True)
+                    blender.touch()
+                    python.parent.mkdir(parents=True, exist_ok=True)
+                    python.touch()
+                    self.assertEqual(
+                        ci.blender_executable_path(platform, extracted),
+                        blender.resolve(),
+                    )
+                    self.assertEqual(
+                        ci.bundled_python_path(platform, root),
+                        python.resolve(),
+                    )
+
+    def test_extract_dmg_copies_one_bundle_and_detaches(self) -> None:
+        mount = Path("/Volumes/Blender")
+        attached = subprocess.CompletedProcess(
+            [],
+            0,
+            stdout=dmg_plist(mount),
+        )
+        with (
+            mock.patch.object(
+                ci.subprocess,
+                "run",
+                side_effect=[attached, mock.DEFAULT],
+            ) as run,
+            mock.patch.object(Path, "is_dir", return_value=True),
+            mock.patch.object(ci.shutil, "copytree") as copytree,
+        ):
+            ci.extract_dmg(Path("blender.dmg"), Path("out"), "Blender.app")
+        copytree.assert_called_once_with(
+            mount / "Blender.app",
+            Path("out/Blender.app"),
+            symlinks=True,
+        )
+        self.assertEqual(
+            run.call_args_list,
+            [
+                mock.call(
+                    [
+                        "hdiutil",
+                        "attach",
+                        "-nobrowse",
+                        "-readonly",
+                        "-plist",
+                        "blender.dmg",
+                    ],
+                    check=True,
+                    capture_output=True,
+                ),
+                mock.call(
+                    ["hdiutil", "detach", str(mount), "-quiet"],
+                    check=False,
+                ),
+            ],
+        )
+
+    def test_extract_dmg_requires_exactly_one_mount(self) -> None:
+        for mount_points in ((), (Path("one"), Path("two"))):
+            with self.subTest(mount_points=mount_points):
+                attached = subprocess.CompletedProcess(
+                    [],
+                    0,
+                    stdout=dmg_plist(*mount_points),
+                )
+                with mock.patch.object(
+                    ci.subprocess,
+                    "run",
+                    return_value=attached,
+                ):
+                    with self.assertRaisesRegex(
+                        ValueError,
+                        "one mount point",
+                    ):
+                        ci.extract_dmg(
+                            Path("blender.dmg"),
+                            Path("out"),
+                            "Blender.app",
+                        )
+
+    def test_extract_dmg_detaches_after_copy_failure(self) -> None:
+        mount = Path("/Volumes/Blender")
+        attached = subprocess.CompletedProcess(
+            [],
+            0,
+            stdout=dmg_plist(mount),
+        )
+        with (
+            mock.patch.object(
+                ci.subprocess,
+                "run",
+                side_effect=[attached, mock.DEFAULT],
+            ) as run,
+            mock.patch.object(Path, "is_dir", return_value=True),
+            mock.patch.object(
+                ci.shutil,
+                "copytree",
+                side_effect=RuntimeError("copy failed"),
+            ),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "copy failed"):
+                ci.extract_dmg(
+                    Path("blender.dmg"),
+                    Path("out"),
+                    "Blender.app",
+                )
+        self.assertEqual(
+            run.call_args_list[-1],
+            mock.call(
+                ["hdiutil", "detach", str(mount), "-quiet"],
+                check=False,
+            ),
+        )
 
     def test_blender_executable_uses_exact_archive_root(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

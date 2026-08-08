@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import ipaddress
+import plistlib
 import re
 import secrets
 import shutil
@@ -35,7 +36,9 @@ PLATFORMS = {
             "2d184b626c001692c362291911293b6a"
             "297179d618d95e9e9192c3a80318adc4"
         ),
+        "root": "blender-5.2.0-windows-x64",
         "executable": "blender.exe",
+        "python_dir": "5.2/python/bin",
         "python_pattern": "python.exe",
     },
     "linux": {
@@ -44,7 +47,20 @@ PLATFORMS = {
             "96f6c181a30f4950607839dc84d42a35"
             "4b250d8a0231b098b59b7bc69c351c48"
         ),
+        "root": "blender-5.2.0-linux-x64",
         "executable": "blender",
+        "python_dir": "5.2/python/bin",
+        "python_pattern": "python3.*",
+    },
+    "macos": {
+        "filename": "blender-5.2.0-macos-arm64.dmg",
+        "sha256": (
+            "ed4d8390166dec5ea0a2813a03db6221"
+            "f206ce016442be7f59f41d760972568a"
+        ),
+        "root": "Blender.app",
+        "executable": "Contents/MacOS/Blender",
+        "python_dir": "Contents/Resources/5.2/python/bin",
         "python_pattern": "python3.*",
     },
 }
@@ -334,8 +350,44 @@ def _write_github_output(path: Path | None, **values: str | Path) -> None:
             stream.write(f"{key}={text}\n")
 
 
+def extract_dmg(archive: Path, output: Path, root: str) -> None:
+    attached = subprocess.run(
+        [
+            "hdiutil",
+            "attach",
+            "-nobrowse",
+            "-readonly",
+            "-plist",
+            str(archive),
+        ],
+        check=True,
+        capture_output=True,
+    )
+    entities = plistlib.loads(attached.stdout)["system-entities"]
+    mount_points = [
+        entity["mount-point"]
+        for entity in entities
+        if entity.get("mount-point")
+    ]
+    if len(mount_points) != 1:
+        raise ValueError(f"expected one mount point, got {mount_points}")
+    mount = Path(mount_points[0])
+    try:
+        source = mount / root
+        if not source.is_dir():
+            raise ValueError(f"{root} not found in the disk image")
+        shutil.copytree(source, output / root, symlinks=True)
+    finally:
+        subprocess.run(
+            ["hdiutil", "detach", str(mount), "-quiet"],
+            check=False,
+        )
+
+
 def extract_archive(platform: str, archive: Path, output: Path) -> None:
-    if platform == "linux":
+    if platform == "macos":
+        extract_dmg(archive, output, PLATFORMS[platform]["root"])
+    elif platform == "linux":
         shutil.unpack_archive(archive, output, filter="data")
     else:
         shutil.unpack_archive(archive, output)
@@ -343,13 +395,24 @@ def extract_archive(platform: str, archive: Path, output: Path) -> None:
 
 def blender_executable_path(platform: str, extracted: Path) -> Path:
     metadata = PLATFORMS[platform]
-    archive_root = metadata["filename"]
-    for suffix in (".tar.xz", ".zip"):
-        archive_root = archive_root.removesuffix(suffix)
-    executable = extracted / archive_root / metadata["executable"]
+    executable = extracted / metadata["root"] / metadata["executable"]
     if not executable.is_file():
         raise ValueError(f"expected Blender executable at {executable}")
     return executable.resolve()
+
+
+def bundled_python_path(platform: str, root: Path) -> Path:
+    metadata = PLATFORMS[platform]
+    matches = [
+        path.resolve()
+        for path in (root / metadata["python_dir"]).glob(
+            metadata["python_pattern"]
+        )
+        if path.is_file() and "config" not in path.name
+    ]
+    if not matches:
+        raise ValueError("bundled Python executable was not found")
+    return min(matches, key=lambda path: len(path.name))
 
 
 def require_blender_version(version: str) -> None:
@@ -385,17 +448,10 @@ def prepare_blender(
     extract_dir = output_dir / "blender"
     extract_archive(platform, archive, extract_dir)
     blender = blender_executable_path(platform, extract_dir)
-
-    python_matches = [
-        path.resolve()
-        for path in blender.parent.joinpath("5.2", "python", "bin").glob(
-            metadata["python_pattern"]
-        )
-        if path.is_file() and "config" not in path.name
-    ]
-    if not python_matches:
-        raise ValueError("bundled Python executable was not found")
-    python = min(python_matches, key=lambda path: len(path.name))
+    python = bundled_python_path(
+        platform,
+        extract_dir / metadata["root"],
+    )
 
     version = subprocess.run(
         [str(blender), "--version"],
