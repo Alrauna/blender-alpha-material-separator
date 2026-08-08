@@ -26,8 +26,11 @@ class CiWorkflowContractTests(unittest.TestCase):
             "CI / ${{ matrix.label }} — Blender 5.2",
             "runner: windows-2025",
             "runner: ubuntu-24.04",
+            "runner: macos-15",
             "label: Windows",
             "label: Linux",
+            "label: macOS",
+            "platform: macos",
         ):
             self.assertIn(text, self.text)
         self.assertNotIn("pull_request_target", self.text)
@@ -68,6 +71,15 @@ class CiWorkflowContractTests(unittest.TestCase):
             "--command extension validate",
         ):
             self.assertIn(text, self.text)
+
+    def test_macos_uses_the_complete_shared_validation_job(self) -> None:
+        validate = self.text.split("\n  release_gate:\n", 1)[0]
+        self.assertIn("runner: macos-15", validate)
+        self.assertIn("label: macOS", validate)
+        self.assertIn("platform: macos", validate)
+        self.assertEqual(validate.count("steps:"), 1)
+        self.assertNotIn("continue-on-error", validate)
+        self.assertNotIn("matrix.platform != 'macos'", validate)
 
     def test_release_is_manual_main_public_and_environment_gated(self) -> None:
         for text in (
@@ -186,7 +198,11 @@ class CiWorkflowContractTests(unittest.TestCase):
         for text in (
             "CI / Windows — Blender 5.2",
             "CI / Linux — Blender 5.2",
+            "CI / macOS — Blender 5.2",
             "Blender 5.2.0",
+            "macos-15",
+            "blender-5.2.0-macos-arm64.dmg",
+            "hdiutil",
             "Cloudflare",
             "Quad9",
             "SHA256SUMS.txt",

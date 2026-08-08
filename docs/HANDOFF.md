@@ -4,20 +4,68 @@ Updated: 2026-08-08
 
 ## Current objective
 
-`fix/stale-analysis-privacy` is complete and unpushed, staying local for review.
-It also carries the manifest to `1.3.0`, so the release gate that was pending
-for 1.2.0 is now a 1.3.0 gate; that number never shipped. See "Remaining tasks"
-below for what a following session should pick up.
+`codex/ci-macos-arm64` is an isolated topic branch from refreshed `main` at
+`f760e7a`. Its approved objective is to extend the existing full validation
+matrix to native macOS Apple Silicon using the same Blender 5.2 unit, headless,
+source-validation, build, and ZIP-validation gates as Windows and Linux.
 
-## Completed: `fix/stale-analysis-privacy`
+The approved design is
+`docs/superpowers/specs/2026-08-08-macos-apple-silicon-ci-design.md`.
+The design was committed as `ae1097b` and approved by the user. The test-first
+implementation plan is
+`docs/superpowers/plans/2026-08-08-macos-apple-silicon-ci.md`; the user approved
+it and implementation is locally complete. Commit `7ed6d7b` adds the pinned
+Apple Silicon DMG identity, explicit platform roots/Python directories,
+plist-parsed read-only `hdiutil` extraction, symlink-preserving `Blender.app`
+copy, and guaranteed detach after bundle-copy attempts. Commit `8c059d9` adds
+the single `macos-15` matrix row, full-parity workflow contracts, and testing
+documentation. Review found and `cd207a2` closes the missing regression for the
+real `extract_archive("macos", ...)` dispatch. The reference implementation is
+`Alrauna/material-combiner-addon`, whose `macos-15` runner verifies the official
+Blender 5.2.0 Apple Silicon DMG and extracts `Blender.app` through plist-parsed
+`hdiutil` output.
 
-The branch name is narrower than the work. It was created for the
+Local validation passed on 2026-08-08:
+
+- the focused CI/helper and workflow-contract suite: 40 tests;
+- the complete unit suite: 117 tests;
+- `tests/blender/run_all.py` with factory startup, background mode,
+  `--disable-autoexec`, and `--python-exit-code 1`;
+- Blender source validation;
+- a fresh, exactly-one `alpha_material_separator-1.3.0.zip` build and archive
+  validation; the ignored `.packaged-releases` directory had to be created in
+  the fresh worktree before the direct Blender build command;
+- `git diff --check`.
+
+The security/scope review found no remaining Critical, Important, or Minor
+issues: existing resolver/TLS/hash controls, triggers, permissions, checkout
+pinning, credential isolation, and Windows-only release behavior are unchanged.
+No action, dependency, cache, artifact transfer, permission, trigger, container,
+redirect, or network source was added. The overengineering review found nothing
+to cut: standard-library `plistlib`, native `hdiutil`, and the existing shared
+matrix/helper are reused without a platform-specific job or dependency.
+
+Draft pull request #15 is open against `main` at
+`https://github.com/Alrauna/blender-alpha-material-separator/pull/15`. Its
+first hosted run passed `CI / macOS — Blender 5.2` in 33 seconds, `CI / Windows
+— Blender 5.2` in 38 seconds, and `CI / Linux — Blender 5.2` in 46 seconds;
+CodeQL also passed. That run supplies the missing Apple Silicon integration
+proof. The completed design and implementation plan were then removed as
+required in commit `8f9e3a8`; Git history retains their approved wording. The
+post-cleanup run passed macOS in 38 seconds, Windows in 38 seconds, Linux in 41
+seconds, and CodeQL. Private-reference smoke, benchmarks, and installed
+interactive checks were not required for this CI-only change because no addon
+runtime or material-analysis behavior changed.
+
+## Completed and merged: `fix/stale-analysis-privacy`
+
+Merged through pull request #14 at `f760e7a`. The branch name was narrower than
+the work. It was created for the
 stale-analysis privacy question, which is findings 3 and 4 of six from a
 reviewer integrating this extension into `Alrauna/Cats-Blender-Plugin`'s
 Overdraw Prevention panel; the branch grew to publish gating, the review
 signature, and status severity so that panel can mirror Analyze/Preview/Apply
-without importing extension internals or reimplementing a private table. It is
-unpushed, so `git branch -m` is still free, and no PR has been opened.
+without importing extension internals or reimplementing a private table.
 
 The approved design is
 `docs/superpowers/specs/2026-08-08-published-workflow-surface-design.md` (git
@@ -372,14 +420,11 @@ worked example of the pairing was written. Add it, or close it as superseded.
 
 ## Recommended next action
 
-Review `fix/stale-analysis-privacy` and, if it is accepted, open its pull
-request against `main`. It is complete, validated, and local; nothing has been
-pushed. The one item it cannot close itself is the installed-ZIP interactive
-acceptance named above.
-
-Then pick a following branch from the deferred list: `report_json`'s
-`default_planned_action`, manual alpha source usability, or the two PEP 8 blank
-lines. None of them belong on the completed branch.
+Review draft pull request #15. Its implementation and post-cleanup checks pass,
+and the branch is complete for its stated CI objective; do not add adjacent CI
+cleanup or branch-protection changes. Making `CI / macOS — Blender 5.2` a
+required merge check remains a separate repository-setting decision requiring
+explicit approval.
 
 The 1.3.0 release gate is still outstanding and independent: clean-ZIP install,
 save/reopen, FBX material assignment, performance baselines, the interactive UI
