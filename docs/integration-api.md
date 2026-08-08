@@ -150,6 +150,16 @@ assignment performs authoritative stale-input validation.
 | Guided-UI plan changed after Preview | `CANCELLED` | `REVIEW_CHANGED` |
 | Warning preflight changed while its dialog was open | `CANCELLED` | `PREFLIGHT_CHANGED` |
 | Unexpected execution error | `CANCELLED` | `ASSIGNMENT_FAILED`; transactional rollback is attempted and failures are reported |
+| A completed report became stale | not applicable, no operator ran | `RESULT_STALE` |
+
+`RESULT_STALE` is published whenever a completed report transitions to
+`validation_state == "STALE"`, including a settings change and an
+authoritatively confirmed input change. It carries `analysis_id` and
+`dirty_reason`. Before this existed, `last_status_code` kept reading
+`ANALYSIS_COMPLETE` while `validation_state` said `STALE`, so a consumer reading
+one field alone could act on a stale report. Read both, and treat the previous
+`report_json` as advisory once either says stale. A depsgraph hint alone does not
+publish it; `RECHECK_PENDING` is not stale.
 
 The unresolved-only `ASSIGNMENT_NO_CHANGES` result is the API 1.2 semantic
 correction. API 1.0/1.1 integrations that treated any non-actionable unresolved

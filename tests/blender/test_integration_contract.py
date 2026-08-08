@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import json
+
 import bpy
 
 LEGACY_PER_CALL_ARGUMENTS = ("image_name", "uv_map_name", "image_channel")
@@ -100,7 +102,56 @@ def _assert_cancel_publishes_before_teardown() -> None:
     state.last_status_code = original_status_code
 
 
+def _assert_stale_result_publishes_a_status() -> None:
+    """A stale report must not leave a success code as the last status."""
+
+    from addon import runtime
+    from tests.blender.test_analysis_preview import _clear_scene, _image, _material, _quad
+
+    _clear_scene()
+    image = _image("AMS_CONTRACT_IMAGE")
+    material, _tree, _principled, _texture = _material("AMS_CONTRACT_MATERIAL", image)
+    quad = _quad("AMS_CONTRACT_QUAD", material)
+    bpy.ops.object.select_all(action="DESELECT")
+    quad.select_set(True)
+    bpy.context.view_layer.objects.active = quad
+
+    assert bpy.ops.alpha_material_separator.analyze(api_major=1) == {"FINISHED"}
+    state = bpy.context.window_manager.alpha_material_separator_api
+    assert state.last_status_code == "ANALYSIS_COMPLETE", state.last_status_code
+    assert state.validation_state == runtime.VALIDATION_CLEAN, state.validation_state
+    analysis_id = state.analysis_id
+
+    settings = bpy.context.window_manager.alpha_material_separator_settings
+    settings.alpha_threshold = 0.5
+
+    assert state.validation_state == runtime.VALIDATION_STALE, state.validation_state
+    assert state.last_status_code == "RESULT_STALE", state.last_status_code
+    payload = json.loads(state.last_status_json)
+    assert payload["code"] == "RESULT_STALE", payload
+    assert payload["analysis_id"] == analysis_id, payload
+    assert payload["dirty_reason"] == "SETTINGS_CHANGED", payload
+
+    settings.property_unset("alpha_threshold")
+
+
+def _assert_a_clean_result_keeps_its_success_status() -> None:
+    """The stale status must not fire for a harmless transition."""
+
+    from addon import runtime
+
+    assert bpy.ops.alpha_material_separator.analyze(api_major=1) == {"FINISHED"}
+    state = bpy.context.window_manager.alpha_material_separator_api
+    bpy.ops.object.select_all(action="DESELECT")
+    bpy.context.view_layer.objects.active = bpy.context.view_layer.objects[0]
+    bpy.context.view_layer.objects[0].select_set(True)
+    assert state.validation_state != runtime.VALIDATION_STALE, state.validation_state
+    assert state.last_status_code == "ANALYSIS_COMPLETE", state.last_status_code
+
+
 def run() -> None:
     _assert_legacy_arguments_do_not_persist()
     _assert_cancel_publishes_before_teardown()
+    _assert_stale_result_publishes_a_status()
+    _assert_a_clean_result_keeps_its_success_status()
     print("ALPHA_MATERIAL_SEPARATOR_INTEGRATION_CONTRACT_TESTS_OK")

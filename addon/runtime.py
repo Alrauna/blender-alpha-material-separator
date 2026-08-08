@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING, Any
 import bpy
 from bpy.app.handlers import persistent
 
+from . import api_contract
+
 if TYPE_CHECKING:
     from .adapters.analysis import AnalysisReport
 
@@ -39,6 +41,17 @@ def _sync_public_validation_state() -> None:
             state.validation_state = _VALIDATION_STATE
         if hasattr(state, "pending_scopes_json"):
             state.pending_scopes_json = pending_json
+        if _VALIDATION_STATE == VALIDATION_STALE and state.analysis_id:
+            # Published here, not at each call site, so every current and future
+            # stale transition carries a status. A consumer must never have to
+            # read validation_state to discover that ANALYSIS_COMPLETE is false.
+            api_contract.publish_status(
+                state,
+                "RESULT_STALE",
+                "Analysis inputs changed; analyze again before preview or assignment",
+                analysis_id=state.analysis_id,
+                dirty_reason=_DIRTY_REASON,
+            )
         if not state.analysis_id or state.report_json in {"", "{}"}:
             continue
         try:
