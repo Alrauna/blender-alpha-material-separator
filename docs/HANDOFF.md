@@ -4,20 +4,28 @@ Updated: 2026-08-08
 
 ## Current objective
 
-`fix/stale-analysis-privacy` is complete and unpushed, staying local for review.
-It also carries the manifest to `1.3.0`, so the release gate that was pending
-for 1.2.0 is now a 1.3.0 gate; that number never shipped. See "Remaining tasks"
-below for what a following session should pick up.
+`codex/ci-macos-arm64` is an isolated topic branch from refreshed `main` at
+`f760e7a`. Its approved objective is to extend the existing full validation
+matrix to native macOS Apple Silicon using the same Blender 5.2 unit, headless,
+source-validation, build, and ZIP-validation gates as Windows and Linux.
 
-## Completed: `fix/stale-analysis-privacy`
+The approved design is
+`docs/superpowers/specs/2026-08-08-macos-apple-silicon-ci-design.md`.
+Implementation and the test-first plan have not started. The clean branch
+baseline is 111 passing unit tests. The reference implementation is
+`Alrauna/material-combiner-addon`, whose `macos-15` runner verifies the official
+Blender 5.2.0 Apple Silicon DMG and extracts `Blender.app` through plist-parsed
+`hdiutil` output.
 
-The branch name is narrower than the work. It was created for the
+## Completed and merged: `fix/stale-analysis-privacy`
+
+Merged through pull request #14 at `f760e7a`. The branch name was narrower than
+the work. It was created for the
 stale-analysis privacy question, which is findings 3 and 4 of six from a
 reviewer integrating this extension into `Alrauna/Cats-Blender-Plugin`'s
 Overdraw Prevention panel; the branch grew to publish gating, the review
 signature, and status severity so that panel can mirror Analyze/Preview/Apply
-without importing extension internals or reimplementing a private table. It is
-unpushed, so `git branch -m` is still free, and no PR has been opened.
+without importing extension internals or reimplementing a private table.
 
 The approved design is
 `docs/superpowers/specs/2026-08-08-published-workflow-surface-design.md` (git
@@ -372,14 +380,12 @@ worked example of the pairing was written. Add it, or close it as superseded.
 
 ## Recommended next action
 
-Review `fix/stale-analysis-privacy` and, if it is accepted, open its pull
-request against `main`. It is complete, validated, and local; nothing has been
-pushed. The one item it cannot close itself is the installed-ZIP interactive
-acceptance named above.
-
-Then pick a following branch from the deferred list: `report_json`'s
-`default_planned_action`, manual alpha source usability, or the two PEP 8 blank
-lines. None of them belong on the completed branch.
+Review and approve
+`docs/superpowers/specs/2026-08-08-macos-apple-silicon-ci-design.md`. Then write
+the test-first implementation plan before changing the workflow or CI helper.
+The implementation must extend the existing matrix, preserve every current
+security control, and leave repository settings unchanged. A hosted macOS run
+is required before claiming Apple Silicon integration success.
 
 The 1.3.0 release gate is still outstanding and independent: clean-ZIP install,
 save/reopen, FBX material assignment, performance baselines, the interactive UI
