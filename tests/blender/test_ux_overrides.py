@@ -274,8 +274,16 @@ def run() -> None:
     active_report = runtime.report(state.analysis_id)
     assert active_report is not None
     runtime.mark_dirty("SETTINGS_CHANGED")
+    assert state.last_status_code == "RESULT_STALE", state.last_status_code
     stale_panel = _draw_main_panel()
     assert ("Inputs Changed — Analyze Again", "ERROR") in stale_panel.labels
+    # RESULT_STALE is not a status *problem* -- the workflow box above already
+    # owns the "Inputs Changed" copy. A second alert box telling the user
+    # their input is broken would be wrong and misleading (see finding 1).
+    assert not any(icon == "ERROR" and text != "Inputs Changed — Analyze Again" for text, icon in stale_panel.labels), (
+        stale_panel.labels,
+        state.last_status_code,
+    )
     runtime.set_report(active_report)
 
     completion_layout = _RecordingLayout()

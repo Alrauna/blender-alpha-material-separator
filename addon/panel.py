@@ -182,6 +182,7 @@ def _draw_status_problem(layout, state, *, available_width: int) -> None:
         "ASSIGNMENT_COMPLETE_WITH_SKIPS",
         "ASSIGNMENT_NO_CHANGES",
         "CLEARED",
+        "RESULT_STALE",
     }
     if state.last_status_code in normal:
         return
