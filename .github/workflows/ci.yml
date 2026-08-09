@@ -118,8 +118,8 @@ jobs:
           --version $env:RELEASE_VERSION
           --manifest addon/blender_manifest.toml
 
-  release_draft:
-    name: Prepare immutable release draft
+  release_package:
+    name: Build verified release package
     if: >-
       github.event_name == 'workflow_dispatch' &&
       github.ref == 'refs/heads/main' &&
@@ -127,9 +127,8 @@ jobs:
     needs: [validate, release_gate]
     runs-on: windows-2025
     timeout-minutes: 45
-    environment: release
     permissions:
-      contents: write
+      contents: read
     outputs:
       version: ${{ steps.release.outputs.version }}
       tag: ${{ steps.release.outputs.tag }}
@@ -205,11 +204,146 @@ jobs:
           --checksum-output '${{ runner.temp }}/release/SHA256SUMS.txt'
           --github-output $env:GITHUB_OUTPUT
 
+      - name: Upload release package
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ams-release-package
+          path: |
+            ${{ runner.temp }}/release/${{ steps.release.outputs.archive_name }}
+            ${{ runner.temp }}/release/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  release_attestation:
+    name: Attest verified release package
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' &&
+      github.event.repository.visibility == 'public'
+    needs: [release_package]
+    runs-on: windows-2025
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      attestations: write
+    env:
+      RELEASE_ARTIFACT_NAME: ams-release-package
+      ARCHIVE_NAME: ${{ needs.release_package.outputs.archive_name }}
+      EXPECTED_SHA256: ${{ needs.release_package.outputs.sha256 }}
+    steps:
+      - name: Download and verify release package
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $DownloadDirectory = '${{ runner.temp }}/downloaded-release'
+          New-Item -ItemType Directory -Path $DownloadDirectory | Out-Null
+          gh run download $env:GITHUB_RUN_ID `
+            --repo $env:GITHUB_REPOSITORY `
+            --name $env:RELEASE_ARTIFACT_NAME `
+            --dir $DownloadDirectory
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Could not download the current release package.'
+          }
+          $Entries = @(
+            Get-ChildItem -LiteralPath $DownloadDirectory -Force
+          )
+          $ExpectedNames = @($env:ARCHIVE_NAME, 'SHA256SUMS.txt')
+          $Unexpected = @(
+            $Entries | Where-Object { $_.Name -notin $ExpectedNames }
+          )
+          if ($Entries.Count -ne 2 -or $Unexpected.Count -ne 0) {
+            throw 'Release package must contain exactly the expected ZIP and checksum.'
+          }
+          $Archive = Join-Path $DownloadDirectory $env:ARCHIVE_NAME
+          $ChecksumPath = Join-Path $DownloadDirectory 'SHA256SUMS.txt'
+          if (-not (Test-Path -LiteralPath $Archive -PathType Leaf) -or
+              -not (Test-Path -LiteralPath $ChecksumPath -PathType Leaf)) {
+            throw 'Release package is missing the expected ZIP or checksum.'
+          }
+          $Actual = (Get-FileHash -LiteralPath $Archive -Algorithm SHA256).Hash
+          $Actual = $Actual.ToLowerInvariant()
+          if ($Actual -ne $env:EXPECTED_SHA256) {
+            throw 'Release package ZIP does not match the verified build digest.'
+          }
+          $ExpectedChecksum = "$($env:EXPECTED_SHA256)  $($env:ARCHIVE_NAME)"
+          $ActualChecksum = (Get-Content -LiteralPath $ChecksumPath -Raw).Trim()
+          if ($ActualChecksum -ne $ExpectedChecksum) {
+            throw 'Release checksum does not identify the verified ZIP.'
+          }
+
+      - name: Attest verified extension ZIP
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: '${{ runner.temp }}/downloaded-release/${{ needs.release_package.outputs.archive_name }}'
+
+  release_publish:
+    name: Publish attested release
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' &&
+      github.event.repository.visibility == 'public'
+    needs: [release_package, release_attestation]
+    runs-on: windows-2025
+    timeout-minutes: 10
+    environment: release
+    permissions:
+      actions: read
+      contents: write
+    env:
+      RELEASE_ARTIFACT_NAME: ams-release-package
+      RELEASE_TAG: ${{ needs.release_package.outputs.tag }}
+      ARCHIVE_NAME: ${{ needs.release_package.outputs.archive_name }}
+      EXPECTED_SHA256: ${{ needs.release_package.outputs.sha256 }}
+    steps:
+      - name: Download and verify attested package
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $DownloadDirectory = '${{ runner.temp }}/downloaded-release'
+          New-Item -ItemType Directory -Path $DownloadDirectory | Out-Null
+          gh run download $env:GITHUB_RUN_ID `
+            --repo $env:GITHUB_REPOSITORY `
+            --name $env:RELEASE_ARTIFACT_NAME `
+            --dir $DownloadDirectory
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Could not download the attested release package.'
+          }
+          $Entries = @(
+            Get-ChildItem -LiteralPath $DownloadDirectory -Force
+          )
+          $ExpectedNames = @($env:ARCHIVE_NAME, 'SHA256SUMS.txt')
+          $Unexpected = @(
+            $Entries | Where-Object { $_.Name -notin $ExpectedNames }
+          )
+          if ($Entries.Count -ne 2 -or $Unexpected.Count -ne 0) {
+            throw 'Release package must contain exactly the expected ZIP and checksum.'
+          }
+          $Archive = Join-Path $DownloadDirectory $env:ARCHIVE_NAME
+          $ChecksumPath = Join-Path $DownloadDirectory 'SHA256SUMS.txt'
+          if (-not (Test-Path -LiteralPath $Archive -PathType Leaf) -or
+              -not (Test-Path -LiteralPath $ChecksumPath -PathType Leaf)) {
+            throw 'Release package is missing the expected ZIP or checksum.'
+          }
+          $Actual = (Get-FileHash -LiteralPath $Archive -Algorithm SHA256).Hash
+          $Actual = $Actual.ToLowerInvariant()
+          if ($Actual -ne $env:EXPECTED_SHA256) {
+            throw 'Attested package ZIP does not match the verified build digest.'
+          }
+          $ExpectedChecksum = "$($env:EXPECTED_SHA256)  $($env:ARCHIVE_NAME)"
+          $ActualChecksum = (Get-Content -LiteralPath $ChecksumPath -Raw).Trim()
+          if ($ActualChecksum -ne $ExpectedChecksum) {
+            throw 'Release checksum does not identify the verified ZIP.'
+          }
+
       - name: Refuse an existing tag or release
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ steps.release.outputs.tag }}
         run: |
           $Owner, $Name = $env:GITHUB_REPOSITORY.Split('/', 2)
           $Query = @'
@@ -238,105 +372,53 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ steps.release.outputs.tag }}
-        run: >-
-          gh release create $env:RELEASE_TAG
-          --draft --generate-notes
-          --title $env:RELEASE_TAG
-          --target '${{ github.sha }}'
+        run: |
+          gh release create $env:RELEASE_TAG `
+            --repo $env:GITHUB_REPOSITORY `
+            --draft --generate-notes `
+            --title $env:RELEASE_TAG `
+            --target '${{ github.sha }}'
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Could not create the draft release.'
+          }
 
       - name: Upload release assets
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ steps.release.outputs.tag }}
-          ARCHIVE_NAME: ${{ steps.release.outputs.archive_name }}
-        run: >-
-          gh release upload $env:RELEASE_TAG
-          "${{ runner.temp }}/release/$env:ARCHIVE_NAME"
-          '${{ runner.temp }}/release/SHA256SUMS.txt'
-
-      - name: Download stored ZIP
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ steps.release.outputs.tag }}
-          ARCHIVE_NAME: ${{ steps.release.outputs.archive_name }}
+          DOWNLOAD_DIRECTORY: ${{ runner.temp }}/downloaded-release
         run: |
-          New-Item -ItemType Directory '${{ runner.temp }}/downloaded-release'
-          gh release download $env:RELEASE_TAG `
-            --pattern $env:ARCHIVE_NAME `
-            --dir '${{ runner.temp }}/downloaded-release'
+          $Archive = Join-Path $env:DOWNLOAD_DIRECTORY $env:ARCHIVE_NAME
+          $Checksum = Join-Path $env:DOWNLOAD_DIRECTORY 'SHA256SUMS.txt'
+          gh release upload $env:RELEASE_TAG `
+            --repo $env:GITHUB_REPOSITORY `
+            $Archive $Checksum
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Could not upload the release assets.'
+          }
 
-      - name: Verify stored ZIP hash
-        shell: pwsh
-        env:
-          ARCHIVE_NAME: ${{ steps.release.outputs.archive_name }}
-          EXPECTED_SHA256: ${{ steps.release.outputs.sha256 }}
-        run: >-
-          python scripts/ci.py verify-file
-          --file "${{ runner.temp }}/downloaded-release/$env:ARCHIVE_NAME"
-          --expected-sha256 $env:EXPECTED_SHA256
-
-  release_attestation:
-    name: Attest stored release ZIP
-    if: >-
-      github.event_name == 'workflow_dispatch' &&
-      github.ref == 'refs/heads/main' &&
-      github.event.repository.visibility == 'public'
-    needs: [release_draft]
-    runs-on: windows-2025
-    timeout-minutes: 10
-    permissions:
-      contents: read
-      id-token: write
-      attestations: write
-    env:
-      RELEASE_TAG: ${{ needs.release_draft.outputs.tag }}
-      ARCHIVE_NAME: ${{ needs.release_draft.outputs.archive_name }}
-      EXPECTED_SHA256: ${{ needs.release_draft.outputs.sha256 }}
-    steps:
       - name: Download and verify stored ZIP
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $DownloadDirectory = '${{ runner.temp }}/downloaded-release'
-          New-Item -ItemType Directory -Path $DownloadDirectory | Out-Null
+          $StoredDirectory = '${{ runner.temp }}/stored-release'
+          New-Item -ItemType Directory -Path $StoredDirectory | Out-Null
           gh release download $env:RELEASE_TAG `
             --repo $env:GITHUB_REPOSITORY `
             --pattern $env:ARCHIVE_NAME `
-            --dir $DownloadDirectory
+            --dir $StoredDirectory
           if ($LASTEXITCODE -ne 0) {
-            throw 'Could not download the draft release ZIP for attestation.'
+            throw 'Could not download the stored draft ZIP.'
           }
-          $Archive = Join-Path $DownloadDirectory $env:ARCHIVE_NAME
-          $Actual = (Get-FileHash -LiteralPath $Archive -Algorithm SHA256).Hash
-          $Actual = $Actual.ToLowerInvariant()
-          if ($Actual -ne $env:EXPECTED_SHA256) {
-            throw 'Draft release ZIP does not match the verified build digest.'
+          $StoredArchive = Join-Path $StoredDirectory $env:ARCHIVE_NAME
+          $StoredSha256 = (
+            Get-FileHash -LiteralPath $StoredArchive -Algorithm SHA256
+          ).Hash.ToLowerInvariant()
+          if ($StoredSha256 -ne $env:EXPECTED_SHA256) {
+            throw 'Stored draft ZIP does not match the attested package digest.'
           }
 
-      - name: Attest stored extension ZIP
-        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
-        with:
-          subject-path: '${{ runner.temp }}/downloaded-release/${{ needs.release_draft.outputs.archive_name }}'
-
-  release_publish:
-    name: Publish attested release
-    if: >-
-      github.event_name == 'workflow_dispatch' &&
-      github.ref == 'refs/heads/main' &&
-      github.event.repository.visibility == 'public'
-    needs: [release_draft, release_attestation]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    environment: release
-    permissions:
-      contents: write
-    env:
-      RELEASE_TAG: ${{ needs.release_draft.outputs.tag }}
-    steps:
       - name: Publish verified and attested draft
         shell: pwsh
         env:
@@ -345,3 +427,6 @@ jobs:
           gh release edit $env:RELEASE_TAG `
             --repo $env:GITHUB_REPOSITORY `
             --draft=false
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Could not publish the verified and attested release.'
+          }
