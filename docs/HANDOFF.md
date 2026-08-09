@@ -2,128 +2,129 @@
 
 Updated: 2026-08-09
 
-## Current objective
+## Completed branch objective
 
-`codex/fix-release-attestation-repo-context` is a topic branch from refreshed
-`main` at `0e47fbad0bfa838c01d7f3af5aaa4a3b2d19ad34`. Its bounded objective is to
-correct missing GitHub repository context in the no-checkout v1.3.1 release
-jobs without changing the approved permissions or three-job architecture.
+`codex/ci-release-artifact-handoff-1.3.1` is based on refreshed `main` commit
+`f39fafc72507c099dc4bf3af39ae497a1e8499a9`. Its bounded objective is complete:
+replace the inaccessible draft-release handoff with a short-lived
+workflow-artifact handoff so version 1.3.1 can receive build-provenance
+attestation without granting release-write authority to the attestation action.
 
-PR #16 merged the 1.3.1 attestation workflow into `main`. Manual release run
-`31304598307` then established the first hosted result:
+The workflow now has three release jobs:
 
-- all Windows, Linux, and macOS validation jobs passed;
-- `release_draft` fetched the exact main commit, built and validated the ZIP,
-  created an unpublished v1.3.1 draft, uploaded both assets, downloaded the
-  stored ZIP, and verified its SHA-256;
-- `release_attestation` failed in `Download and verify stored ZIP` before
-  `actions/attest` ran;
-- `release_publish` was skipped as designed.
+- read-only `release_package` fetches exact `GITHUB_SHA` without credentials,
+  builds and validates once, prepares the checksum, and uploads both files as
+  `ams-release-package` for one day;
+- `release_attestation` downloads that exact current-run artifact with
+  `actions: read`, verifies the two-file set, checksum identity, and ZIP digest,
+  then attests the verified ZIP without `contents: write`;
+- protected `release_publish` independently downloads and verifies the same
+  artifact, refuses an existing tag or release, creates the draft only after
+  attestation, uploads the exact bytes, re-downloads and re-hashes the stored
+  ZIP, then publishes. It has `contents: write` but executes no `uses:` action.
 
-## Root cause and correction
-
-The attestation job intentionally has no checkout. Its command was:
-
-```powershell
-gh release download $env:RELEASE_TAG `
-  --pattern $env:ARCHIVE_NAME `
-  --dir $DownloadDirectory
-```
-
-Without `--repo`, GitHub CLI tried to infer the repository from a local Git
-remote and reported:
+The only new action is the official upload action pinned to reviewed v7.0.1:
 
 ```text
-failed to run git: fatal: not a git repository (or any of the parent directories): .git
+actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
 ```
 
-The test-first attestation correction adds only:
+The existing attestation action remains pinned to:
 
-```powershell
---repo $env:GITHUB_REPOSITORY `
+```text
+actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
 ```
 
-The runner-provided value identifies the current `owner/repository`; it enters
-PowerShell through the environment rather than expression interpolation. The
-change adds no checkout, action, dependency, token, permission, trigger, runner,
-artifact transfer, or network source. Attestation permissions remain exactly
-`contents: read`, `id-token: write`, and `attestations: write`.
+No `actions/download-artifact`, cache, setup action, package installer,
+container, self-hosted runner, secret, external dependency, or network source
+was added. Stable validation triggers, runners, names, Blender trust checks,
+and version-independent ordinary ZIP discovery remain unchanged.
 
-Independent review then found that `release_publish` is also a no-checkout job
-and its `gh release edit` command had the same implicit Git dependency. The
-user approved expanding the plan before another hosted attempt. Publication now
-also supplies:
+## Commits
 
-```powershell
---repo $env:GITHUB_REPOSITORY `
-```
+- `22786ba` — approved release artifact handoff design checkpoint;
+- `3ba925f` — approved RED/GREEN implementation plan checkpoint;
+- `efa3448` — workflow artifact handoff and primary security contracts;
+- `596adba` — permanent CI policy and operator documentation;
+- `ce550d7` — review-driven exact permissions, file-set, and per-command
+  repository contracts plus corrected upload-action wording;
+- `df925ce` — per-step current-run artifact download binding contract.
 
-The permanent regression requires both no-checkout release sections to remain
-checkout-free and to pass this explicit repository selector.
+The in-flight design and plan were removed at milestone closeout as required.
+Git history retains both approved documents in `22786ba` and `3ba925f`.
 
-Branch commits before closeout:
+## TDD and review evidence
 
-- `041be6d` — approved design and test-first implementation plan;
-- `b5f23d1` — focused attestation regression and one-line download correction;
-- `a34de34` — approved plan expansion, publication regression, and one-line
-  publish correction.
+Before the workflow edit, the upload-action allowlist contract failed because
+the pinned action was absent. The expanded workflow module then failed five
+new artifact-handoff contracts while all unrelated stable contracts continued
+to pass. After implementation, all 22 workflow contracts and all 125 unit tests
+passed.
 
-## TDD and validation evidence
+The permanent documentation contract next failed because `docs/testing.md`
+still described `release_draft`. After updating `AGENTS.md`, `PLAN.md`, and
+`docs/testing.md`, the focused contract and all 125 unit tests passed.
 
-The initial focused contract first failed because the attestation section
-lacked `--repo $env:GITHUB_REPOSITORY`; its no-checkout assertion already
-passed. After correcting download, the expanded
-`test_no_checkout_release_commands_select_repository_explicitly` contract
-failed because the publish section lacked the same selector. After the second
-one-line workflow edit:
+Independent security review found no production-workflow defect, but used
+in-memory mutations to prove four contract gaps. Before correction, tests
+incorrectly accepted:
 
-- focused regression: 1 passed;
-- complete workflow contract module: 18 passed;
-- complete unit suite: 121 passed;
-- complete headless Blender suite exited 0 and ended
+- removal of `--repo` from `gh release create`;
+- disabling both exact two-file gates;
+- adding `packages: write` to `release_publish`;
+- removal of `--repo` specifically from the publisher's `gh run download`.
+
+The first three mutations now each produce one focused test failure through
+`ce550d7`; the fourth produces one focused failure through `df925ce`. The real
+workflow remains 22/22 focused and 125/125 overall. Final focused re-review
+reported no Critical or Important findings and assessed the branch ready for
+closeout.
+
+## Verification evidence
+
+The fresh final local gate reported:
+
+- workflow contract module: 22 passed;
+- complete unit suite: 125 passed;
+- complete headless Blender suite: exit 0 and
   `ALPHA_MATERIAL_SEPARATOR_BLENDER_TESTS_OK`;
-- Blender source validation succeeded;
-- the verified `.packaged-releases` directory was cleared of ZIPs, then built
-  exactly one `alpha_material_separator-1.3.1.zip` at 72,588 bytes;
-- Blender archive validation succeeded for that discovered ZIP.
+- Blender source validation: success;
+- clean release build: exactly one
+  `alpha_material_separator-1.3.1.zip`;
+- archive size: 72,588 bytes;
+- local archive SHA-256:
+  `2f2f6d8e4de28cc5ed73776b4571ba9dbb0094824bddea889d3fab9bd51379bc`;
+- Blender archive validation: success;
+- `git diff --check`: no errors.
 
-Initial independent review reported no Critical issue and one Important issue:
-the downstream no-checkout publish command would fail for the same reason. That
-finding was addressed test-first in `a34de34`. Focused re-review of the complete
-expanded diff reported no Critical, Important, or Minor findings and assessed
-the workflow and tests as ready after milestone closeout.
+The archive is an ignored local verification output, not a release asset. Its
+digest is not expected to equal an earlier build because Blender's extension
+build is not byte-reproducible across fresh invocations.
 
 Private-reference smoke, performance benchmarks, and installed interactive
-material-workflow checks were not required because this branch changes no
-resolver, rasterizer, classifier, cache, Preview, Apply, packaging payload, or
-preservation behavior.
+material checks were not applicable because this branch changes no add-on
+payload, resolver, rasterizer, classifier, cache, Preview, Apply, assignment,
+or preservation behavior.
 
 ## Hosted state and recovery boundary
 
-The failed release remains an unpublished v1.3.1 draft targeted at
-`0e47fbad0bfa838c01d7f3af5aaa4a3b2d19ad34`. It contains:
+The failed hosted run `31306939906` and its unpublished draft remain untouched:
 
-- `alpha_material_separator-1.3.1.zip`, 72,588 bytes, GitHub-reported digest
-  `sha256:0918c2282ba778e30315fc3d2656a79b5de76bd3ad92fe5959c73e22b66b6313`;
-- `SHA256SUMS.txt`, 101 bytes.
+- release ID `367440347`;
+- tag name `v1.3.1`, with no Git tag created;
+- target `f39fafc72507c099dc4bf3af39ae497a1e8499a9`;
+- ZIP asset ID `507365725`, 72,588 bytes, digest
+  `sha256:45b8c37d18218e9d835d94399ccf8ce68dd742798be619135d0032c588657382`;
+- checksum asset ID `507365726`, 101 bytes, digest
+  `sha256:81feaeb17f72a6b049db11613fec78fc8feb08dfc88521234f46854bdf1e35dd`.
 
-No v1.3.1 tag exists and nothing was published. This branch does not mutate
-that draft. After the correction merges, retrying the strict release workflow
-requires separate explicit authorization to delete the failed draft first;
-the workflow correctly refuses an existing release identity.
-
-The next manual run must still confirm:
-
-- the read-only attestation token can download the private draft asset when the
-  repository is selected explicitly;
-- the pinned action creates provenance for the exact downloaded ZIP;
-- failed attestation continues to leave the release unpublished;
-- after publication, the downloaded asset passes the version-neutral
-  `gh attestation verify` command documented in `docs/testing.md`.
+Nothing in this branch deletes that draft, creates a tag, or publishes a
+release. Do not increment to 1.3.2 for this release-infrastructure failure.
 
 ## Next action
 
-The branch is ready for final review and pull-request preparation. Pushing or
-opening a draft pull request requires separate user authorization. Do not rerun
-the release until this correction merges and deletion of the failed draft is
-separately authorized.
+The branch is ready for pull-request preparation against `main`. After it
+merges, separately obtain authorization to delete release ID `367440347`, then
+dispatch 1.3.1. Hosted acceptance must confirm the artifact handoff,
+attestation, exact-byte publication, and `gh attestation verify` against the
+downloaded release ZIP. Do not claim hosted success before that run completes.

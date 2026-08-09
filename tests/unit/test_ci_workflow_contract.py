@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 CHECKOUT_SHA = "3d3c42e5aac5ba805825da76410c181273ba90b1"
 ATTEST_SHA = "1e69f48acb82d1966a394da916b4c1698aa569d6"
+UPLOAD_ARTIFACT_SHA = "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
 
 
 class CiWorkflowContractTests(unittest.TestCase):
@@ -48,11 +49,11 @@ class CiWorkflowContractTests(unittest.TestCase):
         self.assertEqual(
             action_uses,
             [f"actions/checkout@{CHECKOUT_SHA}"] * 2
+            + [f"actions/upload-artifact@{UPLOAD_ARTIFACT_SHA}"]
             + [f"actions/attest@{ATTEST_SHA}"],
         )
         for forbidden in (
             "actions/cache",
-            "actions/upload-artifact",
             "actions/download-artifact",
             "setup-python",
             "container:",
@@ -61,15 +62,9 @@ class CiWorkflowContractTests(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, self.text)
 
-    def test_release_attestation_is_isolated_from_content_writes(self) -> None:
-        for marker in (
-            "\n  release_draft:\n",
-            "\n  release_attestation:\n",
-            "\n  release_publish:\n",
-        ):
-            self.assertIn(marker, self.text)
-
-        draft = self.text.split("\n  release_draft:\n", 1)[1].split(
+    def test_release_jobs_preserve_artifact_permission_boundaries(self) -> None:
+        self.assertIn("\n  release_package:\n", self.text)
+        package = self.text.split("\n  release_package:\n", 1)[1].split(
             "\n  release_attestation:\n", 1
         )[0]
         attestation = self.text.split(
@@ -77,9 +72,19 @@ class CiWorkflowContractTests(unittest.TestCase):
         )[1].split("\n  release_publish:\n", 1)[0]
         publish = self.text.split("\n  release_publish:\n", 1)[1]
 
-        self.assertIn("environment: release", draft)
-        self.assertIn("permissions:\n      contents: write", draft)
-        self.assertNotIn("uses:", draft)
+        self.assertNotIn("environment: release", package)
+        self.assertEqual(
+            re.findall(
+                r"^\s{4}permissions:\n(?:^\s{6}.+\n?)+",
+                package,
+                re.MULTILINE,
+            ),
+            ["    permissions:\n      contents: read\n"],
+        )
+        self.assertEqual(package.count("uses:"), 1)
+        self.assertIn(
+            f"actions/upload-artifact@{UPLOAD_ARTIFACT_SHA}", package
+        )
         self.assertEqual(
             re.findall(
                 r"^\s{4}permissions:\n(?:^\s{6}.+\n?)+",
@@ -88,6 +93,173 @@ class CiWorkflowContractTests(unittest.TestCase):
             ),
             [
                 "    permissions:\n"
+                "      actions: read\n"
+                "      contents: read\n"
+                "      id-token: write\n"
+                "      attestations: write\n"
+            ],
+        )
+        self.assertNotIn("contents: write", attestation)
+        self.assertIn("environment: release", publish)
+        self.assertEqual(
+            re.findall(
+                r"^\s{4}permissions:\n(?:^\s{6}.+\n?)+",
+                publish,
+                re.MULTILINE,
+            ),
+            [
+                "    permissions:\n"
+                "      actions: read\n"
+                "      contents: write\n"
+            ],
+        )
+        self.assertNotIn("uses:", publish)
+        self.assertEqual(self.text.count("contents: write"), 1)
+
+    def test_release_package_uploads_exact_short_lived_artifact(self) -> None:
+        self.assertIn("\n  release_package:\n", self.text)
+        package = self.text.split("\n  release_package:\n", 1)[1].split(
+            "\n  release_attestation:\n", 1
+        )[0]
+        marker = "\n      - name: Upload release package\n"
+        self.assertIn(marker, package)
+        upload = package.split(marker, 1)[1]
+        self.assertIn(
+            f"uses: actions/upload-artifact@{UPLOAD_ARTIFACT_SHA}", upload
+        )
+        self.assertIn("name: ams-release-package", upload)
+        self.assertIn(
+            "${{ runner.temp }}/release/"
+            "${{ steps.release.outputs.archive_name }}",
+            upload,
+        )
+        self.assertIn("${{ runner.temp }}/release/SHA256SUMS.txt", upload)
+        self.assertIn("if-no-files-found: error", upload)
+        self.assertIn("retention-days: 1", upload)
+        self.assertIn("compression-level: 0", upload)
+        self.assertNotIn("overwrite:", upload)
+        self.assertNotIn("include-hidden-files:", upload)
+        for mutation in (
+            "gh release create",
+            "gh release upload",
+            "gh release edit",
+        ):
+            self.assertNotIn(mutation, package)
+
+    def test_release_consumers_verify_current_run_artifact(self) -> None:
+        attestation = self.text.split(
+            "\n  release_attestation:\n", 1
+        )[1].split("\n  release_publish:\n", 1)[0]
+        publish = self.text.split("\n  release_publish:\n", 1)[1]
+        for section in (attestation, publish):
+            self.assertIn("actions: read", section)
+            self.assertIn(
+                "RELEASE_ARTIFACT_NAME: ams-release-package", section
+            )
+            download_steps = [
+                step
+                for step in section.split("\n      - name: ")[1:]
+                if "gh run download" in step
+            ]
+            self.assertEqual(len(download_steps), 1)
+            download_step = download_steps[0]
+            self.assertIn(
+                "gh run download $env:GITHUB_RUN_ID", download_step
+            )
+            self.assertIn(
+                "--repo $env:GITHUB_REPOSITORY", download_step
+            )
+            self.assertIn(
+                "--name $env:RELEASE_ARTIFACT_NAME", download_step
+            )
+            self.assertIn("--dir $DownloadDirectory", download_step)
+            self.assertIn(
+                "Get-FileHash -LiteralPath $Archive -Algorithm SHA256",
+                download_step,
+            )
+            self.assertIn(
+                "$Actual -ne $env:EXPECTED_SHA256", download_step
+            )
+            self.assertIn("$Entries.Count -ne 2", download_step)
+            self.assertIn("$Unexpected.Count -ne 0", download_step)
+            self.assertIn(
+                "Test-Path -LiteralPath $Archive -PathType Leaf",
+                download_step,
+            )
+            self.assertIn(
+                "Test-Path -LiteralPath $ChecksumPath -PathType Leaf",
+                download_step,
+            )
+            self.assertIn(
+                "$ActualChecksum -ne $ExpectedChecksum", download_step
+            )
+            self.assertIn("SHA256SUMS.txt", download_step)
+            self.assertIn(
+                "GH_TOKEN: ${{ github.token }}", download_step
+            )
+            self.assertNotIn("actions/download-artifact", download_step)
+
+    def test_release_attests_before_any_release_mutation(self) -> None:
+        self.assertIn("\n  release_package:\n", self.text)
+        package = self.text.split("\n  release_package:\n", 1)[1].split(
+            "\n  release_attestation:\n", 1
+        )[0]
+        attestation = self.text.split(
+            "\n  release_attestation:\n", 1
+        )[1].split("\n  release_publish:\n", 1)[0]
+        publish = self.text.split("\n  release_publish:\n", 1)[1]
+        self.assertIn("needs: [validate, release_gate]", package)
+        self.assertIn("needs: [release_package]", attestation)
+        self.assertIn(
+            "needs: [release_package, release_attestation]", publish
+        )
+        self.assertLess(
+            self.text.index(
+                f"actions/upload-artifact@{UPLOAD_ARTIFACT_SHA}"
+            ),
+            self.text.index(f"actions/attest@{ATTEST_SHA}"),
+        )
+        self.assertLess(
+            self.text.index(f"actions/attest@{ATTEST_SHA}"),
+            self.text.index("gh release create"),
+        )
+        self.assertLess(
+            self.text.index("gh release create"),
+            self.text.index("gh release upload"),
+        )
+        self.assertLess(
+            self.text.index("gh release upload"),
+            self.text.index("gh release edit"),
+        )
+
+    def test_release_attestation_is_isolated_from_content_writes(self) -> None:
+        for marker in (
+            "\n  release_package:\n",
+            "\n  release_attestation:\n",
+            "\n  release_publish:\n",
+        ):
+            self.assertIn(marker, self.text)
+
+        package = self.text.split("\n  release_package:\n", 1)[1].split(
+            "\n  release_attestation:\n", 1
+        )[0]
+        attestation = self.text.split(
+            "\n  release_attestation:\n", 1
+        )[1].split("\n  release_publish:\n", 1)[0]
+        publish = self.text.split("\n  release_publish:\n", 1)[1]
+
+        self.assertNotIn("environment: release", package)
+        self.assertIn("permissions:\n      contents: read", package)
+        self.assertEqual(package.count("uses:"), 1)
+        self.assertEqual(
+            re.findall(
+                r"^\s{4}permissions:\n(?:^\s{6}.+\n?)+",
+                attestation,
+                re.MULTILINE,
+            ),
+            [
+                "    permissions:\n"
+                "      actions: read\n"
                 "      contents: read\n"
                 "      id-token: write\n"
                 "      attestations: write\n"
@@ -96,7 +268,10 @@ class CiWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("contents: write", attestation)
         self.assertIn(f"actions/attest@{ATTEST_SHA}", attestation)
         self.assertIn("environment: release", publish)
-        self.assertIn("permissions:\n      contents: write", publish)
+        self.assertIn(
+            "permissions:\n      actions: read\n      contents: write",
+            publish,
+        )
         self.assertNotIn("uses:", publish)
 
     def test_no_checkout_release_commands_select_repository_explicitly(self) -> None:
@@ -107,28 +282,42 @@ class CiWorkflowContractTests(unittest.TestCase):
         for section in (attestation, publish):
             self.assertNotIn("actions/checkout@", section)
             self.assertIn("--repo $env:GITHUB_REPOSITORY", section)
+        for command in (
+            "gh release create",
+            "gh release upload",
+            "gh release download",
+            "gh release edit",
+        ):
+            matching_steps = [
+                step
+                for step in publish.split("\n      - name: ")[1:]
+                if command in step
+            ]
+            self.assertEqual(len(matching_steps), 1, command)
+            self.assertIn(
+                "--repo $env:GITHUB_REPOSITORY", matching_steps[0]
+            )
 
     def test_stored_zip_is_verified_attested_then_published(self) -> None:
         expected_subject = (
             "subject-path: '${{ runner.temp }}/downloaded-release/"
-            "${{ needs.release_draft.outputs.archive_name }}'"
+            "${{ needs.release_package.outputs.archive_name }}'"
         )
         for text in (
             "Get-FileHash -LiteralPath $Archive -Algorithm SHA256",
             "$Actual -ne $env:EXPECTED_SHA256",
+            "$StoredSha256 -ne $env:EXPECTED_SHA256",
             expected_subject,
         ):
             self.assertIn(text, self.text)
 
         positions = [
+            self.text.index(f"actions/upload-artifact@{UPLOAD_ARTIFACT_SHA}"),
+            self.text.index(f"actions/attest@{ATTEST_SHA}"),
             self.text.index("gh release create"),
             self.text.index("gh release upload"),
             self.text.index("gh release download"),
-            self.text.index("scripts/ci.py verify-file"),
-            self.text.index(
-                "Get-FileHash -LiteralPath $Archive -Algorithm SHA256"
-            ),
-            self.text.index(f"actions/attest@{ATTEST_SHA}"),
+            self.text.index("$StoredSha256 -ne $env:EXPECTED_SHA256"),
             self.text.index("gh release edit"),
         ]
         self.assertEqual(positions, sorted(positions))
@@ -157,7 +346,7 @@ class CiWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("matrix.platform != 'macos'", validate)
 
     def test_release_is_manual_main_public_and_environment_gated(self) -> None:
-        draft = self.text.split("\n  release_draft:\n", 1)[1].split(
+        package = self.text.split("\n  release_package:\n", 1)[1].split(
             "\n  release_attestation:\n", 1
         )[0]
         attestation = self.text.split(
@@ -169,29 +358,30 @@ class CiWorkflowContractTests(unittest.TestCase):
             "github.ref == 'refs/heads/main'",
             "github.event.repository.visibility == 'public'",
         )
-        for section in (draft, attestation, publish):
+        for section in (package, attestation, publish):
             for text in guards:
                 self.assertIn(text, section)
-        self.assertIn("needs: [validate, release_gate]", draft)
-        self.assertIn("needs: [release_draft]", attestation)
+        self.assertIn("needs: [validate, release_gate]", package)
+        self.assertIn("needs: [release_package]", attestation)
         self.assertIn(
-            "needs: [release_draft, release_attestation]", publish
+            "needs: [release_package, release_attestation]", publish
         )
-        for section in (draft, publish):
-            self.assertIn("environment: release", section)
-            self.assertIn("contents: write", section)
+        self.assertNotIn("environment: release", package)
+        self.assertNotIn("contents: write", package)
+        self.assertIn("environment: release", publish)
+        self.assertIn("contents: write", publish)
 
-    def test_release_draft_fetches_exact_public_sha_without_credentials(
+    def test_release_package_fetches_exact_public_sha_without_credentials(
         self,
     ) -> None:
-        draft = self.text.split("\n  release_draft:\n", 1)[1].split(
+        package = self.text.split("\n  release_package:\n", 1)[1].split(
             "\n  release_attestation:\n", 1
         )[0]
-        source_step = draft.split(
-            "\n      - name: Refuse an existing tag or release",
+        source_step = package.split(
+            "\n      - name: Upload release package",
             1,
         )[0]
-        self.assertNotIn("uses:", draft)
+        self.assertEqual(package.count("uses:"), 1)
         self.assertIn(
             "SOURCE_REPOSITORY: https://github.com/${{ github.repository }}.git",
             source_step,
@@ -218,41 +408,43 @@ class CiWorkflowContractTests(unittest.TestCase):
         release_gate = self.text.split(
             "\n  release_gate:\n",
             1,
-        )[1].split("\n  release_draft:\n", 1)[0]
+        )[1].split("\n  release_package:\n", 1)[0]
         self.assertIn("github.ref == 'refs/heads/main'", release_gate)
         self.assertIn(
             "github.event.repository.visibility == 'public'",
             release_gate,
         )
         for text in (
-            "RELEASE_TAG: ${{ needs.release_draft.outputs.tag }}",
-            "ARCHIVE_NAME: ${{ needs.release_draft.outputs.archive_name }}",
-            "EXPECTED_SHA256: ${{ needs.release_draft.outputs.sha256 }}",
-            "gh release download $env:RELEASE_TAG",
+            "RELEASE_TAG: ${{ needs.release_package.outputs.tag }}",
+            "ARCHIVE_NAME: ${{ needs.release_package.outputs.archive_name }}",
+            "EXPECTED_SHA256: ${{ needs.release_package.outputs.sha256 }}",
+            "gh run download $env:GITHUB_RUN_ID",
+            "gh release create $env:RELEASE_TAG",
             "gh release edit $env:RELEASE_TAG `",
             "--repo $env:GITHUB_REPOSITORY `",
             "--draft=false",
         ):
             self.assertIn(text, self.text)
 
-    def test_draft_outputs_enter_shell_through_step_environment(self) -> None:
-        draft = self.text.split("\n  release_draft:\n", 1)[1].split(
-            "\n  release_attestation:\n", 1
-        )[0]
-        for step in draft.split("\n      - name: ")[1:]:
+    def test_package_outputs_enter_shell_through_step_environment(self) -> None:
+        release_jobs = self.text.split("\n  release_package:\n", 1)[1]
+        for step in release_jobs.split("\n      - name: ")[1:]:
             if "\n        run:" in step:
                 run_source = step.split("\n        run:", 1)[1]
                 self.assertNotIn("${{ steps.release.outputs.", run_source)
+                self.assertNotIn(
+                    "${{ needs.release_package.outputs.", run_source
+                )
         for text in (
-            "RELEASE_TAG: ${{ steps.release.outputs.tag }}",
-            "ARCHIVE_NAME: ${{ steps.release.outputs.archive_name }}",
-            "EXPECTED_SHA256: ${{ steps.release.outputs.sha256 }}",
+            "RELEASE_TAG: ${{ needs.release_package.outputs.tag }}",
+            "ARCHIVE_NAME: ${{ needs.release_package.outputs.archive_name }}",
+            "EXPECTED_SHA256: ${{ needs.release_package.outputs.sha256 }}",
             "gh release create $env:RELEASE_TAG",
             "gh release upload $env:RELEASE_TAG",
             "gh release download $env:RELEASE_TAG",
-            "--expected-sha256 $env:EXPECTED_SHA256",
+            "$Actual -ne $env:EXPECTED_SHA256",
         ):
-            self.assertIn(text, draft)
+            self.assertIn(text, self.text)
 
     def test_validation_discovers_exactly_one_versioned_zip(self) -> None:
         validate = self.text.split("\n  release_gate:\n", 1)[0]
@@ -275,16 +467,16 @@ class CiWorkflowContractTests(unittest.TestCase):
                     step.index("--command extension build"),
                 )
 
-    def test_release_is_draft_first_rehashes_attests_and_publishes(self) -> None:
+    def test_release_packages_attests_then_drafts_rehashes_and_publishes(
+        self,
+    ) -> None:
         positions = [
+            self.text.index(f"actions/upload-artifact@{UPLOAD_ARTIFACT_SHA}"),
+            self.text.index(f"actions/attest@{ATTEST_SHA}"),
             self.text.index("gh release create"),
             self.text.index("gh release upload"),
             self.text.index("gh release download"),
-            self.text.index("scripts/ci.py verify-file"),
-            self.text.index(
-                "Get-FileHash -LiteralPath $Archive -Algorithm SHA256"
-            ),
-            self.text.index(f"actions/attest@{ATTEST_SHA}"),
+            self.text.index("$StoredSha256 -ne $env:EXPECTED_SHA256"),
             self.text.index("gh release edit"),
         ]
         self.assertEqual(positions, sorted(positions))
@@ -295,26 +487,31 @@ class CiWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("gh release view", self.text)
 
     def test_tokens_and_permissions_are_scoped_to_release_steps(self) -> None:
-        before_draft, after_draft = self.text.split(
-            "\n  release_draft:\n", 1
+        before_package, after_package = self.text.split(
+            "\n  release_package:\n", 1
         )
-        draft, after_attestation = after_draft.split(
+        package, after_attestation = after_package.split(
             "\n  release_attestation:\n", 1
         )
         attestation, publish = after_attestation.split(
             "\n  release_publish:\n", 1
         )
-        self.assertEqual(self.text.count("contents: write"), 2)
-        for section in (draft, publish):
-            self.assertIn("permissions:\n      contents: write", section)
+        self.assertEqual(self.text.count("contents: write"), 1)
+        self.assertIn("permissions:\n      contents: read", package)
+        self.assertNotIn("contents: write", package)
+        self.assertIn(
+            "permissions:\n      actions: read\n      contents: write",
+            publish,
+        )
         self.assertNotIn("contents: write", attestation)
-        self.assertIn("permissions:\n      contents: read", attestation)
+        self.assertIn("actions: read", attestation)
+        self.assertIn("contents: read", attestation)
         self.assertIn("id-token: write", attestation)
         self.assertIn("attestations: write", attestation)
-        self.assertNotIn("GH_TOKEN:", before_draft)
-        self.assertEqual(draft.count("GH_TOKEN:"), 4)
+        self.assertNotIn("GH_TOKEN:", before_package)
+        self.assertEqual(package.count("GH_TOKEN:"), 0)
         self.assertEqual(attestation.count("GH_TOKEN:"), 1)
-        self.assertEqual(publish.count("GH_TOKEN:"), 1)
+        self.assertEqual(publish.count("GH_TOKEN:"), 6)
         for line in self.text.splitlines():
             if "GH_TOKEN:" in line:
                 self.assertIn("${{ github.token }}", line)
@@ -323,7 +520,7 @@ class CiWorkflowContractTests(unittest.TestCase):
             for step in self.text.split("\n      - name: ")[1:]
             if "GH_TOKEN:" in step
         ]
-        self.assertEqual(len(token_steps), 6)
+        self.assertEqual(len(token_steps), 7)
         for step in token_steps:
             self.assertEqual(step.count("GH_TOKEN:"), 1)
             self.assertIn("\n        run:", step)
@@ -365,14 +562,23 @@ class CiWorkflowContractTests(unittest.TestCase):
             "actions/attest",
             "1e69f48acb82d1966a394da916b4c1698aa569d6",
             "gh attestation verify",
-            "release_draft",
+            "release_package",
             "release_attestation",
             "release_publish",
             "contents: read",
+            "actions: read",
             "id-token: write",
             "attestations: write",
+            "ams-release-package",
+            "actions/upload-artifact",
+            UPLOAD_ARTIFACT_SHA,
+            "gh run download",
+            "GITHUB_RUN_ID",
+            "retention-days: 1",
+            "compression-level: 0",
         ):
             self.assertIn(text, testing)
+        self.assertNotIn("`release_draft`", testing)
         for text in (
             "actions/checkout",
             "persist-credentials: false",
@@ -382,6 +588,12 @@ class CiWorkflowContractTests(unittest.TestCase):
         ):
             self.assertIn(text, agents)
         self.assertIn("GitHub Actions CI/CD", plan)
+        for text in (
+            "read-only release-package job builds once",
+            "same current-run workflow artifact",
+            "re-downloads the stored ZIP",
+        ):
+            self.assertIn(text, agents + plan)
         for text in (
             "unauthenticated native Git",
             "exact `GITHUB_SHA`",

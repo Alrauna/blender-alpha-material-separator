@@ -51,8 +51,10 @@ and version-independent discovery and validation of the one generated AMS ZIP.
 Each runner builds and discards its own ZIP. The `macos-15` runner is Apple
 Silicon; macOS is not excluded from or allowed to ignore any shared validation
 step.
-Workflow artifacts, caches, setup actions, package installers, containers,
-self-hosted runners, and third-party actions are not used.
+Ordinary validation uses no workflow artifacts, caches, setup actions, package
+installers, containers, self-hosted runners, or third-party actions. The manual
+release path uses one short-lived workflow artifact and official GitHub actions
+pinned to reviewed full commit SHAs.
 
 The workflow downloads Blender only from its fixed Blender.org HTTPS URL. It
 retrieves Blender.org's checksum file through system DNS, Cloudflare DoH, and
@@ -87,19 +89,37 @@ wait for explicit approval after the hosted Apple Silicon job is confirmed.
 
 Manual dispatch requires a strict `X.Y.Z` version. Publication additionally
 requires `main`, a public repository, successful Windows, Linux, and macOS
-validation, and the protected `release` environment. `release_draft` rebuilds
-from an unauthenticated exact-SHA fetch, creates a draft, uploads the ZIP and
-`SHA256SUMS.txt`, downloads the stored ZIP, and verifies its digest. It has
-`contents: write` and executes no action.
+validation, and the protected `release` environment.
 
-`release_attestation` downloads and independently hashes that exact stored ZIP,
-then runs
+`release_package` is read-only. It fetches exact `GITHUB_SHA` through
+unauthenticated native Git, verifies that checkout, builds and validates the ZIP
+once, writes `SHA256SUMS.txt`, and publishes both files as
+`ams-release-package`. The only added action is
+`actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a`
+(v7.0.1), configured with `retention-days: 1`, `compression-level: 0`, exact
+file paths, and failure when neither configured file exists. Both downstream
+consumers independently reject a partial or expanded file set.
+
+`release_attestation` has exactly `actions: read`, `contents: read`,
+`id-token: write`, and `attestations: write`. Its one token-bearing native step
+uses `gh run download $env:GITHUB_RUN_ID` with the current repository and exact
+artifact name. It requires only the expected ZIP and checksum, then verifies
+both checksum identity and the producer-reported ZIP digest before running
 `actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6`
-(v4.2.2) with only `contents: read`, `id-token: write`, and
-`attestations: write`. `release_publish` has `contents: write`, executes no
-action, and publishes only after attestation succeeds. `GH_TOKEN` remains
-exposed only to individual GitHub CLI steps. A failed build, upload, download,
-digest check, or attestation leaves an unpublished draft.
+(v4.2.2) on that ZIP.
+
+`release_publish` depends on both earlier jobs, runs in the protected `release`
+environment with `actions: read` and `contents: write`, and executes no action.
+It independently downloads the same current-run artifact with native
+`gh run download`, repeats the file-set, checksum, and digest checks, and
+refuses any existing tag or release before mutation. Only then does it create a
+draft targeted at exact `GITHUB_SHA`, upload those exact two files, re-download
+the stored ZIP, verify the same digest, and publish. `GH_TOKEN` remains exposed
+only to individual native GitHub CLI steps.
+
+A package or attestation failure creates no draft. A failure after draft
+creation leaves an unpublished draft. No path publishes before successful
+attestation and stored-release ZIP digest verification.
 
 After downloading a published extension ZIP, discover exactly one AMS archive
 and verify that its digest and provenance are bound to this repository's
@@ -113,9 +133,9 @@ gh attestation verify $Archives[0].FullName `
 ```
 
 An attestation identifies the source workflow and artifact digest; it does not
-claim that the artifact is vulnerability-free. Live verification and read-only
-access to a draft asset remain pending until publication is separately
-authorized.
+claim that the artifact is vulnerability-free. Hosted acceptance must still
+confirm the workflow-artifact handoff, publication, and verification of the
+downloaded release ZIP after publication is separately authorized.
 
 GitHub-hosted runner timing is variable, so CI runs correctness benchmark
 contracts but does not enforce a hosted performance threshold. The repository's

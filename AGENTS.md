@@ -262,10 +262,11 @@ edit. Remove or revise items that no longer require immediate attention.
   based on `main`, so a pull request aimed at any other branch reports no checks
   and cannot satisfy protection.
 - Keep workflow permissions at `contents: read` by default. Only the protected
-  manual release job may use `contents: write`, and `GH_TOKEN` belongs only on
-  individual `gh` command steps.
+  manual `release_publish` job may use `contents: write`; release artifact
+  consumers may add `actions: read`, and `GH_TOKEN` belongs only on individual
+  `gh` command steps.
 - Keep `actions/checkout` confined to read-only jobs, pinned to a reviewed full
-  commit SHA, with `persist-credentials: false`. The write-authorized release
+  commit SHA, with `persist-credentials: false`. The read-only release-package
   job must use unauthenticated native Git, fetch the exact `GITHUB_SHA`, and
   verify `HEAD` without credentials. Adding an action, dependency, cache,
   artifact transfer, trigger, runner type, permission, or network source
@@ -282,9 +283,11 @@ edit. Remove or revise items that no longer require immediate attention.
   resolver or hash requirements.
 - Ordinary validation must discover exactly one version-independent AMS ZIP;
   only the strict release path may derive a filename from the validated version.
-- Validation builds are disposable. Publication rebuilds from the validated
-  `main` commit, creates a draft, uploads the ZIP and `SHA256SUMS.txt`, downloads
-  and re-hashes the stored ZIP, then publishes.
+- Validation builds are disposable. The read-only release-package job builds
+  once from the exact validated `main` commit. Attestation and protected
+  publication independently download the same current-run workflow artifact
+  and verify its producer-reported SHA-256. Publication uploads those exact
+  bytes, re-downloads the stored ZIP, re-hashes it, then publishes.
 - Do not push, change visibility or repository settings, configure protection,
   create tags, or publish releases without explicit user approval.
 - Quad9's HTTP/2-only DoH endpoint is incompatible with the tested Windows curl
