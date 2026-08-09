@@ -156,28 +156,48 @@ class CiWorkflowContractTests(unittest.TestCase):
             self.assertIn(
                 "RELEASE_ARTIFACT_NAME: ams-release-package", section
             )
-            self.assertIn("gh run download $env:GITHUB_RUN_ID", section)
-            self.assertIn("--repo $env:GITHUB_REPOSITORY", section)
-            self.assertIn("--name $env:RELEASE_ARTIFACT_NAME", section)
-            self.assertIn("--dir $DownloadDirectory", section)
+            download_steps = [
+                step
+                for step in section.split("\n      - name: ")[1:]
+                if "gh run download" in step
+            ]
+            self.assertEqual(len(download_steps), 1)
+            download_step = download_steps[0]
+            self.assertIn(
+                "gh run download $env:GITHUB_RUN_ID", download_step
+            )
+            self.assertIn(
+                "--repo $env:GITHUB_REPOSITORY", download_step
+            )
+            self.assertIn(
+                "--name $env:RELEASE_ARTIFACT_NAME", download_step
+            )
+            self.assertIn("--dir $DownloadDirectory", download_step)
             self.assertIn(
                 "Get-FileHash -LiteralPath $Archive -Algorithm SHA256",
-                section,
+                download_step,
             )
-            self.assertIn("$Actual -ne $env:EXPECTED_SHA256", section)
-            self.assertIn("$Entries.Count -ne 2", section)
-            self.assertIn("$Unexpected.Count -ne 0", section)
             self.assertIn(
-                "Test-Path -LiteralPath $Archive -PathType Leaf", section
+                "$Actual -ne $env:EXPECTED_SHA256", download_step
+            )
+            self.assertIn("$Entries.Count -ne 2", download_step)
+            self.assertIn("$Unexpected.Count -ne 0", download_step)
+            self.assertIn(
+                "Test-Path -LiteralPath $Archive -PathType Leaf",
+                download_step,
             )
             self.assertIn(
                 "Test-Path -LiteralPath $ChecksumPath -PathType Leaf",
-                section,
+                download_step,
             )
-            self.assertIn("$ActualChecksum -ne $ExpectedChecksum", section)
-            self.assertIn("SHA256SUMS.txt", section)
-            self.assertIn("GH_TOKEN: ${{ github.token }}", section)
-            self.assertNotIn("actions/download-artifact", section)
+            self.assertIn(
+                "$ActualChecksum -ne $ExpectedChecksum", download_step
+            )
+            self.assertIn("SHA256SUMS.txt", download_step)
+            self.assertIn(
+                "GH_TOKEN: ${{ github.token }}", download_step
+            )
+            self.assertNotIn("actions/download-artifact", download_step)
 
     def test_release_attests_before_any_release_mutation(self) -> None:
         self.assertIn("\n  release_package:\n", self.text)
