@@ -502,14 +502,23 @@ class CiWorkflowContractTests(unittest.TestCase):
             "actions/attest",
             "1e69f48acb82d1966a394da916b4c1698aa569d6",
             "gh attestation verify",
-            "release_draft",
+            "release_package",
             "release_attestation",
             "release_publish",
             "contents: read",
+            "actions: read",
             "id-token: write",
             "attestations: write",
+            "ams-release-package",
+            "actions/upload-artifact",
+            UPLOAD_ARTIFACT_SHA,
+            "gh run download",
+            "GITHUB_RUN_ID",
+            "retention-days: 1",
+            "compression-level: 0",
         ):
             self.assertIn(text, testing)
+        self.assertNotIn("`release_draft`", testing)
         for text in (
             "actions/checkout",
             "persist-credentials: false",
@@ -519,6 +528,12 @@ class CiWorkflowContractTests(unittest.TestCase):
         ):
             self.assertIn(text, agents)
         self.assertIn("GitHub Actions CI/CD", plan)
+        for text in (
+            "read-only release-package job builds once",
+            "same current-run workflow artifact",
+            "re-downloads the stored ZIP",
+        ):
+            self.assertIn(text, agents + plan)
         for text in (
             "unauthenticated native Git",
             "exact `GITHUB_SHA`",

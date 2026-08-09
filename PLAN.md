@@ -298,6 +298,10 @@ The authoritative hardening matrix includes:
   curl's native address fallback.
 - [x] Bind direct A owners to the exact question, validate compression
   boundaries and the 255-byte name limit, and cap distinct addresses at 16.
+- [x] Keep attestation isolated from release-write authority with a short-lived
+  same-run workflow artifact.
+- [x] Build the release ZIP once in a read-only job and publish those exact
+  attested bytes from the protected native write job.
 - [ ] Push `ci/automation` after separate approval.
 - [ ] Observe both hosted validation checks.
 - [ ] Make the repository public after separate approval.
@@ -311,6 +315,12 @@ DoT replacement and pinned HTTPS checksum download pass locally. The Linux
 executable locator now uses the exact archive root. Hosted rerun remains the
 compatibility authority for both corrections.
 Blender native extension-repository hosting remains a separate milestone.
+
+The read-only release-package job builds once from exact `GITHUB_SHA`.
+Attestation and protected publication independently download the same
+current-run workflow artifact and verify its producer-reported SHA-256.
+Publication uploads those exact bytes, re-downloads the stored ZIP, re-hashes
+it, and publishes only after attestation succeeds.
 
 ## Public integration boundary
 
