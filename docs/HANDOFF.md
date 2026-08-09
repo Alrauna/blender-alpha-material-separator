@@ -1,432 +1,125 @@
 # Repository handoff
 
-Updated: 2026-08-08
+Updated: 2026-08-09
 
 ## Current objective
 
-`codex/ci-macos-arm64` is an isolated topic branch from refreshed `main` at
-`f760e7a`. Its approved objective is to extend the existing full validation
-matrix to native macOS Apple Silicon using the same Blender 5.2 unit, headless,
-source-validation, build, and ZIP-validation gates as Windows and Linux.
+`codex/ci-release-attestation-1.3.1` is a topic branch from refreshed `main` at
+`fb80d9d8e8b793e239a9b879172ae2dbe165000a`. Its bounded objective is to add
+least-privilege GitHub build-provenance attestation for the exact extension ZIP
+stored on a draft release and to prepare version 1.3.1.
 
-The approved design is
-`docs/superpowers/specs/2026-08-08-macos-apple-silicon-ci-design.md`.
-The design was committed as `ae1097b` and approved by the user. The test-first
-implementation plan is
-`docs/superpowers/plans/2026-08-08-macos-apple-silicon-ci.md`; the user approved
-it and implementation is locally complete. Commit `7ed6d7b` adds the pinned
-Apple Silicon DMG identity, explicit platform roots/Python directories,
-plist-parsed read-only `hdiutil` extraction, symlink-preserving `Blender.app`
-copy, and guaranteed detach after bundle-copy attempts. Commit `8c059d9` adds
-the single `macos-15` matrix row, full-parity workflow contracts, and testing
-documentation. Review found and `cd207a2` closes the missing regression for the
-real `extract_archive("macos", ...)` dispatch. The reference implementation is
-`Alrauna/material-combiner-addon`, whose `macos-15` runner verifies the official
-Blender 5.2.0 Apple Silicon DMG and extracts `Blender.app` through plist-parsed
-`hdiutil` output.
+Implementation is locally complete through these commits:
 
-Local validation passed on 2026-08-08:
+- `872c403` — approved release-attestation design and corrected repository
+  handoff;
+- `fb56115` — approved RED/GREEN implementation plan;
+- `e3358ae` — three-job release split and workflow security contracts;
+- `2405ae8` — version 1.3.1, permanent verification guidance, and documentation
+  contracts;
+- `8c21bfd` — isolated validated release outputs through step-local environment
+  variables and strengthened native-`gh` token-scope contracts.
 
-- the focused CI/helper and workflow-contract suite: 40 tests;
-- the complete unit suite: 117 tests;
-- `tests/blender/run_all.py` with factory startup, background mode,
-  `--disable-autoexec`, and `--python-exit-code 1`;
-- Blender source validation;
-- a fresh, exactly-one `alpha_material_separator-1.3.0.zip` build and archive
-  validation; the ignored `.packaged-releases` directory had to be created in
-  the fresh worktree before the direct Blender build command;
-- `git diff --check`.
+The implementation has not been pushed, published, tagged, or submitted as a
+pull request. Repository settings and environment rules are unchanged.
 
-The security/scope review found no remaining Critical, Important, or Minor
-issues: existing resolver/TLS/hash controls, triggers, permissions, checkout
-pinning, credential isolation, and Windows-only release behavior are unchanged.
-No action, dependency, cache, artifact transfer, permission, trigger, container,
-redirect, or network source was added. The overengineering review found nothing
-to cut: standard-library `plistlib`, native `hdiutil`, and the existing shared
-matrix/helper are reused without a platform-specific job or dependency.
+## Implemented release boundary
 
-Draft pull request #15 is open against `main` at
-`https://github.com/Alrauna/blender-alpha-material-separator/pull/15`. Its
-first hosted run passed `CI / macOS — Blender 5.2` in 33 seconds, `CI / Windows
-— Blender 5.2` in 38 seconds, and `CI / Linux — Blender 5.2` in 46 seconds;
-CodeQL also passed. That run supplies the missing Apple Silicon integration
-proof. The completed design and implementation plan were then removed as
-required in commit `8f9e3a8`; Git history retains their approved wording. The
-post-cleanup run passed macOS in 38 seconds, Windows in 38 seconds, Linux in 41
-seconds, and CodeQL. Private-reference smoke, benchmarks, and installed
-interactive checks were not required for this CI-only change because no addon
-runtime or material-analysis behavior changed.
+- `release_draft` is the protected Windows job with `contents: write`. It
+  retains exact unauthenticated `GITHUB_SHA` fetch, Blender build/validation,
+  strict release identity, `SHA256SUMS.txt`, existing tag/release refusal,
+  draft creation, asset upload, stored-ZIP download, and digest verification.
+  It executes no action and exposes only validated version, tag, archive name,
+  and SHA-256 outputs.
+- `release_attestation` depends on the successful draft job. It independently
+  downloads and hashes the stored ZIP, then runs
+  `actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6`
+  (v4.2.2). Its token permissions are exactly `contents: read`,
+  `id-token: write`, and `attestations: write`; it never receives
+  `contents: write`.
+- `release_publish` depends on both earlier jobs. It is protected, has
+  `contents: write`, executes no action, and publishes the draft through one
+  native `gh release edit` step.
+- All three jobs repeat the manual-dispatch, `main`, and public-repository
+  guards. `GH_TOKEN` is present only on individual native `gh` steps.
+- A failed build, upload, download, digest comparison, or attestation cannot
+  publish the release. A post-draft failure leaves an unpublished draft.
 
-## Completed and merged: `fix/stale-analysis-privacy`
+Only `addon/blender_manifest.toml` and `README.md` carry the permanent product
+version 1.3.1. Public API version remains 1.3. `docs/testing.md` keeps consumer
+verification version-neutral by discovering exactly one
+`alpha_material_separator-*.zip` before calling `gh attestation verify`.
 
-Merged through pull request #14 at `f760e7a`. The branch name was narrower than
-the work. It was created for the
-stale-analysis privacy question, which is findings 3 and 4 of six from a
-reviewer integrating this extension into `Alrauna/Cats-Blender-Plugin`'s
-Overdraw Prevention panel; the branch grew to publish gating, the review
-signature, and status severity so that panel can mirror Analyze/Preview/Apply
-without importing extension internals or reimplementing a private table.
+## TDD evidence
 
-The approved design is
-`docs/superpowers/specs/2026-08-08-published-workflow-surface-design.md` (git
-history retains it; deleted from the tree per `AGENTS.md` now that the
-milestone is complete and committed, along with the implementation plan at
-`docs/superpowers/plans/2026-08-08-published-workflow-surface.md`).
+Before the workflow edit, the two new focused contracts failed because the
+three release jobs, native stored-ZIP hash, and attestation action were absent.
+After the minimum workflow split, those two tests and the complete workflow
+contract module passed. Review follow-up added a failing regression for direct
+release-output interpolation before the minimum environment-variable fix; the
+strengthened module now contains 17 passing tests.
 
-Four of the six reported integration gaps were genuine defects, confirmed by
-investigation before implementation:
+Before documentation changed, the provenance documentation contract failed on
+the missing `actions/attest` guidance. After changing only the manifest to
+1.3.1, the existing README identity contract failed because README still named
+1.3.0. The minimal documentation and README updates made the focused 21-test
+set pass.
 
-- **The assignment plan was unreachable before assignment.** `actionable` gates
-  `can_preview`/`can_apply` but the payload that would let a consumer derive it
-  only reached the public surface from `assign_materials`, after the consumer
-  had already committed to applying.
-- **The review signature was unreachable.** A consumer passing an empty
-  `expected_review_signature` silently reads as *already previewed*, losing
-  both the not-previewed warning and `REVIEW_CHANGED` protection.
-- **`RESULT_STALE` had no `_GUIDANCE` entry.** Invisible only because the
-  panel's private `normal` set returned early before reaching guidance lookup.
-- **Severity was private and closed-world.** The panel's `normal` set was a
-  severity table consumers had to reimplement by hand, and the reimplementation
-  already diverged from the extension on `STALE_ANALYSIS`.
+## Fresh local validation
 
-One reported gap was correct behavior with an overclaiming comment:
-`RECHECK_PENDING` publishing no status is right — the extension's own panel
-gates on confirmed-stale only, and widening the guard would hide buttons on
-harmless selection/mode changes. Only the comment in
-`runtime._sync_public_validation_state` was corrected; the guard is unchanged.
-One gap was a misreading: release detection already worked through the
-long-published `extension_version`, set by `query_capabilities` and derived
-from `blender_manifest.toml` since 1.1.1; what was missing was a documented
-minor-bump policy and a worked example, which `docs/integration-api.md`'s new
-`## Versioning` section now supplies.
+Run on 2026-08-09 with Blender 5.2.0 LTS and bundled Python 3.13.13:
 
-What shipped, across nine commits (`4ad1f20` design approval,
-`30d91e9` plan, `75b6e1e` `api_contract.py` payload shape,
-`8d1cd97`/`77f58f0` shared `addon/workflow.py` snapshot and `workflow_json` RNA
-getter, `f227782` status severity and the `RESULT_STALE` guidance fix,
-`d89cf2f` documentation, `22d326f` the `can_analyze` correction the final review
-found) plus the version bump:
+- focused workflow, README, manifest, and API contracts: 45 tests passed;
+- complete unit suite: 120 tests passed;
+- complete headless Blender suite exited 0 and ended
+  `ALPHA_MATERIAL_SEPARATOR_BLENDER_TESTS_OK`;
+- Blender source validation succeeded;
+- the verified `.packaged-releases` directory was cleared of ZIPs, then built
+  exactly one `alpha_material_separator-1.3.1.zip` at 72,588 bytes;
+- Blender archive validation succeeded for that discovered ZIP;
+- `git diff --check main...HEAD` reported no whitespace error before handoff
+  closeout;
+- the ignored generated archive was not staged.
 
-- `addon/api_contract.py`: `WORKFLOW_STATES`, `WORKFLOW_FIELDS`,
-  `workflow_payload()`, `degraded_workflow_payload()`, `STATUS_SEVERITIES`, and
-  `severity_for()`. `API_VERSION` is `(1, 3)`.
-- `addon/workflow.py` (new): `snapshot(context)`, the single computation the
-  panel draws from and `workflow_json` serializes, so drawn and published state
-  cannot drift. No memoization; a `ponytail:` comment records the upgrade path,
-  gated on the redraw benchmark below rather than assumption.
-- `addon/properties.py`: read-only `workflow_json` `StringProperty(get=...)`
-  on `ALPHA_MATERIAL_SEPARATOR_PG_api_state`. The getter is total — any
-  exception publishes `degraded_workflow_payload()` rather than raising,
-  because a `get=` callback runs during panel draw.
-- `addon/panel.py`: draws from the shared snapshot instead of computing gating
-  inline; `_draw_status_problem` now branches on `severity_for()` instead of a
-  private closed set.
-- `docs/integration-api.md`: `## Versioning` and `## Workflow state` sections,
-  a `workflow_json` bullet, and a `severity` paragraph after the assignment
-  status table. `docs/testing.md` names the new coverage in its checkpoint
-  paragraph.
-- `addon/blender_manifest.toml` and `README.md`: version `1.3.0`, so the
-  extension version matches the API minor it publishes. Those two files are the
-  only ones naming a version; `EXTENSION_VERSION` derives from the manifest and
-  `tests/unit/test_readme_contract.py` derives README's from it too, which is
-  why the unit suite passing untouched after the bump is the proof no third
-  file carries it.
+Private-reference smoke, performance benchmarks, and installed interactive
+material-workflow checks were not required because this branch changes no
+resolver, rasterizer, classifier, cache, Preview, Apply, or preservation
+behavior.
 
-Validation actually performed on this branch (2026-08-08, Blender 5.2.0 LTS,
-bundled Python 3.13.13):
+## Review status
 
-- 111 unit tests passed (`tests/unit`), up from the 103 recorded on
-  `chore/release-1.2.0`.
-- The headless Blender suite exited 0, ending
-  `ALPHA_MATERIAL_SEPARATOR_BLENDER_TESTS_OK`, including the new
-  `ALPHA_MATERIAL_SEPARATOR_PUBLISHED_WORKFLOW_TESTS_OK` marker.
-- `extension validate addon` succeeded.
-- A cleared `.packaged-releases` produced exactly one archive,
-  `alpha_material_separator-1.3.0.zip` at 72,581 bytes (up from 69,608 on
-  `chore/release-1.2.0`, consistent with the added workflow surface), which
-  validated by its discovered path. Its embedded manifest reads
-  `version = "1.3.0"`.
-- `git diff main...HEAD --check` and the final `git diff --check` reported no
-  whitespace errors.
-- `git diff main...HEAD --stat` was reviewed; the `default_planned_action`
-  defect, manual alpha source usability, and the two missing PEP 8 blank lines
-  in `runtime.py` do not appear anywhere in the diff outside prose describing
-  them as explicitly out of scope.
-- `tests/blender/run_benchmarks.py` ran twice in the same session on the same
-  machine — this branch, then `main` in a throwaway worktree — each doing its
-  own discarded warm-up plus five measured runs. All 29 timed fields were
-  compared. The worst movement was `+17.5%` on
-  `analysis.large_tiled_uv.coverage_reuse_seconds`, inside the 25 percent gate,
-  and the spread is symmetric: `analysis.high.cold_seconds_median_5` fell 8.7
-  percent and `digest.8192.prefix_build_seconds` fell 27.3 percent on the same
-  pair. That two-sided spread across ~25-minute runs is machine noise.
-  **This measures nothing about the changed path.** `run_benchmarks.py` imports
-  `addon.runtime`, the analysis adapters, `build_assignment_plan`, and
-  `review_signature`; it does not import `addon/workflow.py` or
-  `addon/panel.py`, so no benchmarked case builds a snapshot or reads
-  `workflow_json`. The run is evidence that the branch did not disturb the
-  analysis and digest paths, not evidence about redraw cost. The `ponytail:`
-  memoization note in `addon/workflow.py` therefore stays un-triggered and
-  un-refuted; deciding it needs an interactive redraw measurement that does not
-  exist yet.
+The complete branch diff was reviewed locally for job count and ordering,
+action allowlisting, exact pinning, permissions, environment guards, token
+scope, subject path, stored digest flow, unchanged validation jobs/triggers,
+version scope, and accidental generated output. Independent review reported no
+Critical or Important findings. It raised two Minor hardening opportunities:
+avoid direct interpolation of validated draft outputs into PowerShell and make
+the `GH_TOKEN` contract prove exact native-`gh` step scope. Both were addressed
+test-first in `8c21bfd` and the complete workflow contract module then passed.
 
-Not run, and not claimable: installed-ZIP interactive acceptance of the
-external Cats-Blender-Plugin Overdraw Prevention panel gating correctly
-against a real installed build — this is the one item the design's own testing
-section names as user-performed and un-drivable by an agent. The private
-`.local-references/` before/after smoke was also not run; it is not required
-here because this change does not alter material resolution, rasterization,
-classification, cache validity, preview plans, assignment plans, or mutation
-safety — it publishes state those paths already compute.
+## Hosted checks still pending
 
-## Completed: `chore/release-1.2.0`
+Pull-request validation can prove that the workflow parses and that the stable
+Windows, Linux, and macOS jobs remain green, but it cannot exercise the guarded
+manual release jobs.
 
-Merged as [#13](https://github.com/Alrauna/blender-alpha-material-separator/pull/13)
-at `e696c4e`. Three commits, rebased onto `main` at `504027c` after
-[#12](https://github.com/Alrauna/blender-alpha-material-separator/pull/12)
-merged. The branch was not stacked. Three separate objectives rode there by
-explicit user decision rather than because they belong together:
+The first separately authorized manual 1.3.1 dispatch must confirm:
 
-- **The 1.2.0 bump** is `addon/blender_manifest.toml` and `README.md` only,
-  which is the release process the manifest-derived `EXTENSION_VERSION` bought
-  in 1.1.1. The unit suite passing untouched after the bump is the proof that no
-  third file carries the version.
-- **The AGENTS.md policy expansion** adds a Testing and CI Requirements section
-  and rewrites the Git policy around branch scope, stacked-PR avoidance, and a
-  branch completion and handoff procedure.
-- **`step=1` on the two Expert float settings.** Alpha Threshold and Minimum
-  Affected Fraction inherited Blender's default drag step of 3, which moves a
-  precision-4 setting 0.03 at a time. Blender's step unit is 1/100, so `step=1`
-  gives 0.01 increments. The integer settings already stepped by 1.
+- a job whose `GITHUB_TOKEN` has only `contents: read` can download the private
+  draft-release asset;
+- whether `release_draft` and `release_publish` referencing the protected
+  `release` environment require one approval or two;
+- the pinned action creates provenance for the exact downloaded ZIP;
+- failed attestation leaves the release as a draft;
+- after publication, the downloaded asset passes the version-neutral
+  `gh attestation verify` command documented in `docs/testing.md`.
 
-**That 1.2.0 version number never shipped.** `fix/stale-analysis-privacy`
-carried the manifest to `1.3.0` so the extension version matches the `API 1.3`
-surface it publishes, which is the minor bump `RESULT_STALE` should have had.
-Nothing was released in between, so 1.2.x does not exist as a published
-extension version and no consumer can observe the gap. The release sequence is
-1.0.0, 1.1.0, 1.1.1, then 1.3.0.
+If read-only draft access fails, return to design review. Do not move the action
+into a `contents: write` job or add a long-lived release token as an unreviewed
+workaround.
 
-## State
+## Next action
 
-`main` is at `e696c4e`, which merged
-[#13](https://github.com/Alrauna/blender-alpha-material-separator/pull/13).
-Before that it was at `504027c`, which merged
-[#12](https://github.com/Alrauna/blender-alpha-material-separator/pull/12): the
-six integration-contract defects a reviewer found while integrating CATS.
-`API_VERSION` stayed `(1, 2)` and the manifest was untouched, because every
-change either corrected a payload that already contradicted documented 1.2
-behavior or added a status code. `feat/api-fixes-1.2` is merged and deleted on
-GitHub; the local branch still exists and can be pruned.
-
-The newest published GitHub release is `v1.1.1`, tagged at `042a084`, carrying
-`alpha_material_separator-1.1.1.zip` and `SHA256SUMS.txt`. **1.3.0 is not
-released**, and 1.2.0 never will be. `addon/` has changed since `v1.1.1`, so the
-published artifact is no longer byte-identical to the tree.
-
-Earlier releases: `v1.1.0` from `098f13c`, `v1.0.0`. The 1.1.0 behavior work
-landed in
-[#4](https://github.com/Alrauna/blender-alpha-material-separator/pull/4):
-below-significance faces default to `KEEP_SOURCE` instead of cancelling their
-whole material group, the seven Expert analysis tooltips are written for
-artists, the panel has a Reset to Default Values button, and Minimum Affected
-Pixels no longer offers a value that does nothing. The 1.1.1 credits panel and
-manifest-derived version landed in
-[#11](https://github.com/Alrauna/blender-alpha-material-separator/pull/11).
-
-## Important decisions and constraints
-
-- Adding a status code has a panel obligation. `_draw_status_problem` in
-  `addon/panel.py` holds a closed-world `normal` set of codes that are *not*
-  problems and renders anything else as a red alert box with
-  `presentation.guidance_for`'s unknown-code default. `RESULT_STALE` was absent
-  from both, so nudging any Expert setting drew **"This input needs review"**
-  directly above the correct **"Inputs Changed — Analyze Again"** copy.
-  **Any future status code must be added to that set or to `_GUIDANCE`**, and
-  nothing yet couples the two automatically. A panel-drawing regression test
-  asserts both halves, so suppressing all feedback fails too.
-- `EXTENSION_VERSION` in `addon/api_contract.py` is derived from
-  `addon/blender_manifest.toml` as of 1.1.1, so a release edits the manifest and
-  `README.md` only. `tests/unit/test_api_contract.py` cross-checks the two,
-  which is what caught the hand-edited mismatch during the 1.1.0 bump.
-- `README.md` is the only document that names a version, and
-  `tests/unit/test_readme_contract.py` derives that version from the manifest.
-  Keep other documents version-neutral rather than bumping them each release.
-- `reset_analysis_settings` stays out of `PUBLIC_OPERATOR_IDS`: it is
-  `INTERNAL`, and promoting it would create a contract obligation that does not
-  exist today.
-- The TLS autofix in `quad9_addresses` stays as it is, with no retroactive
-  regression test, by explicit user decision. Revisit only when further CI/CD
-  work is required.
-- The GitHub Advanced Security "Code scanning AI findings" run fails on every
-  pull request with `400 The requested model is not supported`. It is a
-  GitHub-side model availability problem inside Copilot Autofix, it fails before
-  analyzing anything, and it is not a required check. Ignore it; do not change
-  code to satisfy it.
-- Do not push, merge, tag, release, or change repository settings without
-  explicit approval.
-
-## Validation commands and results
-
-Run on 2026-08-07 with Blender 5.2.0 LTS and its bundled Python 3.13.13, on
-`chore/release-1.2.0` after the rebase onto `504027c`:
-
-- 103 unit tests passed.
-- The headless Blender suite exited 0, ending
-  `ALPHA_MATERIAL_SEPARATOR_BLENDER_TESTS_OK`.
-- `extension validate addon` succeeded.
-- A cleared `.packaged-releases` produced exactly one archive,
-  `alpha_material_separator-1.2.0.zip` at 69,608 bytes, which validated.
-- `git diff --check` reported no whitespace errors.
-
-Both required CI checks passed on
-[#12](https://github.com/Alrauna/blender-alpha-material-separator/pull/12)
-before merge: `CI / Windows — Blender 5.2` and `CI / Linux — Blender 5.2`.
-
-The benchmark suite was not run on this branch; nothing here changes performance
-behavior. The private `.local-references/default-example/` smoke is deliberately
-**not** required either: no change on this branch touches material resolution,
-rasterization, classification, cache validity, preview plans, assignment plans,
-or mutation safety. `step=1` changes only how far a drag moves a slider.
-
-Run on 2026-08-05 with the same toolchain, on then-current `main` content: 95
-unit tests, the full headless suite, source validation, a single validating
-archive, and a benchmark run of more than ten minutes that wrote
-`.test-output/benchmarks/baseline.json`. That directory is ignored, so the
-baseline does not survive into another session.
-
-The private `.local-references/default-example/` acceptance was run with the
-ignored helper in that directory, against both the 1.1.0 branch and the
-pre-change `main`. Both runs succeeded and produced an identical aggregate
-result, which is the expected outcome: the default `min_affected_texels` of 1
-never suppresses a face, so the `KEEP_SOURCE` default has nothing to act on
-until a significance gate is deliberately raised. Faces whose UVs fall outside
-the base tile were analyzed rather than rejected. Aggregate counts, raw output,
-and identifying detail are deliberately not recorded here.
-
-## Known warnings and unverified assumptions
-
-- No known failures.
-- The panel-override count test proves that dropping the override collection
-  entirely is caught. It holds one override at a time, so it does not prove that
-  dropping one material out of several would be caught. Closing that gap needs a
-  second override-needing material and new fixtures.
-- The cancel-path ordering test captures the live operator instance by
-  monkeypatching `execute()`, because `bpy.types.Operator` subclasses cannot be
-  instantiated directly in Blender 5.2. It asserts that background-mode dispatch
-  really goes through the patch and resets `is_analyzing` if not, but an orphaned
-  timer and modal handler would remain in that case; no public Blender API
-  reclaims them. The test fails loudly rather than silently, and the assumption
-  held on every run.
-- `RESULT_STALE`'s companion test — that a clean result keeps its success status
-  — passes with the production change reverted. It is an over-firing guard, not
-  evidence for the fix.
-- `step=1` has no automated coverage. It is a Blender UI presentation argument
-  with no observable effect outside interactive dragging, so the check is the
-  interactive one below.
-- A large share of faces in the private example report `UNSUPPORTED`. That share
-  was identical before and after the 1.1.0 change, so it is not a regression,
-  but it is unexplained and worth a separate investigation into whether those
-  materials are genuinely unresolvable or the resolver has a gap.
-- `PLAN.md` at the repository root is the completed 1.0 release plan. AGENTS.md
-  says a milestone's plan is deleted once that milestone is complete, so this
-  file is drift; git history retains it. Removing it is not on this branch.
-- Expected local output includes LF-to-CRLF Git notices.
-
-## Remaining tasks
-
-Finish the installed-ZIP interactive acceptance. The user installed
-`alpha_material_separator-1.1.0.zip`, restarted Blender, exercised the rewritten
-Expert analysis tooltips on hover, and reported that the build feels good to
-use. Still unconfirmed in an installed build:
-
-- Analyze → Preview → Tab to Object Mode → Apply without a second analysis.
-- A below-significance face reporting under `Faces kept by policy` rather than
-  blocking its material group.
-- Reset to Default Values against an existing analysis reporting that inputs
-  changed.
-- Minimum Affected Pixels refusing to go below 1, with 2 still filtering.
-- Alpha Threshold and Minimum Affected Fraction dragging in 0.01 steps.
-
-The 1.1.1 credits panel is confirmed in an installed build: it appears above
-Alpha Material Separator, and version, maintainer, and the issue-tracker button
-all read correctly.
-
-## Follow-up work, not started
-
-**An integer 0–255 Alpha Threshold** was proposed and dropped without design
-work. Worth recording why it is not obvious: the shipped default already does
-what it was meant to do. A texel is affected when `alpha < threshold`, and at
-0.999 every 8-bit alpha except 255 is affected, so "needs alpha at all" is
-already the default behavior. The change would be presentation plus precision,
-not classification, and it would put a public `FloatProperty` on the `analyze`
-operator at risk of a type change — which is an `API_VERSION` question, not a UI
-question. Revisit with a spec, or not at all.
-
-**Manual alpha source usability** remains the one objective from 1.1.1 testing
-still unstarted. The Image field is a real image-ID selector, but the flow
-dead-ends. An override carrying a material and no image resolves through the
-automatic path that already failed, so `Set Manual Alpha Source` followed by
-Analyze reports the identical failure; the field that must be filled lives in a
-`DEFAULT_CLOSED` child panel the button does not open; adding the override marks
-the report stale, so the Material Details list the user clicked from is replaced
-by **Inputs Changed**; there is no way to load an image from disk; and
-`uv_map_name` is free text where a typo makes the whole material unsupported.
-Candidate fixes, smallest first: treat an image-less override as incomplete
-through the existing `invalid_overrides` path, use `template_ID` with
-`open="image.open"`, `prop_search` the UV name against the active object's
-layers, and drop or grey overrides whose material left the selection instead of
-raising `OVERRIDE_TARGET_NOT_SELECTED`. Drawing the override editor inline in
-Material Details is the real fix and needs its own spec.
-
-**`report_json`'s `default_planned_action` is stale relative to shipped
-defaults.** Found while investigating the integration API on 2026-08-08.
-`AnalysisReport.public_payload` returns `SKIP_GROUP` for any group holding
-`SUPPRESSED` faces, but the shipped `suppressed_policy` has been `KEEP_SOURCE`
-since 1.1.0, which produces `PARTIAL_MOVE_KEEP_POLICY`. It is the only
-plan-shaped data a consumer receives after analyze, and it misreports. Needs its
-own reproduction and branch; deliberately excluded from the workflow-surface
-work.
-
-**`can_analyze` carries one term less than the Analyze button.** The final
-whole-branch review found it: `addon/panel.py:288` ANDs `view["can_analyze"]`
-with `not invalid_overrides`, and override validity is not in the snapshot, so
-a consumer whose user configured an incomplete or duplicated manual alpha
-source sees `can_analyze: true` against a greyed button. The call then fails
-with `INVALID_MATERIAL_OVERRIDES` or `DUPLICATE_MATERIAL_OVERRIDE` — reported,
-not silent. `docs/integration-api.md` now states the exception rather than
-claiming an exactness the code does not honor. Folding the term into
-`workflow.snapshot` is the real fix, changes a published field, and therefore
-needs design approval; it is naturally paired with the manual alpha source work
-below, which touches the same `material_overrides` validity.
-
-Three code minors from that review stay deferred, all with a stated reason they
-are unreachable today: `addon/properties.py:38` puts the lazy
-`from . import api_contract, workflow` outside the `try`, so an import failure
-would escape a getter documented as total (unreachable — `addon/panel.py:6`
-imports `workflow` at module scope, so registration fails first);
-`addon/api_contract.py:199` sets `severity` before `payload.update(details)`,
-so a future caller passing `severity=` as a detail would silently override it
-(no caller does); and `addon/panel.py:640` builds a second plan unguarded by
-staleness and unwrapped by a `try`, which is pre-existing from `main` and was
-only renamed by this branch.
-
-Two smaller items stay deferred: the two missing PEP 8 blank lines at
-`addon/runtime.py:328-329`, and `docs/integration-api.md` gaining a worked
-example of reading `last_status_code` and `validation_state` together. The
-second was expected to fold into the workflow-surface branch and did not —
-that branch's `## Workflow state` section publishes both values inside one
-snapshot, which removes most of the reason to read them separately, but no
-worked example of the pairing was written. Add it, or close it as superseded.
-
-## Recommended next action
-
-Review draft pull request #15. Its implementation and post-cleanup checks pass,
-and the branch is complete for its stated CI objective; do not add adjacent CI
-cleanup or branch-protection changes. Making `CI / macOS — Blender 5.2` a
-required merge check remains a separate repository-setting decision requiring
-explicit approval.
-
-The 1.3.0 release gate is still outstanding and independent: clean-ZIP install,
-save/reopen, FBX material assignment, performance baselines, the interactive UI
-checklist above, and Unity material/submesh validation, then publication through
-the protected manual job.
+The branch is ready for final review and pull-request preparation. Pushing or
+opening a draft pull request requires separate user authorization. The guarded
+manual release and hosted checks remain future, separately authorized work.

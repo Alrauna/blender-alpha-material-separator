@@ -10,6 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 CHECKOUT_SHA = "3d3c42e5aac5ba805825da76410c181273ba90b1"
+ATTEST_SHA = "1e69f48acb82d1966a394da916b4c1698aa569d6"
 
 
 class CiWorkflowContractTests(unittest.TestCase):
@@ -46,7 +47,8 @@ class CiWorkflowContractTests(unittest.TestCase):
         action_uses = re.findall(r"^\s*uses:\s*(\S+)", self.text, re.MULTILINE)
         self.assertEqual(
             action_uses,
-            [f"actions/checkout@{CHECKOUT_SHA}"] * 2,
+            [f"actions/checkout@{CHECKOUT_SHA}"] * 2
+            + [f"actions/attest@{ATTEST_SHA}"],
         )
         for forbidden in (
             "actions/cache",
@@ -58,6 +60,70 @@ class CiWorkflowContractTests(unittest.TestCase):
             "secrets.",
         ):
             self.assertNotIn(forbidden, self.text)
+
+    def test_release_attestation_is_isolated_from_content_writes(self) -> None:
+        for marker in (
+            "\n  release_draft:\n",
+            "\n  release_attestation:\n",
+            "\n  release_publish:\n",
+        ):
+            self.assertIn(marker, self.text)
+
+        draft = self.text.split("\n  release_draft:\n", 1)[1].split(
+            "\n  release_attestation:\n", 1
+        )[0]
+        attestation = self.text.split(
+            "\n  release_attestation:\n", 1
+        )[1].split("\n  release_publish:\n", 1)[0]
+        publish = self.text.split("\n  release_publish:\n", 1)[1]
+
+        self.assertIn("environment: release", draft)
+        self.assertIn("permissions:\n      contents: write", draft)
+        self.assertNotIn("uses:", draft)
+        self.assertEqual(
+            re.findall(
+                r"^\s{4}permissions:\n(?:^\s{6}.+\n?)+",
+                attestation,
+                re.MULTILINE,
+            ),
+            [
+                "    permissions:\n"
+                "      contents: read\n"
+                "      id-token: write\n"
+                "      attestations: write\n"
+            ],
+        )
+        self.assertNotIn("contents: write", attestation)
+        self.assertIn(f"actions/attest@{ATTEST_SHA}", attestation)
+        self.assertIn("environment: release", publish)
+        self.assertIn("permissions:\n      contents: write", publish)
+        self.assertNotIn("uses:", publish)
+
+    def test_stored_zip_is_verified_attested_then_published(self) -> None:
+        expected_subject = (
+            "subject-path: '${{ runner.temp }}/downloaded-release/"
+            "${{ needs.release_draft.outputs.archive_name }}'"
+        )
+        for text in (
+            "Get-FileHash -LiteralPath $Archive -Algorithm SHA256",
+            "$Actual -ne $env:EXPECTED_SHA256",
+            expected_subject,
+        ):
+            self.assertIn(text, self.text)
+
+        positions = [
+            self.text.index("gh release create"),
+            self.text.index("gh release upload"),
+            self.text.index("gh release download"),
+            self.text.index("scripts/ci.py verify-file"),
+            self.text.index(
+                "Get-FileHash -LiteralPath $Archive -Algorithm SHA256"
+            ),
+            self.text.index(f"actions/attest@{ATTEST_SHA}"),
+            self.text.index("gh release edit"),
+        ]
+        self.assertEqual(positions, sorted(positions))
+        self.assertEqual(self.text.count("subject-path:"), 1)
 
     def test_validation_runs_the_complete_project_gate(self) -> None:
         for text in (
@@ -82,23 +148,41 @@ class CiWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("matrix.platform != 'macos'", validate)
 
     def test_release_is_manual_main_public_and_environment_gated(self) -> None:
-        for text in (
+        draft = self.text.split("\n  release_draft:\n", 1)[1].split(
+            "\n  release_attestation:\n", 1
+        )[0]
+        attestation = self.text.split(
+            "\n  release_attestation:\n", 1
+        )[1].split("\n  release_publish:\n", 1)[0]
+        publish = self.text.split("\n  release_publish:\n", 1)[1]
+        guards = (
             "github.event_name == 'workflow_dispatch'",
             "github.ref == 'refs/heads/main'",
             "github.event.repository.visibility == 'public'",
-            "needs: [validate, release_gate]",
-            "environment: release",
-            "contents: write",
-        ):
-            self.assertIn(text, self.text)
+        )
+        for section in (draft, attestation, publish):
+            for text in guards:
+                self.assertIn(text, section)
+        self.assertIn("needs: [validate, release_gate]", draft)
+        self.assertIn("needs: [release_draft]", attestation)
+        self.assertIn(
+            "needs: [release_draft, release_attestation]", publish
+        )
+        for section in (draft, publish):
+            self.assertIn("environment: release", section)
+            self.assertIn("contents: write", section)
 
-    def test_release_job_fetches_exact_public_sha_without_credentials(self) -> None:
-        release = self.text.split("\n  release:\n", 1)[1]
-        source_step = release.split(
+    def test_release_draft_fetches_exact_public_sha_without_credentials(
+        self,
+    ) -> None:
+        draft = self.text.split("\n  release_draft:\n", 1)[1].split(
+            "\n  release_attestation:\n", 1
+        )[0]
+        source_step = draft.split(
             "\n      - name: Refuse an existing tag or release",
             1,
         )[0]
-        self.assertNotIn("uses:", release)
+        self.assertNotIn("uses:", draft)
         self.assertIn(
             "SOURCE_REPOSITORY: https://github.com/${{ github.repository }}.git",
             source_step,
@@ -125,12 +209,39 @@ class CiWorkflowContractTests(unittest.TestCase):
         release_gate = self.text.split(
             "\n  release_gate:\n",
             1,
-        )[1].split("\n  release:\n", 1)[0]
+        )[1].split("\n  release_draft:\n", 1)[0]
         self.assertIn("github.ref == 'refs/heads/main'", release_gate)
         self.assertIn(
             "github.event.repository.visibility == 'public'",
             release_gate,
         )
+        for text in (
+            "RELEASE_TAG: ${{ needs.release_draft.outputs.tag }}",
+            "ARCHIVE_NAME: ${{ needs.release_draft.outputs.archive_name }}",
+            "EXPECTED_SHA256: ${{ needs.release_draft.outputs.sha256 }}",
+            "gh release download $env:RELEASE_TAG",
+            "gh release edit $env:RELEASE_TAG --draft=false",
+        ):
+            self.assertIn(text, self.text)
+
+    def test_draft_outputs_enter_shell_through_step_environment(self) -> None:
+        draft = self.text.split("\n  release_draft:\n", 1)[1].split(
+            "\n  release_attestation:\n", 1
+        )[0]
+        for step in draft.split("\n      - name: ")[1:]:
+            if "\n        run:" in step:
+                run_source = step.split("\n        run:", 1)[1]
+                self.assertNotIn("${{ steps.release.outputs.", run_source)
+        for text in (
+            "RELEASE_TAG: ${{ steps.release.outputs.tag }}",
+            "ARCHIVE_NAME: ${{ steps.release.outputs.archive_name }}",
+            "EXPECTED_SHA256: ${{ steps.release.outputs.sha256 }}",
+            "gh release create $env:RELEASE_TAG",
+            "gh release upload $env:RELEASE_TAG",
+            "gh release download $env:RELEASE_TAG",
+            "--expected-sha256 $env:EXPECTED_SHA256",
+        ):
+            self.assertIn(text, draft)
 
     def test_validation_discovers_exactly_one_versioned_zip(self) -> None:
         validate = self.text.split("\n  release_gate:\n", 1)[0]
@@ -153,12 +264,16 @@ class CiWorkflowContractTests(unittest.TestCase):
                     step.index("--command extension build"),
                 )
 
-    def test_release_is_draft_first_and_rehashes_downloaded_asset(self) -> None:
+    def test_release_is_draft_first_rehashes_attests_and_publishes(self) -> None:
         positions = [
             self.text.index("gh release create"),
             self.text.index("gh release upload"),
             self.text.index("gh release download"),
             self.text.index("scripts/ci.py verify-file"),
+            self.text.index(
+                "Get-FileHash -LiteralPath $Archive -Algorithm SHA256"
+            ),
+            self.text.index(f"actions/attest@{ATTEST_SHA}"),
             self.text.index("gh release edit"),
         ]
         self.assertEqual(positions, sorted(positions))
@@ -168,15 +283,41 @@ class CiWorkflowContractTests(unittest.TestCase):
         self.assertIn("gh api graphql", self.text)
         self.assertNotIn("gh release view", self.text)
 
-    def test_write_token_is_scoped_to_release_and_gh_steps(self) -> None:
-        release_section = self.text.split("\n  release:\n", 1)[1]
-        self.assertEqual(self.text.count("contents: write"), 1)
-        self.assertIn("permissions:\n      contents: write", release_section)
-        self.assertNotIn("GH_TOKEN:", self.text.split("\n  release:\n", 1)[0])
-        self.assertEqual(release_section.count("GH_TOKEN:"), 5)
-        for line in release_section.splitlines():
+    def test_tokens_and_permissions_are_scoped_to_release_steps(self) -> None:
+        before_draft, after_draft = self.text.split(
+            "\n  release_draft:\n", 1
+        )
+        draft, after_attestation = after_draft.split(
+            "\n  release_attestation:\n", 1
+        )
+        attestation, publish = after_attestation.split(
+            "\n  release_publish:\n", 1
+        )
+        self.assertEqual(self.text.count("contents: write"), 2)
+        for section in (draft, publish):
+            self.assertIn("permissions:\n      contents: write", section)
+        self.assertNotIn("contents: write", attestation)
+        self.assertIn("permissions:\n      contents: read", attestation)
+        self.assertIn("id-token: write", attestation)
+        self.assertIn("attestations: write", attestation)
+        self.assertNotIn("GH_TOKEN:", before_draft)
+        self.assertEqual(draft.count("GH_TOKEN:"), 4)
+        self.assertEqual(attestation.count("GH_TOKEN:"), 1)
+        self.assertEqual(publish.count("GH_TOKEN:"), 1)
+        for line in self.text.splitlines():
             if "GH_TOKEN:" in line:
                 self.assertIn("${{ github.token }}", line)
+        token_steps = [
+            step
+            for step in self.text.split("\n      - name: ")[1:]
+            if "GH_TOKEN:" in step
+        ]
+        self.assertEqual(len(token_steps), 6)
+        for step in token_steps:
+            self.assertEqual(step.count("GH_TOKEN:"), 1)
+            self.assertIn("\n        run:", step)
+            self.assertIn("gh ", step.split("\n        run:", 1)[1])
+            self.assertNotIn("\n        uses:", step)
 
     def test_release_input_is_never_interpolated_into_shell_source(self) -> None:
         expression = "${{ inputs.version }}"
@@ -207,6 +348,18 @@ class CiWorkflowContractTests(unittest.TestCase):
             "Quad9",
             "SHA256SUMS.txt",
             "performance threshold",
+        ):
+            self.assertIn(text, testing)
+        for text in (
+            "actions/attest",
+            "1e69f48acb82d1966a394da916b4c1698aa569d6",
+            "gh attestation verify",
+            "release_draft",
+            "release_attestation",
+            "release_publish",
+            "contents: read",
+            "id-token: write",
+            "attestations: write",
         ):
             self.assertIn(text, testing)
         for text in (

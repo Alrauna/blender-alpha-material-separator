@@ -118,8 +118,8 @@ jobs:
           --version $env:RELEASE_VERSION
           --manifest addon/blender_manifest.toml
 
-  release:
-    name: Publish immutable release
+  release_draft:
+    name: Prepare immutable release draft
     if: >-
       github.event_name == 'workflow_dispatch' &&
       github.ref == 'refs/heads/main' &&
@@ -130,6 +130,11 @@ jobs:
     environment: release
     permissions:
       contents: write
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      tag: ${{ steps.release.outputs.tag }}
+      archive_name: ${{ steps.release.outputs.archive_name }}
+      sha256: ${{ steps.release.outputs.sha256 }}
     env:
       RELEASE_VERSION: ${{ inputs.version }}
     steps:
@@ -204,6 +209,7 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
         run: |
           $Owner, $Name = $env:GITHUB_REPOSITORY.Split('/', 2)
           $Query = @'
@@ -214,7 +220,7 @@ jobs:
             }
           }
           '@
-          $Tag = '${{ steps.release.outputs.tag }}'
+          $Tag = $env:RELEASE_TAG
           $State = gh api graphql -f query=$Query `
             -f owner=$Owner -f name=$Name -f ref="refs/tags/$Tag" -f tag=$Tag |
             ConvertFrom-Json
@@ -232,41 +238,106 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
         run: >-
-          gh release create '${{ steps.release.outputs.tag }}'
+          gh release create $env:RELEASE_TAG
           --draft --generate-notes
-          --title '${{ steps.release.outputs.tag }}'
+          --title $env:RELEASE_TAG
           --target '${{ github.sha }}'
 
       - name: Upload release assets
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          ARCHIVE_NAME: ${{ steps.release.outputs.archive_name }}
         run: >-
-          gh release upload '${{ steps.release.outputs.tag }}'
-          '${{ runner.temp }}/release/${{ steps.release.outputs.archive_name }}'
+          gh release upload $env:RELEASE_TAG
+          "${{ runner.temp }}/release/$env:ARCHIVE_NAME"
           '${{ runner.temp }}/release/SHA256SUMS.txt'
 
       - name: Download stored ZIP
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          ARCHIVE_NAME: ${{ steps.release.outputs.archive_name }}
         run: |
           New-Item -ItemType Directory '${{ runner.temp }}/downloaded-release'
-          gh release download '${{ steps.release.outputs.tag }}' `
-            --pattern '${{ steps.release.outputs.archive_name }}' `
+          gh release download $env:RELEASE_TAG `
+            --pattern $env:ARCHIVE_NAME `
             --dir '${{ runner.temp }}/downloaded-release'
 
       - name: Verify stored ZIP hash
         shell: pwsh
+        env:
+          ARCHIVE_NAME: ${{ steps.release.outputs.archive_name }}
+          EXPECTED_SHA256: ${{ steps.release.outputs.sha256 }}
         run: >-
           python scripts/ci.py verify-file
-          --file '${{ runner.temp }}/downloaded-release/${{ steps.release.outputs.archive_name }}'
-          --expected-sha256 '${{ steps.release.outputs.sha256 }}'
+          --file "${{ runner.temp }}/downloaded-release/$env:ARCHIVE_NAME"
+          --expected-sha256 $env:EXPECTED_SHA256
 
-      - name: Publish verified draft
+  release_attestation:
+    name: Attest stored release ZIP
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' &&
+      github.event.repository.visibility == 'public'
+    needs: [release_draft]
+    runs-on: windows-2025
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    env:
+      RELEASE_TAG: ${{ needs.release_draft.outputs.tag }}
+      ARCHIVE_NAME: ${{ needs.release_draft.outputs.archive_name }}
+      EXPECTED_SHA256: ${{ needs.release_draft.outputs.sha256 }}
+    steps:
+      - name: Download and verify stored ZIP
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-        run: >-
-          gh release edit '${{ steps.release.outputs.tag }}' --draft=false
+        run: |
+          $DownloadDirectory = '${{ runner.temp }}/downloaded-release'
+          New-Item -ItemType Directory -Path $DownloadDirectory | Out-Null
+          gh release download $env:RELEASE_TAG `
+            --pattern $env:ARCHIVE_NAME `
+            --dir $DownloadDirectory
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Could not download the draft release ZIP for attestation.'
+          }
+          $Archive = Join-Path $DownloadDirectory $env:ARCHIVE_NAME
+          $Actual = (Get-FileHash -LiteralPath $Archive -Algorithm SHA256).Hash
+          $Actual = $Actual.ToLowerInvariant()
+          if ($Actual -ne $env:EXPECTED_SHA256) {
+            throw 'Draft release ZIP does not match the verified build digest.'
+          }
+
+      - name: Attest stored extension ZIP
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: '${{ runner.temp }}/downloaded-release/${{ needs.release_draft.outputs.archive_name }}'
+
+  release_publish:
+    name: Publish attested release
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' &&
+      github.event.repository.visibility == 'public'
+    needs: [release_draft, release_attestation]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: release
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ needs.release_draft.outputs.tag }}
+    steps:
+      - name: Publish verified and attested draft
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit $env:RELEASE_TAG --draft=false
