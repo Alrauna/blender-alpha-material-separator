@@ -321,6 +321,18 @@ class CiWorkflowContractTests(unittest.TestCase):
         ):
             self.assertIn(text, testing)
         for text in (
+            "actions/attest",
+            "1e69f48acb82d1966a394da916b4c1698aa569d6",
+            "gh attestation verify",
+            "release_draft",
+            "release_attestation",
+            "release_publish",
+            "contents: read",
+            "id-token: write",
+            "attestations: write",
+        ):
+            self.assertIn(text, testing)
+        for text in (
             "actions/checkout",
             "persist-credentials: false",
             "contents: read",

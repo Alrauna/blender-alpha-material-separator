@@ -87,13 +87,35 @@ wait for explicit approval after the hosted Apple Silicon job is confirmed.
 
 Manual dispatch requires a strict `X.Y.Z` version. Publication additionally
 requires `main`, a public repository, successful Windows, Linux, and macOS
-checks, and the protected `release` environment. The write-authorized job uses
-unauthenticated native Git to fetch and verify the exact `GITHUB_SHA`; no action
-or Git command receives the release token. It rebuilds a fresh ZIP, validates
-it, writes `SHA256SUMS.txt`, refuses an existing tag or release, creates a
-draft, uploads both assets, downloads the stored ZIP into a fresh directory,
-re-hashes it, and only then publishes. `GH_TOKEN` is exposed only to individual
-GitHub CLI steps; tests, Blender, Git, hashing, and packaging never receive it.
+validation, and the protected `release` environment. `release_draft` rebuilds
+from an unauthenticated exact-SHA fetch, creates a draft, uploads the ZIP and
+`SHA256SUMS.txt`, downloads the stored ZIP, and verifies its digest. It has
+`contents: write` and executes no action.
+
+`release_attestation` downloads and independently hashes that exact stored ZIP,
+then runs
+`actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6`
+(v4.2.2) with only `contents: read`, `id-token: write`, and
+`attestations: write`. `release_publish` has `contents: write`, executes no
+action, and publishes only after attestation succeeds. `GH_TOKEN` remains
+exposed only to individual GitHub CLI steps. A failed build, upload, download,
+digest check, or attestation leaves an unpublished draft.
+
+After downloading a published extension ZIP, discover exactly one AMS archive
+and verify that its digest and provenance are bound to this repository's
+release workflow:
+
+```powershell
+$Archives = @(Get-ChildItem -Filter 'alpha_material_separator-*.zip' -File)
+if ($Archives.Count -ne 1) { throw "Expected one AMS ZIP." }
+gh attestation verify $Archives[0].FullName `
+  --repo Alrauna/blender-alpha-material-separator
+```
+
+An attestation identifies the source workflow and artifact digest; it does not
+claim that the artifact is vulnerability-free. Live verification and read-only
+access to a draft asset remain pending until publication is separately
+authorized.
 
 GitHub-hosted runner timing is variable, so CI runs correctness benchmark
 contracts but does not enforce a hosted performance threshold. The repository's
