@@ -73,7 +73,14 @@ class CiWorkflowContractTests(unittest.TestCase):
         publish = self.text.split("\n  release_publish:\n", 1)[1]
 
         self.assertNotIn("environment: release", package)
-        self.assertIn("permissions:\n      contents: read", package)
+        self.assertEqual(
+            re.findall(
+                r"^\s{4}permissions:\n(?:^\s{6}.+\n?)+",
+                package,
+                re.MULTILINE,
+            ),
+            ["    permissions:\n      contents: read\n"],
+        )
         self.assertEqual(package.count("uses:"), 1)
         self.assertIn(
             f"actions/upload-artifact@{UPLOAD_ARTIFACT_SHA}", package
@@ -94,9 +101,17 @@ class CiWorkflowContractTests(unittest.TestCase):
         )
         self.assertNotIn("contents: write", attestation)
         self.assertIn("environment: release", publish)
-        self.assertIn(
-            "permissions:\n      actions: read\n      contents: write",
-            publish,
+        self.assertEqual(
+            re.findall(
+                r"^\s{4}permissions:\n(?:^\s{6}.+\n?)+",
+                publish,
+                re.MULTILINE,
+            ),
+            [
+                "    permissions:\n"
+                "      actions: read\n"
+                "      contents: write\n"
+            ],
         )
         self.assertNotIn("uses:", publish)
         self.assertEqual(self.text.count("contents: write"), 1)
@@ -150,6 +165,16 @@ class CiWorkflowContractTests(unittest.TestCase):
                 section,
             )
             self.assertIn("$Actual -ne $env:EXPECTED_SHA256", section)
+            self.assertIn("$Entries.Count -ne 2", section)
+            self.assertIn("$Unexpected.Count -ne 0", section)
+            self.assertIn(
+                "Test-Path -LiteralPath $Archive -PathType Leaf", section
+            )
+            self.assertIn(
+                "Test-Path -LiteralPath $ChecksumPath -PathType Leaf",
+                section,
+            )
+            self.assertIn("$ActualChecksum -ne $ExpectedChecksum", section)
             self.assertIn("SHA256SUMS.txt", section)
             self.assertIn("GH_TOKEN: ${{ github.token }}", section)
             self.assertNotIn("actions/download-artifact", section)
@@ -237,6 +262,21 @@ class CiWorkflowContractTests(unittest.TestCase):
         for section in (attestation, publish):
             self.assertNotIn("actions/checkout@", section)
             self.assertIn("--repo $env:GITHUB_REPOSITORY", section)
+        for command in (
+            "gh release create",
+            "gh release upload",
+            "gh release download",
+            "gh release edit",
+        ):
+            matching_steps = [
+                step
+                for step in publish.split("\n      - name: ")[1:]
+                if command in step
+            ]
+            self.assertEqual(len(matching_steps), 1, command)
+            self.assertIn(
+                "--repo $env:GITHUB_REPOSITORY", matching_steps[0]
+            )
 
     def test_stored_zip_is_verified_attested_then_published(self) -> None:
         expected_subject = (

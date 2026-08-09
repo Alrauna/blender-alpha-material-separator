@@ -97,7 +97,8 @@ once, writes `SHA256SUMS.txt`, and publishes both files as
 `ams-release-package`. The only added action is
 `actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a`
 (v7.0.1), configured with `retention-days: 1`, `compression-level: 0`, exact
-file paths, and failure when either file is absent.
+file paths, and failure when neither configured file exists. Both downstream
+consumers independently reject a partial or expanded file set.
 
 `release_attestation` has exactly `actions: read`, `contents: read`,
 `id-token: write`, and `attestations: write`. Its one token-bearing native step
