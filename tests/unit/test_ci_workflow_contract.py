@@ -99,12 +99,14 @@ class CiWorkflowContractTests(unittest.TestCase):
         self.assertIn("permissions:\n      contents: write", publish)
         self.assertNotIn("uses:", publish)
 
-    def test_attestation_download_selects_repository_without_checkout(self) -> None:
+    def test_no_checkout_release_commands_select_repository_explicitly(self) -> None:
         attestation = self.text.split(
             "\n  release_attestation:\n", 1
         )[1].split("\n  release_publish:\n", 1)[0]
-        self.assertNotIn("actions/checkout@", attestation)
-        self.assertIn("--repo $env:GITHUB_REPOSITORY", attestation)
+        publish = self.text.split("\n  release_publish:\n", 1)[1]
+        for section in (attestation, publish):
+            self.assertNotIn("actions/checkout@", section)
+            self.assertIn("--repo $env:GITHUB_REPOSITORY", section)
 
     def test_stored_zip_is_verified_attested_then_published(self) -> None:
         expected_subject = (
@@ -227,7 +229,9 @@ class CiWorkflowContractTests(unittest.TestCase):
             "ARCHIVE_NAME: ${{ needs.release_draft.outputs.archive_name }}",
             "EXPECTED_SHA256: ${{ needs.release_draft.outputs.sha256 }}",
             "gh release download $env:RELEASE_TAG",
-            "gh release edit $env:RELEASE_TAG --draft=false",
+            "gh release edit $env:RELEASE_TAG `",
+            "--repo $env:GITHUB_REPOSITORY `",
+            "--draft=false",
         ):
             self.assertIn(text, self.text)
 

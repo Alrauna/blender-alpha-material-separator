@@ -32,10 +32,25 @@ Add a workflow contract that isolates the `release_attestation` section and
 requires `--repo $env:GITHUB_REPOSITORY`. This reproduces the hosted failure as
 a deterministic source contract before the workflow edit.
 
+Independent review then found that `release_publish` is also intentionally a
+no-checkout job and its `gh release edit` command had the same implicit Git
+repository dependency. The user approved expanding this correction before
+another hosted run. Pass the same runner-provided repository identity there:
+
+```powershell
+gh release edit $env:RELEASE_TAG `
+  --repo $env:GITHUB_REPOSITORY `
+  --draft=false
+```
+
+The permanent contract must require explicit repository selection in both
+no-checkout release jobs so the failure cannot merely move from attestation to
+publication.
+
 ## Security and scope
 
-- Keep the attestation job without a checkout.
-- Keep its permissions exactly `contents: read`, `id-token: write`, and
+- Keep the attestation and publish jobs without a checkout.
+- Keep the attestation job's permissions exactly `contents: read`, `id-token: write`, and
   `attestations: write`.
 - Keep the existing full-SHA `actions/attest` pin and exact ZIP digest check.
 - Add no action, token, dependency, permission, trigger, or network source.
