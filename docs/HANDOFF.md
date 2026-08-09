@@ -10,10 +10,13 @@ replace the failed draft-release handoff with a short-lived workflow-artifact
 handoff so version 1.3.1 can be attested without giving release-write authority
 to the attestation action.
 
-The user approved the architecture in conversation. The written design is in
-`docs/superpowers/specs/2026-08-09-release-artifact-handoff-design.md`. No
-workflow implementation has begun; the next lifecycle gate is user review of
-that committed spec, followed by a test-first implementation plan.
+The user approved both the conversational architecture and the committed
+written design. The design is in
+`docs/superpowers/specs/2026-08-09-release-artifact-handoff-design.md`, and the
+test-first implementation plan is in
+`docs/superpowers/plans/2026-08-09-release-artifact-handoff.md`. No workflow
+implementation has begun; the next lifecycle gate is user review and approval
+of that plan.
 
 ## Hosted evidence and root cause
 
@@ -77,8 +80,12 @@ Do not increment to 1.3.2 for this release-infrastructure failure.
 ## Validation state
 
 The branch began from a clean `main`, and the unchanged baseline unit suite
-passed all 121 tests. The design checkpoint changes documentation only. Its
-placeholder/consistency review and `git diff --check` passed before commit.
+passed all 121 tests. Commit `22786ba` records the self-reviewed design
+checkpoint. The implementation plan maps exact RED/GREEN workflow contracts,
+two implementation/documentation commits, the correctness/security review,
+the complete local gate, and milestone closeout. Its spec-coverage,
+placeholder, naming-consistency, and `git diff --check` reviews passed before
+commit.
 
 Implementation must follow the approved design test-first. The final gate must
 include focused workflow contracts, the full unit suite, complete headless
@@ -89,6 +96,7 @@ release ZIP.
 
 ## Next action
 
-Ask the user to review the committed written design. If approved, invoke the
-writing-plans phase and prepare a detailed RED/GREEN implementation plan for
-separate approval. Do not edit the workflow before both gates are complete.
+Ask the user to review and approve the committed implementation plan. Execute
+it inline with `superpowers:executing-plans` by default; subagent-driven
+execution requires an explicit user request. Do not edit the workflow before
+plan approval.
