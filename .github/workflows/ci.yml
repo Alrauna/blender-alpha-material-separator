@@ -304,6 +304,7 @@ jobs:
           $DownloadDirectory = '${{ runner.temp }}/downloaded-release'
           New-Item -ItemType Directory -Path $DownloadDirectory | Out-Null
           gh release download $env:RELEASE_TAG `
+            --repo $env:GITHUB_REPOSITORY `
             --pattern $env:ARCHIVE_NAME `
             --dir $DownloadDirectory
           if ($LASTEXITCODE -ne 0) {

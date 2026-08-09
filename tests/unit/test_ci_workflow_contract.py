@@ -99,6 +99,13 @@ class CiWorkflowContractTests(unittest.TestCase):
         self.assertIn("permissions:\n      contents: write", publish)
         self.assertNotIn("uses:", publish)
 
+    def test_attestation_download_selects_repository_without_checkout(self) -> None:
+        attestation = self.text.split(
+            "\n  release_attestation:\n", 1
+        )[1].split("\n  release_publish:\n", 1)[0]
+        self.assertNotIn("actions/checkout@", attestation)
+        self.assertIn("--repo $env:GITHUB_REPOSITORY", attestation)
+
     def test_stored_zip_is_verified_attested_then_published(self) -> None:
         expected_subject = (
             "subject-path: '${{ runner.temp }}/downloaded-release/"
