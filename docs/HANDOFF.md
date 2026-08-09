@@ -21,8 +21,16 @@ The user approved the three-job security design in conversation:
 
 The written design is
 `docs/superpowers/specs/2026-08-09-release-artifact-attestation-design.md`.
-It is awaiting the user's written-spec review before a test-first
-implementation plan may be written. No CI or version file has been changed.
+The user approved it, and the test-first implementation plan is
+`docs/superpowers/plans/2026-08-09-release-artifact-attestation.md`. The plan is
+awaiting explicit user review before execution. No CI or version file has been
+changed.
+
+Plan self-review corrected one documentation inconsistency without changing the
+approved security architecture: permanent testing documentation will discover
+exactly one `alpha_material_separator-*.zip` for `gh attestation verify` rather
+than hardcoding 1.3.1. The manifest and README remain the only permanent
+version-bearing product files.
 
 ## Verified repository state
 
@@ -74,7 +82,7 @@ an unreviewed workaround.
 
 ## Next action
 
-The user should review the written design spec. After explicit spec approval,
-invoke the writing-plans workflow and create a test-first implementation plan
-under `docs/superpowers/plans/`. Do not edit the workflow, tests, manifest, or
-README before that approval and plan review.
+The user should review and explicitly approve the test-first implementation
+plan. After approval, invoke `superpowers:executing-plans` and execute it inline
+with its RED/GREEN checks and commit boundaries. Do not edit the workflow,
+tests, manifest, or README before plan approval.

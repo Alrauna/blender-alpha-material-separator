@@ -182,11 +182,13 @@ Only `addon/blender_manifest.toml` and `README.md` carry the extension release
 version. They change from 1.3.0 to 1.3.1. Existing derived-version tests remain
 the authority that no third file hardcodes the extension version.
 
-`docs/testing.md` will document the three-job release boundary and the online
-consumer verification command:
+`docs/testing.md` will document the three-job release boundary and a
+version-neutral online consumer verification command:
 
 ```powershell
-gh attestation verify alpha_material_separator-1.3.1.zip `
+$Archives = @(Get-ChildItem -Filter 'alpha_material_separator-*.zip' -File)
+if ($Archives.Count -ne 1) { throw "Expected one AMS ZIP." }
+gh attestation verify $Archives[0].FullName `
   --repo Alrauna/blender-alpha-material-separator
 ```
 
