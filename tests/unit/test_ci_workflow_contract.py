@@ -224,6 +224,25 @@ class CiWorkflowContractTests(unittest.TestCase):
         ):
             self.assertIn(text, self.text)
 
+    def test_draft_outputs_enter_shell_through_step_environment(self) -> None:
+        draft = self.text.split("\n  release_draft:\n", 1)[1].split(
+            "\n  release_attestation:\n", 1
+        )[0]
+        for step in draft.split("\n      - name: ")[1:]:
+            if "\n        run:" in step:
+                run_source = step.split("\n        run:", 1)[1]
+                self.assertNotIn("${{ steps.release.outputs.", run_source)
+        for text in (
+            "RELEASE_TAG: ${{ steps.release.outputs.tag }}",
+            "ARCHIVE_NAME: ${{ steps.release.outputs.archive_name }}",
+            "EXPECTED_SHA256: ${{ steps.release.outputs.sha256 }}",
+            "gh release create $env:RELEASE_TAG",
+            "gh release upload $env:RELEASE_TAG",
+            "gh release download $env:RELEASE_TAG",
+            "--expected-sha256 $env:EXPECTED_SHA256",
+        ):
+            self.assertIn(text, draft)
+
     def test_validation_discovers_exactly_one_versioned_zip(self) -> None:
         validate = self.text.split("\n  release_gate:\n", 1)[0]
         self.assertNotIn("alpha_material_separator-1.0.0.zip", validate)
@@ -288,6 +307,17 @@ class CiWorkflowContractTests(unittest.TestCase):
         for line in self.text.splitlines():
             if "GH_TOKEN:" in line:
                 self.assertIn("${{ github.token }}", line)
+        token_steps = [
+            step
+            for step in self.text.split("\n      - name: ")[1:]
+            if "GH_TOKEN:" in step
+        ]
+        self.assertEqual(len(token_steps), 6)
+        for step in token_steps:
+            self.assertEqual(step.count("GH_TOKEN:"), 1)
+            self.assertIn("\n        run:", step)
+            self.assertIn("gh ", step.split("\n        run:", 1)[1])
+            self.assertNotIn("\n        uses:", step)
 
     def test_release_input_is_never_interpolated_into_shell_source(self) -> None:
         expression = "${{ inputs.version }}"

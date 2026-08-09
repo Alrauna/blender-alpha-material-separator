@@ -209,6 +209,7 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
         run: |
           $Owner, $Name = $env:GITHUB_REPOSITORY.Split('/', 2)
           $Query = @'
@@ -219,7 +220,7 @@ jobs:
             }
           }
           '@
-          $Tag = '${{ steps.release.outputs.tag }}'
+          $Tag = $env:RELEASE_TAG
           $State = gh api graphql -f query=$Query `
             -f owner=$Owner -f name=$Name -f ref="refs/tags/$Tag" -f tag=$Tag |
             ConvertFrom-Json
@@ -237,37 +238,45 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
         run: >-
-          gh release create '${{ steps.release.outputs.tag }}'
+          gh release create $env:RELEASE_TAG
           --draft --generate-notes
-          --title '${{ steps.release.outputs.tag }}'
+          --title $env:RELEASE_TAG
           --target '${{ github.sha }}'
 
       - name: Upload release assets
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          ARCHIVE_NAME: ${{ steps.release.outputs.archive_name }}
         run: >-
-          gh release upload '${{ steps.release.outputs.tag }}'
-          '${{ runner.temp }}/release/${{ steps.release.outputs.archive_name }}'
+          gh release upload $env:RELEASE_TAG
+          "${{ runner.temp }}/release/$env:ARCHIVE_NAME"
           '${{ runner.temp }}/release/SHA256SUMS.txt'
 
       - name: Download stored ZIP
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          ARCHIVE_NAME: ${{ steps.release.outputs.archive_name }}
         run: |
           New-Item -ItemType Directory '${{ runner.temp }}/downloaded-release'
-          gh release download '${{ steps.release.outputs.tag }}' `
-            --pattern '${{ steps.release.outputs.archive_name }}' `
+          gh release download $env:RELEASE_TAG `
+            --pattern $env:ARCHIVE_NAME `
             --dir '${{ runner.temp }}/downloaded-release'
 
       - name: Verify stored ZIP hash
         shell: pwsh
+        env:
+          ARCHIVE_NAME: ${{ steps.release.outputs.archive_name }}
+          EXPECTED_SHA256: ${{ steps.release.outputs.sha256 }}
         run: >-
           python scripts/ci.py verify-file
-          --file '${{ runner.temp }}/downloaded-release/${{ steps.release.outputs.archive_name }}'
-          --expected-sha256 '${{ steps.release.outputs.sha256 }}'
+          --file "${{ runner.temp }}/downloaded-release/$env:ARCHIVE_NAME"
+          --expected-sha256 $env:EXPECTED_SHA256
 
   release_attestation:
     name: Attest stored release ZIP
