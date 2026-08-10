@@ -19,16 +19,18 @@ approved design is recorded in
   `8e5cc5a`.
 - No production, workflow, test, or release behavior has changed on this
   branch.
-- The written design is awaiting the repository-required user review before an
-  implementation plan is created.
+- The written design is approved. The test-first implementation plan is saved
+  at
+  `docs/superpowers/plans/2026-08-10-agents-policy-simplification.md` and awaits
+  the repository-required execution approval.
 - Detailed CI and validation policy already exists in `docs/testing.md`; the
   redesign will reuse it rather than introduce duplicate CI/release manuals.
 
 ## Next action
 
-Review and approve the written design. Then create the concise test-first
-implementation plan, obtain plan approval, update the documentation contract
-before policy edits, and execute the approved documentation-only change.
+Review and approve the implementation plan, choose inline or explicitly
+authorized subagent-driven execution, update the documentation contract before
+policy edits, and execute the approved documentation-only change.
 
 The unpublished 1.3.1 draft cleanup (release ID `367440347`) and release
 dispatch remain separate work and are untouched by this branch.
