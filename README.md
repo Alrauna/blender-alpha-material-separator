@@ -141,6 +141,7 @@ assuming the change is always a win.
 ## More documentation
 
 - [Material support](docs/material-support.md)
+- [Development workflow](docs/development-workflow.md)
 - [Testing and contributing](docs/testing.md)
 - [Integration API](docs/integration-api.md)
 - [Performance](docs/performance.md)

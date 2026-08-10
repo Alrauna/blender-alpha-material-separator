@@ -42,6 +42,20 @@ loaded entry point.
 - Keep the approved design and this plan on the topic branch through review;
   do not perform the old commit-then-delete lifecycle.
 
+## Execution deviation
+
+The required `test-driven-development/writing-good-tests.md` guidance was read
+before Task 1 and prohibits tests that merely grep human or agent-instruction
+prose. Therefore do not create `tests/unit/test_agent_policy_contract.py` and
+do not enforce the router's line count or wording through a unit test. The
+existing CI security documentation contract still moves its authoritative
+source off `AGENTS.md` and demonstrates RED before the permanent docs change.
+Validate the agent-policy rewrite with the existing README link resolver,
+focused preservation/retired-wording searches, `git diff --check`, full unit
+tests, and direct specification-to-diff review. This supersedes plan steps that
+refer to the new grep-based policy contract; the approved scope and safety
+requirements are unchanged.
+
 ---
 
 ### Task 1: Establish the policy-routing contract
