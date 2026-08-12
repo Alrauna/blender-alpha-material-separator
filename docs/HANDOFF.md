@@ -103,7 +103,9 @@ baseline. No GPU prototype has been built and none is authorized.
 - `7b25abd` — flat-array coverage and batched alpha counting;
 - `e1f2cbc` — the flat-array coverage result;
 - `ca2b4fe` — engine construction instrumentation;
-- `0ad3852` — vectorized structural signature.
+- `0ad3852` — vectorized structural signature;
+- `756f03c` — the re-measured batched rasterization result;
+- `907246f` — batched rasterization.
 
 ## GPU findings worth not rediscovering
 
