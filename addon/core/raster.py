@@ -6,12 +6,15 @@ from __future__ import annotations
 import math
 from collections import defaultdict
 from collections.abc import Iterable, Sequence
+from operator import itemgetter
 
 from .model import Coverage, InvalidRasterInput, RasterBudgetExceeded, RasterStats
 
 Point = tuple[float, float]
 Triangle = tuple[Point, Point, Point]
 Run = tuple[int, int]
+
+_height = itemgetter(1)
 
 
 def _validate_triangle(triangle: Sequence[Point]) -> Triangle:
@@ -26,48 +29,6 @@ def _validate_triangle(triangle: Sequence[Point]) -> Triangle:
 def _twice_area(triangle: Triangle) -> float:
     (ax, ay), (bx, by), (cx, cy) = triangle
     return (bx - ax) * (cy - ay) - (by - ay) * (cx - ax)
-
-
-def _clip_y(
-    polygon: list[Point], boundary: float, *, keep_above: bool
-) -> list[Point]:
-    if not polygon:
-        return []
-    result: list[Point] = []
-
-    def inside(point: Point) -> bool:
-        return point[1] >= boundary if keep_above else point[1] <= boundary
-
-    previous = polygon[-1]
-    previous_inside = inside(previous)
-    for current in polygon:
-        current_inside = inside(current)
-        if current_inside != previous_inside:
-            dy = current[1] - previous[1]
-            if dy != 0.0:
-                scale = (boundary - previous[1]) / dy
-                result.append(
-                    (previous[0] + scale * (current[0] - previous[0]), boundary)
-                )
-        if current_inside:
-            result.append(current)
-        previous = current
-        previous_inside = current_inside
-    return result
-
-
-def _row_run(triangle: Triangle, row: int) -> Run | None:
-    polygon = _clip_y(list(triangle), float(row), keep_above=True)
-    polygon = _clip_y(polygon, float(row + 1), keep_above=False)
-    if len(polygon) < 3:
-        return None
-    minimum = min(point[0] for point in polygon)
-    maximum = max(point[0] for point in polygon)
-    if not minimum < maximum:
-        return None
-    start = math.floor(minimum)
-    stop = math.ceil(maximum)
-    return (start, stop) if start < stop else None
 
 
 def _merge_runs(runs: Iterable[Run]) -> tuple[Run, ...]:
@@ -110,26 +71,91 @@ def rasterize_polygon(
     scanlines = 0
     emitted_runs = 0
 
+    floor = math.floor
+    ceil = math.ceil
+
     for raw_triangle in triangles:
         triangle = _validate_triangle(raw_triangle)
         triangle_count += 1
         if _twice_area(triangle) == 0.0:
             degenerate_triangles += 1
             continue
-        first_row = math.floor(min(point[1] for point in triangle))
-        stop_row = math.ceil(max(point[1] for point in triangle))
+
+        # Sorting by height turns scanline clipping into two horizontal
+        # cross-sections per row, which is the same convex intersection the
+        # previous Sutherland-Hodgman clip computed, without its per-row lists.
+        (low_x, low_y), (mid_x, mid_y), (high_x, high_y) = sorted(triangle, key=_height)
+        first_row = floor(low_y)
+        stop_row = ceil(high_y)
         row_count = max(0, stop_row - first_row)
         if scanlines + row_count > max_scanlines:
             raise RasterBudgetExceeded("scanlines", max_scanlines)
         scanlines += row_count
+
+        # Positive area guarantees high_y > low_y. The short edges are only
+        # evaluated on the side of the middle vertex that actually has height.
+        long_slope = (high_x - low_x) / (high_y - low_y)
+        lower_slope = (mid_x - low_x) / (mid_y - low_y) if mid_y > low_y else 0.0
+        upper_slope = (high_x - mid_x) / (high_y - mid_y) if high_y > mid_y else 0.0
+
+        # Cross-section at the bottom vertex; every later row reuses the
+        # cross-section the previous row already computed at their shared edge.
+        previous_long = low_x
+        previous_short = mid_x if mid_y == low_y else low_x
+
         for row in range(first_row, stop_row):
-            run = _row_run(triangle, row)
-            if run is None:
+            upper = row + 1.0
+            if upper >= high_y:
+                # The last band ends on the top vertex. Use its coordinate
+                # directly; recomputing it from a slope can land a rounding
+                # step past a texel boundary and widen the run.
+                upper = high_y
+                current_long = high_x
+                current_short = mid_x if mid_y == high_y else high_x
+            else:
+                current_long = low_x + (upper - low_y) * long_slope
+                if upper < mid_y:
+                    current_short = low_x + (upper - low_y) * lower_slope
+                elif upper > mid_y:
+                    current_short = mid_x + (upper - mid_y) * upper_slope
+                else:
+                    current_short = mid_x
+
+            minimum = maximum = previous_long
+            if previous_short < minimum:
+                minimum = previous_short
+            elif previous_short > maximum:
+                maximum = previous_short
+            if current_long < minimum:
+                minimum = current_long
+            elif current_long > maximum:
+                maximum = current_long
+            if current_short < minimum:
+                minimum = current_short
+            elif current_short > maximum:
+                maximum = current_short
+
+            # The middle vertex is the only extremum that is not on a band
+            # edge, so a row that straddles it has to take it into account.
+            if row < mid_y < upper:
+                if mid_x < minimum:
+                    minimum = mid_x
+                elif mid_x > maximum:
+                    maximum = mid_x
+
+            previous_long = current_long
+            previous_short = current_short
+
+            if not minimum < maximum:
+                continue
+            start = floor(minimum)
+            stop = ceil(maximum)
+            if start >= stop:
                 continue
             emitted_runs += 1
             if emitted_runs > max_run_emissions:
                 raise RasterBudgetExceeded("run_emissions", max_run_emissions)
-            rows[row].append(run)
+            rows[row].append((start, stop))
 
     unioned = {row: _merge_runs(runs) for row, runs in rows.items()}
     if margin_texels:

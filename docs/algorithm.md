@@ -7,7 +7,8 @@ For each original polygon, Blender's loop triangulation supplies UV triangles
 without modifying topology. The pure core:
 
 1. Convert `(u, v)` to texel-edge coordinates `(u * width, v * height)`.
-2. Clip each triangle against unit-height scanline strips.
+2. Intersect each triangle with unit-height scanline strips, taking the
+   horizontal cross-sections at the strip boundaries and the middle vertex.
 3. Emit every integer texel-column run with positive-area intersection.
 4. Union runs across the polygon's triangles.
 5. Apply optional Chebyshev texel margin.

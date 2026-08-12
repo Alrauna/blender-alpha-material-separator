@@ -313,3 +313,82 @@ resolved by measurement, not by redesign.
 Rasterization at 61.1 percent, then row-prefix construction at 14.4 percent.
 Image extraction is no longer a meaningful target, and neither is the coverage
 cache.
+
+## Cross-section scanline rasterization
+
+Measured 2026-08-12 on the same machine, in one session, before and after
+replacing per-row Sutherland-Hodgman clipping with two height-sorted horizontal
+cross-sections per scanline. Each row now reuses the cross-section the previous
+row already computed at their shared boundary, so a triangle spanning *n* rows
+evaluates *n+1* cross-sections instead of clipping a fresh polygon *n* times.
+No numpy is involved: the win is removing per-row list allocation, closure
+calls, and generator min/max, not vectorizing.
+
+| Tier | Before | After | Change |
+| --- | ---: | ---: | ---: |
+| Small | 0.633 s | 0.352 s | -44.5% |
+| Typical | 6.461 s | 4.268 s | -33.9% |
+| High | 22.825 s | 14.612 s | -36.0% |
+| Large/tiled UV | 2.065 s | 0.736 s | -64.4% |
+
+Rasterization itself fell from 14.011 s to 5.526 s, -60.6 percent, which clears
+the 20 percent keep threshold that the 2026-07-29 allocation-reduction candidate
+missed. The tiled tier gains most because its triangles span the most rows.
+High-tier `covered_texels`, `emitted_runs`, `union_runs`, `scanlines`, and
+`degenerate_triangles` are all unchanged, and peak working set moved from
+2.890 GiB to 2.891 GiB.
+
+Structural recheck moved from 0.03506 s to 0.03694 s and Apply preflight from
+0.03337 s to 0.03441 s, both within noise. Their ratios to cold analysis rose
+to 10.23 and 9.53 percent only because cold analysis on that fixture fell from
+0.647 s to 0.361 s; both acceptance targets still pass. Digest medians and
+prefix builds are unchanged, as expected for a change that touches neither.
+
+### Coverage is now tighter on some exactly-representable triangles
+
+The replaced clipping code was not stable under vertex permutation: on 6,000
+randomized boundary-snapped triangles, 15 produced different runs depending
+only on which vertex was listed first. Bit-equality with it is therefore not a
+definable contract, and the gate is the order-independent positive-area oracle
+that `docs/algorithm.md` already specifies.
+
+Across 14,000 randomized triangles in four coordinate families, the new
+rasterizer never under-covers the oracle. On the exactly-representable quarter
+grid it matches the oracle exactly in all 4,000 cases, where the old code
+disagreed 18 times — every one of those emitting a cell whose intersection with
+the triangle has zero area, which contradicted `rasterize_polygon`'s documented
+"positive area" rule. Coverage is therefore slightly tighter than before on
+such triangles. The dropped cells have no positive-area overlap, so the only
+possible effect is fewer spurious alpha classifications; nothing moves toward
+leaving a transparent face on an opaque material. On the benchmark fixtures the
+coverage totals are identical.
+
+`tests/unit/test_rasterization.py` gates this with a 27-case adversarial list
+(vertices and edges on texel boundaries, flat-top and flat-bottom triangles,
+near-horizontal and near-vertical edges and slivers, sub-texel and degenerate
+triangles, edge-only and point-only contact, negative and multi-tile UVs, large
+accepted coordinates, and coordinates near 1e7 with sub-ulp spacing) plus 2,800
+randomized triangles and quads. Removing either the middle-vertex extremum or
+the exact top-vertex substitution fails the gate.
+
+### Next measured bottleneck
+
+High tier, 14.612 s cold:
+
+| Phase | Seconds | Share |
+| --- | ---: | ---: |
+| Rasterization | 5.526 | 37.8% |
+| Classification total | 4.780 | 32.7% |
+| — row-prefix construction | 3.321 | 22.7% |
+| — run counting | 1.459 | 10.0% |
+| UV traversal | 1.066 | 7.3% |
+| Image digest | 0.303 | 2.1% |
+| Coverage cache key | 0.254 | 1.7% |
+| Image read | 0.186 | 1.3% |
+| Image mask | 0.065 | 0.4% |
+| Coverage cache lookup | 0.055 | 0.4% |
+| Image channel select | 0.049 | 0.3% |
+| Coverage cache store | 0.027 | 0.2% |
+
+Row-prefix construction is now the largest single addressable phase at
+22.7 percent, ahead of run counting at 10.0 percent.

@@ -142,6 +142,132 @@ class RasterizationTests(unittest.TestCase):
             self.assertEqual(actual, _oracle_cells(triangle), triangle)
         self.assertGreater(compared, 450)
 
+    def _assert_covers_oracle(self, triangle, label="", exact=False):
+        """Coverage must never miss a positive-area cell, and stay tight when
+        the coordinates are exactly representable."""
+        cells = _coverage_cells(rasterize_polygon((triangle,)))
+        oracle = _oracle_cells(triangle)
+        context = label or repr(triangle)
+        self.assertEqual(oracle - cells, set(), f"under-covered {context}")
+        if exact:
+            self.assertEqual(cells, oracle, context)
+
+    def test_adversarial_cases_cover_the_positive_area_oracle(self):
+        huge = 1.0e7
+        # `exact` marks the cases whose areas stay far enough above the oracle's
+        # own 1e-10 area epsilon for equality to be a meaningful assertion.
+        cases = {
+            "vertices on texel boundaries": (
+                ((0.0, 0.0), (3.0, 0.0), (0.0, 3.0)), True),
+            "negative vertices on boundaries": (
+                ((-2.0, -2.0), (2.0, -2.0), (-2.0, 2.0)), True),
+            "horizontal edge on a boundary": (
+                ((1.0, 2.0), (5.0, 2.0), (3.0, 4.5)), True),
+            "vertical edge on a boundary": (
+                ((2.0, 1.0), (2.0, 5.0), (4.5, 3.0)), True),
+            "flat bottom": (((0.5, 1.0), (3.5, 1.0), (2.0, 4.25)), True),
+            "flat top": (((0.5, 4.0), (3.5, 4.0), (2.0, 1.25)), True),
+            "middle vertex on an integer row": (
+                ((0.0, 0.0), (1.0, 2.0), (4.0, 5.0)), True),
+            "middle vertex inside a band": (
+                ((0.0, 0.0), (5.0, 2.5), (1.0, 5.0)), True),
+            "near-horizontal edge": (
+                ((0.0, 1.0), (10.0, 1.0 + 1.0e-9), (5.0, 3.0)), True),
+            "near-horizontal sliver": (
+                ((0.0, 1.0), (10.0, 1.0 + 1.0e-9), (5.0, 1.0 + 2.0e-9)), False),
+            "near-vertical edge": (
+                ((1.0, 0.0), (1.0 + 1.0e-9, 10.0), (3.0, 5.0)), True),
+            "near-vertical sliver": (
+                ((1.0, 0.0), (1.0 + 1.0e-9, 10.0), (1.0 + 2.0e-9, 5.0)), False),
+            "sub-texel triangle": (((0.1, 0.1), (0.2, 0.1), (0.1, 0.2)), True),
+            "sub-texel on a corner": (
+                ((2.5, 2.5), (2.5001, 2.5), (2.5, 2.5001)), True),
+            "sub-texel straddling a boundary": (
+                (
+                    (1.0 - 1.0e-9, 1.0 - 1.0e-9),
+                    (1.0 + 1.0e-9, 1.0 - 1.0e-9),
+                    (1.0, 1.0 + 1.0e-9),
+                ),
+                False,
+            ),
+            "collinear degenerate": (((0.0, 0.0), (1.0, 1.0), (2.0, 2.0)), True),
+            "duplicated vertex degenerate": (
+                ((1.0, 1.0), (1.0, 1.0), (3.0, 3.0)), True),
+            "single point degenerate": (((2.0, 2.0), (2.0, 2.0), (2.0, 2.0)), True),
+            "horizontal degenerate": (((0.0, 2.0), (4.0, 2.0), (7.0, 2.0)), True),
+            "edge-only contact": (((2.0, 0.0), (2.0, 2.0), (4.0, 1.0)), True),
+            "point-only contact at a corner": (
+                ((2.0, 2.0), (4.0, 3.0), (3.0, 5.0)), True),
+            "negative UVs": (((-3.5, -2.25), (-0.5, -3.75), (-1.25, -0.5)), True),
+            "tiled UVs spanning many texels": (
+                ((-4.5, -4.5), (12.5, 3.25), (3.0, 14.75)), True),
+            "large accepted coordinates": (
+                ((8192.0, 4096.0), (8195.5, 4096.25), (8193.0, 4099.0)), True),
+            "coordinates near internal limits": (
+                ((huge, huge), (huge + 2.5, huge), (huge, huge + 3.25)), False),
+            "limits with sub-ulp spacing": (
+                (
+                    (huge, huge),
+                    (math.nextafter(huge, math.inf), huge + 4.0),
+                    (huge + 3.0, huge + 2.0),
+                ),
+                False,
+            ),
+        }
+        for label, (triangle, exact) in cases.items():
+            with self.subTest(label):
+                self._assert_covers_oracle(triangle, label=label, exact=exact)
+                margined = _coverage_cells(
+                    rasterize_polygon((triangle,), margin_texels=1)
+                )
+                plain = _coverage_cells(rasterize_polygon((triangle,)))
+                self.assertEqual(plain - margined, set(), f"margin dropped {label}")
+
+    def test_fixed_seed_randomized_cases_never_under_cover(self):
+        random_source = random.Random(0x5CA71E)
+
+        def quarter():
+            return random_source.randint(-24, 24) / 4
+
+        def boundary_snapped():
+            value = float(random_source.randint(-8, 8))
+            offset = random_source.choice(
+                (0.0, 1.0e-12, -1.0e-12, 1.0e-9, -1.0e-9, 0.5, 1.0e-6)
+            )
+            return value + offset
+
+        def wide():
+            return random_source.uniform(-64.0, 64.0)
+
+        def near_limit():
+            return 1.0e7 + random_source.uniform(-4.0, 4.0)
+
+        # Only the quarter grid is exactly representable, so it is the only
+        # family where the oracle's area epsilon makes equality meaningful.
+        families = ((quarter, True), (boundary_snapped, False), (wide, False),
+                    (near_limit, False))
+        for index in range(2400):
+            axis, exact = families[index % len(families)]
+            triangle = tuple((axis(), axis()) for _point in range(3))
+            if index % 7 == 0:  # force flat and repeated-vertex configurations
+                triangle = (triangle[0], (triangle[1][0], triangle[0][1]), triangle[2])
+            self._assert_covers_oracle(triangle, exact=exact)
+
+    def test_fixed_seed_randomized_quads_match_the_oracle(self):
+        random_source = random.Random(0xB0A7)
+        for _ in range(400):
+            corners = [
+                (random_source.randint(-20, 20) / 4, random_source.randint(-20, 20) / 4)
+                for _corner in range(4)
+            ]
+            triangles = (
+                (corners[0], corners[1], corners[2]),
+                (corners[0], corners[2], corners[3]),
+            )
+            cells = _coverage_cells(rasterize_polygon(triangles))
+            oracle = _oracle_cells(triangles[0]) | _oracle_cells(triangles[1])
+            self.assertEqual(cells, oracle, triangles)
+
     def test_results_are_deterministic(self):
         triangles = (
             ((-1.25, 0.1), (4.5, 1.2), (0.25, 3.75)),
