@@ -1,103 +1,98 @@
 # Repository handoff
 
-Updated: 2026-08-10
+Updated: 2026-08-12
 
-## Completed branch objective
+## Current branch objective
 
-`codex/simplify-agents-policy` is based on refreshed `origin/main` commit
-`8e5cc5a`. Its bounded objective is complete: make `AGENTS.md` a concise,
-internally consistent entry point while preserving every product, testing, CI,
-release, privacy, and Git safety invariant in conditional authoritative
-documentation.
+`feat/gpu-acceleration` is based on `origin/main` commit `6973a44`. It
+implements `PLAN.md`, the staged analysis performance plan. The plan's thesis is
+that GPU acceleration is a candidate gated on measurement, not a specification:
+the CPU implementation stays authoritative, every later target is chosen from a
+fresh profile, and a successful outcome does not require shipping GPU code.
 
-`AGENTS.md` is now 148 lines instead of 392. It retains the product goal,
-Blender and mutation-safety invariants, task routing, risk tiers, validation
-matrix, and publication guards. Detailed branch, design, plan, review, commit,
-handoff, and publication procedure now lives in
-`docs/development-workflow.md`. Existing `docs/testing.md`,
-`docs/performance.md`, and `docs/material-support.md` remain authoritative for
-their domains.
+Stages 1 through 5 are complete. Stage 6, the GPU feasibility gate, has not
+started.
 
 ## Decisions
 
-- Repository safety limits prevail over conflicting instructions. Conditional
-  repository documentation overrides incompatible generic skill steps.
-- A narrow, explicit user request counts as design approval. Ambiguous,
-  architectural, public-contract, material-support, security, performance-
-  policy, and other high-risk work retains written design and plan approval.
-- Branch suitability is checked before the first tracked edit, including specs,
-  plans, and handoffs. New topic branches start from freshly fetched
-  `origin/main`.
-- Inline execution and self-review are the defaults. Subagent implementation,
-  parallel dispatch, and reviewer subagents require explicit user authorization.
-- Durable design records may remain committed. Written implementation plans are
-  not automatically committed and deleted in one milestone; a committed plan
-  stays through pull-request review until separately superseded.
-- The repository completion path verifies and hands off the topic branch. It
-  never offers a local merge into protected `main`.
-- `docs/HANDOFF.md` changes only at a durable pause, ownership transfer,
-  material blocker, or branch completion.
-- Push, PR creation or merge, tags, releases, repository settings, failed-draft
-  cleanup, and other publication remain separately authorized.
+- Implemented on this one branch with a coherent commit per stage, rather than
+  the five separate `codex/*` branches `PLAN.md` names. Those would each need
+  their own authorized pull request, and stacking production pull requests is
+  not permitted. **This deviates from the plan's branch layout and has not been
+  confirmed by the user.**
+- Stage 5's premise dissolved before it began. High-tier coverage reuse has
+  measured faster than cold in every run on this machine since vectorization
+  started, so the planned coverage-cache defect investigation has no defect to
+  debug. Recorded in `docs/performance.md` as resolved by measurement rather
+  than opened as a debugging task.
+- Bit-equality with the replaced rasterizer was rejected as a correctness gate
+  because that code is not stable under vertex permutation. The gate is the
+  order-independent positive-area oracle from `docs/algorithm.md`.
+- `addon/core` now depends on numpy, so `tests/unit` runs on Blender's bundled
+  interpreter. CI already did this; `docs/testing.md` now matches. The core
+  remains free of `bpy`.
+- Row prefixes keep a `uint32` accumulator instead of the plan's int64 default.
+  The bound is proven and the justification is recorded in
+  `docs/performance.md`.
 
 ## Commits
 
-- `729bcb2` — approved AGENTS policy simplification design;
-- `a61e27e` — approved test-first implementation plan;
-- `0deeaa4` — concise policy router, permanent workflow documentation, README
-  routing, preserved CI/security documentation, and adjusted CI documentation
-  contract.
-
-The design and plan remain on the branch through review under the new artifact
-lifecycle.
-
-## Test-first evidence and deviation
-
-The existing CI security documentation contract was changed first to read its
-workflow and checkout requirements from permanent documentation instead of
-`AGENTS.md`. Before documentation edits, the focused test failed solely because
-`docs/development-workflow.md` did not exist. After the rewrite it passed.
-
-The approved plan initially proposed a new test that would grep `AGENTS.md`
-wording and line count. The required test-quality guidance prohibits tests that
-merely detect changes in human or agent-instruction prose, so that test was not
-created. The deviation is recorded in the implementation plan. Policy
-preservation instead used the existing README link resolver, focused
-preservation and retired-wording searches, direct specification-to-diff review,
-`git diff --check`, and the complete unit suite. This reduced brittle test debt
-without changing the approved scope or safety requirements.
+- `af5de91` — vectorized image extraction and per-phase instrumentation
+  (Stages 1 and 2);
+- `f01a016` — cross-section scanline rasterization (Stage 3);
+- `8b1b812` — `numpy.cumsum` row prefixes (Stage 4).
 
 ## Verification evidence
 
-Fresh local results:
+Fresh local results on this branch:
 
-- baseline unit suite before implementation: 125 passed;
-- RED CI documentation contract: 1 expected failure for the missing permanent
-  workflow document;
-- focused CI workflow contract module after implementation: 22 passed;
-- README and relative-link contract module: 9 passed;
-- combined affected contract gate: 31 passed;
-- complete unit suite after implementation: 125 passed;
-- conditional policy targets: 4/4 present;
-- `AGENTS.md` size: 148 lines;
-- required product, workflow, CI/security, and publication phrases found in
-  their intended authoritative documents;
-- retired contradictory and machine-specific wording absent from `AGENTS.md`;
-- `git diff --check`: no errors before the implementation commit;
-- complete branch scope: eight approved documentation/contract files, with no
-  add-on, manifest, GitHub workflow, packaging, performance baseline, private
-  input, or generated output change.
+- unit suite on Blender's bundled Python 3.13.13: 132 passed;
+- headless Blender suite: exit 0, all 18 modules OK, including the new
+  `ALPHA_MATERIAL_SEPARATOR_IMAGE_DATA_OK`;
+- `git diff --check`: clean before each commit;
+- same-session before/after benchmarks per stage, each with wall time and peak
+  working set, recorded in `docs/performance.md`.
 
-The headless Blender suite, source/archive validation, private-reference smoke,
-performance benchmarks, installed-ZIP acceptance, FBX, and Unity checks were
-not applicable because this branch changes no product, package, resolver,
-rasterizer, classifier, cache, Preview, Apply, assignment, preservation, CI
-workflow, or release behavior.
+High-tier cold analysis across the three landed changes, each percentage
+same-session:
 
-## Limitations and next action
+| Stage | Before | After | Change |
+| --- | ---: | ---: | ---: |
+| Image extraction | 80.239 s | 23.101 s | -71.2% |
+| Rasterization | 22.825 s | 14.612 s | -36.0% |
+| Row prefixes | 14.049 s | 11.342 s | -19.3% |
 
-No known limitation remains inside this branch's scope. The branch is ready for
-user review. Push and pull-request creation require separate authorization.
+Peak working set never regressed; it fell slightly at Stages 1 and 4 and was
+flat at Stage 3. Coverage totals, run counts, and scanline counts are identical
+before and after every stage on the benchmark fixtures.
 
-The unpublished 1.3.1 draft cleanup (release ID `367440347`) and release
-dispatch remain separate work and are untouched by this branch.
+## Limitations
+
+- **Coverage is slightly tighter than before on some exactly-representable
+  triangles.** The replaced rasterizer emitted cells whose intersection with the
+  triangle has zero area, contradicting its own documented positive-area rule;
+  18 of 4,000 quarter-grid triangles were affected. The new code matches the
+  oracle exactly there. The dropped cells have no positive-area overlap, so the
+  only possible effect is fewer spurious alpha classifications, and the new path
+  never under-covers the oracle across 14,000 randomized triangles. This is a
+  real behavior change that has not been confirmed by the user.
+- Stage 4 improved the high tier 19.3 percent, marginally below the repository's
+  20 percent keep threshold. Recorded rather than rounded; the reasoning for
+  keeping it is in `docs/performance.md`.
+- No private characterization has been run on this branch. No packaging,
+  installed-ZIP, export, Unity, or human interaction gate has been run, none of
+  which this branch's changes have yet required.
+- Rasterization is again the dominant cost at 49.3 percent of an 11.342 s high
+  tier, followed by run counting at 12.6 percent and UV traversal at 9.5
+  percent. About 18.9 percent remains outside the instrumented phases.
+
+## Next action
+
+Begin Stage 6A, the discardable GPU capability spike on scale rather than
+existence. Every Stage 6 comparison must be against the current optimized CPU
+implementation at 11.342 s, never the original baseline and never the pre-numpy
+implementation. No production GPU backend may land until Stage 6J's keep/abort
+gate passes at 20 percent whole-workflow improvement.
+
+Push and pull-request creation require separate authorization and have not been
+requested.
