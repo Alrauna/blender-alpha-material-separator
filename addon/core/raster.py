@@ -200,6 +200,403 @@ def rasterize_polygon(
     )
 
 
+def _segment_starts(counts: numpy.ndarray) -> numpy.ndarray:
+    """Index of each segment's first element in the concatenated array."""
+    return numpy.concatenate((numpy.zeros(1, dtype=numpy.int64), numpy.cumsum(counts)))[
+        :-1
+    ]
+
+
+def _within_segment(values: numpy.ndarray, counts: numpy.ndarray) -> numpy.ndarray:
+    """Running total of `values`, restarting at every segment boundary."""
+    if values.shape[0] == 0:
+        return values.astype(numpy.int64, copy=False)
+    starts = _segment_starts(counts)
+    total = numpy.cumsum(values)
+    before = numpy.where(starts > 0, total[starts - 1], 0)
+    return total - numpy.repeat(before, counts)
+
+
+def _first_trip(
+    tripped: numpy.ndarray,
+    polygon: numpy.ndarray,
+    position: numpy.ndarray,
+    polygon_count: int,
+) -> numpy.ndarray:
+    """Position of each polygon's earliest tripped element, or a large sentinel.
+
+    Only reached when a budget actually trips, which is a pathological input;
+    the unbuffered scatter it uses is not worth paying for on every batch.
+    """
+    sentinel = position.shape[0] + 1
+    result = numpy.full(polygon_count, sentinel, dtype=numpy.int64)
+    numpy.minimum.at(result, polygon[tripped], position[tripped])
+    return result
+
+
+def _merge_batch(
+    polygon: numpy.ndarray,
+    row: numpy.ndarray,
+    start: numpy.ndarray,
+    stop: numpy.ndarray,
+    polygon_count: int,
+) -> tuple[numpy.ndarray, numpy.ndarray]:
+    """Union overlapping runs inside every (polygon, row) group at once.
+
+    Returns the merged `(3, n)` span array in polygon order and the per-polygon
+    run count. The scalar path sorts each polygon separately; one ordering of
+    everything is equivalent because the polygon index leads the sort key.
+    """
+    if start.shape[0] == 0:
+        return (
+            numpy.zeros((3, 0), dtype=numpy.int64),
+            numpy.zeros(polygon_count, dtype=numpy.int64),
+        )
+    # One composite key beats a three-key lexsort by about 10x. The widths come
+    # from the observed ranges; a batch too spread out to pack falls back.
+    row_low, start_low = int(row.min()), int(start.min())
+    row_bits = int(row.max() - row_low).bit_length()
+    start_bits = int(start.max() - start_low).bit_length()
+    if polygon_count.bit_length() + row_bits + start_bits <= 62:
+        key = (
+            (polygon << (row_bits + start_bits))
+            | ((row - row_low) << start_bits)
+            | (start - start_low)
+        )
+        order = numpy.argsort(key, kind="stable")
+    else:
+        order = numpy.lexsort((start, row, polygon))
+    polygon, row, start, stop = polygon[order], row[order], start[order], stop[order]
+
+    group = numpy.empty(start.shape[0], dtype=numpy.int64)
+    group[0] = 0
+    numpy.cumsum((polygon[1:] != polygon[:-1]) | (row[1:] != row[:-1]), out=group[1:])
+    # Segmented running maximum of `stop`: offsetting each group past the last
+    # makes one global accumulate equivalent to a per-group one.
+    span = int(stop.max() - stop.min()) + 1
+    running = numpy.maximum.accumulate(stop + group * span) - group * span
+
+    opens = numpy.empty(start.shape[0], dtype=bool)
+    opens[0] = True
+    opens[1:] = (group[1:] != group[:-1]) | (start[1:] > running[:-1])
+    # A merged run ends at the running maximum reached just before the next opens.
+    closes = numpy.empty(start.shape[0], dtype=bool)
+    closes[:-1] = opens[1:]
+    closes[-1] = True
+
+    spans = numpy.array(
+        (row[opens], start[opens], running[closes]), dtype=numpy.int64
+    )
+    return spans, numpy.bincount(polygon[opens], minlength=polygon_count)
+
+
+def _rasterize_live(
+    xs: numpy.ndarray,
+    ys: numpy.ndarray,
+    triangle_polygon: numpy.ndarray,
+    polygon_count: int,
+    *,
+    margin_texels: int,
+    max_scanlines: int,
+    max_run_emissions: int,
+    reasons: dict[int, str],
+) -> tuple[numpy.ndarray, numpy.ndarray, tuple[numpy.ndarray, ...]]:
+    """Scanline pass and merge for every non-degenerate triangle at once.
+
+    Records budget failures in `reasons` and drops those polygons, so the merge
+    only sees polygons that will produce a coverage.
+    """
+    live_counts = numpy.bincount(triangle_polygon, minlength=polygon_count)
+
+    # Stable sort by height, matching `sorted(triangle, key=_height)`.
+    order = numpy.argsort(ys, axis=1, kind="stable")
+    index = numpy.arange(ys.shape[0])[:, None]
+    ys, xs = ys[index, order], xs[index, order]
+    low_x, mid_x, high_x = xs[:, 0], xs[:, 1], xs[:, 2]
+    low_y, mid_y, high_y = ys[:, 0], ys[:, 1], ys[:, 2]
+
+    first_row = numpy.floor(low_y)
+    row_count = numpy.maximum(0.0, numpy.ceil(high_y) - first_row).astype(numpy.int64)
+    scanlines = numpy.bincount(
+        triangle_polygon, weights=row_count, minlength=polygon_count
+    ).astype(numpy.int64)
+
+    long_slope = (high_x - low_x) / (high_y - low_y)
+    has_lower = mid_y > low_y
+    has_upper = high_y > mid_y
+    lower_slope = numpy.where(
+        has_lower, (mid_x - low_x) / numpy.where(has_lower, mid_y - low_y, 1.0), 0.0
+    )
+    upper_slope = numpy.where(
+        has_upper, (high_x - mid_x) / numpy.where(has_upper, high_y - mid_y, 1.0), 0.0
+    )
+
+    # One entry per (triangle, scanline).
+    triangle_of_row = numpy.repeat(numpy.arange(row_count.shape[0]), row_count)
+    total = triangle_of_row.shape[0]
+    # Trailing slice, not a leading one, so an all-degenerate batch stays empty.
+    offsets = numpy.concatenate(
+        (numpy.zeros(1, dtype=numpy.int64), numpy.cumsum(row_count))
+    )[:-1]
+    row = (
+        numpy.arange(total)
+        - numpy.repeat(offsets, row_count)
+        + numpy.repeat(first_row, row_count)
+    )
+
+    t = triangle_of_row
+    t_low_x, t_low_y = low_x[t], low_y[t]
+    t_mid_x, t_mid_y = mid_x[t], mid_y[t]
+    t_high_x, t_high_y = high_x[t], high_y[t]
+    t_long, t_lower, t_upper = long_slope[t], lower_slope[t], upper_slope[t]
+    never = numpy.zeros(total, dtype=bool)
+
+    def long_at(y, at_low, at_high):
+        result = t_low_x + (y - t_low_y) * t_long
+        result = numpy.where(at_low, t_low_x, result)
+        return numpy.where(at_high, t_high_x, result)
+
+    def short_at(y, at_low, at_high):
+        below = t_low_x + (y - t_low_y) * t_lower
+        above = t_mid_x + (y - t_mid_y) * t_upper
+        result = numpy.where(
+            y < t_mid_y, below, numpy.where(y > t_mid_y, above, t_mid_x)
+        )
+        result = numpy.where(
+            at_low, numpy.where(t_mid_y == t_low_y, t_mid_x, t_low_x), result
+        )
+        return numpy.where(
+            at_high, numpy.where(t_mid_y == t_high_y, t_mid_x, t_high_x), result
+        )
+
+    # The scalar loop carries the previous row's cross-sections forward. That is
+    # not a real recurrence: it is the value at the band's lower boundary, which
+    # is the bottom vertex on a triangle's first row and the scanline elsewhere.
+    is_first = row == numpy.repeat(first_row, row_count)
+    lower_y = numpy.where(is_first, t_low_y, row)
+    previous_long = long_at(lower_y, is_first, never)
+    previous_short = short_at(lower_y, is_first, never)
+
+    upper = row + 1.0
+    at_top = upper >= t_high_y
+    upper_y = numpy.where(at_top, t_high_y, upper)
+    current_long = long_at(upper_y, never, at_top)
+    current_short = short_at(upper_y, never, at_top)
+
+    # The scalar chain of if/elif is a plain min and max of the four values: a
+    # value under the running minimum is necessarily under the running maximum.
+    minimum = numpy.minimum(
+        numpy.minimum(previous_long, previous_short),
+        numpy.minimum(current_long, current_short),
+    )
+    maximum = numpy.maximum(
+        numpy.maximum(previous_long, previous_short),
+        numpy.maximum(current_long, current_short),
+    )
+    # The middle vertex is the only extremum off a band edge. The scalar loop
+    # reassigns `upper` to `high_y` on the last band, so this uses the clamp.
+    straddles = (row < t_mid_y) & (t_mid_y < upper_y)
+    minimum = numpy.where(straddles, numpy.minimum(minimum, t_mid_x), minimum)
+    maximum = numpy.where(straddles, numpy.maximum(maximum, t_mid_x), maximum)
+
+    keep = minimum < maximum
+    start = numpy.floor(minimum[keep]).astype(numpy.int64)
+    stop = numpy.ceil(maximum[keep]).astype(numpy.int64)
+    nonempty = start < stop
+    start, stop = start[nonempty], stop[nonempty]
+    run_triangle = triangle_of_row[keep][nonempty]
+    run_row = row[keep][nonempty].astype(numpy.int64)
+    run_polygon = triangle_polygon[run_triangle]
+
+    runs_per_triangle = numpy.bincount(run_triangle, minlength=row_count.shape[0])
+    emitted = numpy.bincount(
+        triangle_polygon, weights=runs_per_triangle, minlength=polygon_count
+    ).astype(numpy.int64)
+
+    over_scanlines = _within_segment(row_count, live_counts) > max_scanlines
+    over_runs = _within_segment(runs_per_triangle, live_counts) > max_run_emissions
+    if over_scanlines.any() or over_runs.any():
+        # The scalar loop checks the scanline budget for a triangle before
+        # emitting any of its runs, so an equal trip position reports scanlines.
+        position = numpy.arange(triangle_polygon.shape[0]) - numpy.repeat(
+            _segment_starts(live_counts), live_counts
+        )
+        first_scanline = _first_trip(
+            over_scanlines, triangle_polygon, position, polygon_count
+        )
+        first_run = _first_trip(over_runs, triangle_polygon, position, polygon_count)
+        for polygon in numpy.flatnonzero(
+            numpy.minimum(first_scanline, first_run) <= position.shape[0]
+        ):
+            reasons[int(polygon)] = (
+                "BUDGET_SCANLINES"
+                if first_scanline[polygon] <= first_run[polygon]
+                else "BUDGET_RUN_EMISSIONS"
+            )
+
+    if reasons:
+        alive = ~numpy.isin(
+            run_polygon,
+            numpy.fromiter(reasons, dtype=numpy.int64, count=len(reasons)),
+        )
+        run_polygon, run_row = run_polygon[alive], run_row[alive]
+        start, stop = start[alive], stop[alive]
+
+    spans, per_polygon = _merge_batch(
+        run_polygon, run_row, start, stop, polygon_count
+    )
+    if margin_texels:
+        spans, per_polygon, emitted = _expand_margin(
+            spans,
+            per_polygon,
+            emitted,
+            polygon_count,
+            margin_texels=margin_texels,
+            max_run_emissions=max_run_emissions,
+            reasons=reasons,
+        )
+
+    covered = numpy.bincount(
+        numpy.repeat(numpy.arange(polygon_count), per_polygon),
+        weights=spans[2] - spans[1],
+        minlength=polygon_count,
+    ).astype(numpy.int64)
+    return spans, per_polygon, (scanlines, emitted, covered)
+
+
+def _expand_margin(
+    spans: numpy.ndarray,
+    per_polygon: numpy.ndarray,
+    emitted: numpy.ndarray,
+    polygon_count: int,
+    *,
+    margin_texels: int,
+    max_run_emissions: int,
+    reasons: dict[int, str],
+) -> tuple[numpy.ndarray, numpy.ndarray, numpy.ndarray]:
+    """Widen every merged run and union again, as the scalar tail does."""
+    rows_per_run = 2 * margin_texels + 1
+    emitted = emitted + per_polygon * rows_per_run
+    over = emitted > max_run_emissions
+    if over.any():
+        for polygon in numpy.flatnonzero(over):
+            reasons.setdefault(int(polygon), "BUDGET_RUN_EMISSIONS")
+        keep = ~numpy.repeat(over, per_polygon)
+        spans = spans[:, keep]
+        per_polygon = numpy.where(over, 0, per_polygon)
+
+    run_polygon = numpy.repeat(numpy.arange(polygon_count), per_polygon)
+    offsets = numpy.tile(
+        numpy.arange(-margin_texels, margin_texels + 1), spans.shape[1]
+    )
+    return (
+        *_merge_batch(
+            numpy.repeat(run_polygon, rows_per_run),
+            numpy.repeat(spans[0], rows_per_run) + offsets,
+            numpy.repeat(spans[1], rows_per_run) - margin_texels,
+            numpy.repeat(spans[2], rows_per_run) + margin_texels,
+            polygon_count,
+        ),
+        emitted,
+    )
+
+
+def rasterize_batch(
+    triangles: numpy.ndarray,
+    counts: numpy.ndarray,
+    *,
+    margin_texels: int = 0,
+    max_scanlines: int = 1_000_000,
+    max_run_emissions: int = 2_000_000,
+) -> list[Coverage | str]:
+    """Union triangle coverage for many original polygons in one pass.
+
+    `triangles` is `(T, 3, 2)` float64 already in texel-edge space; `counts`
+    gives the consecutive triangles belonging to each polygon. Each entry of the
+    result is that polygon's `Coverage`, or the unsupported reason string the
+    single-polygon path would have raised for it.
+
+    `rasterize_polygon` remains the authority. This reproduces it exactly, which
+    is what `BatchedRasterizationTests` asserts, and is worth having only because
+    a real mesh rasterizes tens of thousands of polygons per analysis.
+    """
+    if margin_texels < 0:
+        raise ValueError("margin_texels cannot be negative")
+    if max_scanlines <= 0 or max_run_emissions <= 0:
+        raise ValueError("raster budgets must be positive")
+
+    polygon_count = int(counts.shape[0])
+    if polygon_count == 0:
+        return []
+    counts = counts.astype(numpy.int64, copy=False)
+    triangle_polygon = numpy.repeat(numpy.arange(polygon_count), counts)
+    reasons: dict[int, str] = {}
+
+    # Non-finite UV coordinates fail the whole polygon, as `_validate_triangle`
+    # does, and are dropped here so they cannot poison the shared arithmetic.
+    finite = numpy.isfinite(triangles).all(axis=(1, 2))
+    if not finite.all():
+        for index in numpy.flatnonzero(
+            numpy.bincount(triangle_polygon[~finite], minlength=polygon_count)
+        ):
+            reasons[int(index)] = "INVALID_UV"
+        keep_triangle = finite & ~numpy.isin(
+            triangle_polygon, numpy.fromiter(reasons, dtype=numpy.int64, count=len(reasons))
+        )
+        triangles = triangles[keep_triangle]
+        triangle_polygon = triangle_polygon[keep_triangle]
+        counts = numpy.bincount(triangle_polygon, minlength=polygon_count)
+
+    xs = triangles[:, :, 0]
+    ys = triangles[:, :, 1]
+    ax, ay = xs[:, 0], ys[:, 0]
+    bx, by = xs[:, 1], ys[:, 1]
+    cx, cy = xs[:, 2], ys[:, 2]
+    live = ((bx - ax) * (cy - ay) - (by - ay) * (cx - ax)) != 0.0
+    degenerate_per_polygon = numpy.bincount(
+        triangle_polygon[~live], minlength=polygon_count
+    )
+
+    spans, per_polygon, stats = _rasterize_live(
+        xs[live],
+        ys[live],
+        triangle_polygon[live],
+        polygon_count,
+        margin_texels=margin_texels,
+        max_scanlines=max_scanlines,
+        max_run_emissions=max_run_emissions,
+        reasons=reasons,
+    )
+
+    scanlines, emitted, covered = stats
+    results: list[Coverage | str] = []
+    offset = 0
+    for index in range(polygon_count):
+        width = int(per_polygon[index])
+        piece = spans[:, offset : offset + width]
+        offset += width
+        reason = reasons.get(index)
+        if reason is not None:
+            results.append(reason)
+            continue
+        results.append(
+            Coverage(
+                # A view, not a copy. The parent array lives as long as the
+                # coverages built from it, which is bounded by the batch size.
+                spans=piece,
+                stats=RasterStats(
+                    triangles=int(counts[index]),
+                    degenerate_triangles=int(degenerate_per_polygon[index]),
+                    scanlines=int(scanlines[index]),
+                    emitted_runs=int(emitted[index]),
+                    union_runs=width,
+                    covered_texels=int(covered[index]),
+                ),
+            )
+        )
+    return results
+
+
 def uv_to_texel_edge(uv: Sequence[float], width: int, height: int) -> Point:
     if width <= 0 or height <= 0:
         raise InvalidRasterInput("image dimensions must be positive")

@@ -1104,3 +1104,124 @@ segment sums and a comparison rather than a raise mid-loop; `InvalidRasterInput`
 for non-finite UVs; the `margin_texels` expansion; and splitting batch results
 back to the per-polygon coverage cache. None of them changes the classification
 a polygon receives, but all of them have to be reproduced before this can ship.
+
+## Batched rasterization, implemented
+
+`rasterize_batch` in `addon/core/raster.py` ships the measured prototype with
+the four pieces of correctness work priced above. `_analyze_polygon` no longer
+rasterizes; it defers a coverage-cache miss the same way it already deferred
+counting, and `_flush_pending` rasterizes the whole step chunk before counting
+it.
+
+### The correctness work, as built
+
+Budgets became segment sums. `_within_segment` recomputes each polygon's
+running scanline and run totals with one `cumsum` and a per-segment subtraction,
+and a polygon trips when its running total passes the budget. Resolving *which*
+budget tripped needs the ordered semantics of the scalar loop, which checks the
+scanline budget for a triangle before emitting that triangle's runs, so an equal
+trip position reports scanlines. That resolution runs behind an `any()` guard:
+budgets are pathological-input guards and the unbuffered `numpy.minimum.at`
+scatter it needs is not worth paying for on every batch.
+
+`InvalidRasterInput` became one `numpy.isfinite(...).all(axis=(1, 2))` test, and
+the affected polygons are dropped before the shared arithmetic so a single NaN
+cannot poison its neighbours' results.
+
+`margin_texels` expands each merged run into `2m + 1` rows and merges a second
+time, exactly as the scalar tail does, re-checking the run budget in between.
+
+Splitting back is a slice, not a copy. Each polygon's `Coverage` is a view into
+the chunk's merged span array; the array outlives the views, and since every
+coverage in it is cached anyway, nothing is retained that would not have been.
+
+### Result
+
+Same-session, realistic tier, one discarded warm-up and the median of five
+measured runs:
+
+| | Before | After | Change |
+| --- | ---: | ---: | ---: |
+| Rasterization phase | 2.625 s | 0.672 s | -74.4% |
+| Whole tier | 6.017 s | 3.962 s | -34.2% |
+| Peak working set | 1061.4 MiB | 1042.6 MiB | -1.8% |
+| Coverage reuse run | 3.952 s | 3.147 s | -20.4% |
+
+All eight counters are identical before and after: 301,088 triangles, 3,628
+degenerate triangles, 11,198,164 scanlines, 11,198,164 emitted runs, 5,599,082
+union runs, 305,101,168 covered texels, 73,897 coverage-cache hits and 76,647
+misses.
+
+The phase improved 3.91x rather than the projected 5.8x, and the tier 34.2
+percent rather than 37. The gap is the flattening of the UV phase's Python
+tuples into one array per chunk, which the prototype measured on data that was
+already an array, plus the per-chunk dictionary pass that deduplicates by
+coverage key. Both are real and neither was avoidable.
+
+### Two polygons, one coverage key, in the same chunk
+
+Deferring the rasterization moves every lookup in a chunk ahead of every store,
+so two polygons with identical UV triangles now both miss the cache where the
+second used to hit it. On the realistic tier that is 3,970 of 150,544 polygons.
+
+`_rasterize_pending` groups the misses by coverage key and rasterizes each key
+once, so the work is unchanged, and it moves the duplicate from the miss counter
+to the hit counter so the reuse metric keeps measuring reuse rather than lookup
+ordering. Without that adjustment the same run reports 80,617 misses and 69,927
+hits for exactly the same rasterization work.
+
+### Chunk size, re-measured on the shipped function
+
+The prototype's 256-polygon optimum survives the addition of per-polygon
+`RasterStats` and `Coverage` construction, measured against the same 76,647
+captured polygons:
+
+| Chunk | Seconds | Speedup |
+| ---: | ---: | ---: |
+| 128 | 0.557 | 4.48x |
+| **256** | **0.506** | **4.99x** |
+| 512 | 0.616 | 4.05x |
+| 1024 | 0.662 | 3.74x |
+
+`_RASTER_BATCH_POLYGONS` is therefore a measured constant in
+`addon/adapters/analysis.py`, deliberately independent of the analysis loop's
+step budget, which the modal operator sets to 256 and the benchmark to 4,096.
+
+### Regressions added
+
+`BatchedRasterizationTests` in `tests/unit/test_rasterization.py` holds six
+tests that require `rasterize_batch` to equal `rasterize_polygon` polygon for
+polygon, including `stats`: on the 27 adversarial cases with and without a
+margin, on 400 randomized quads, when one polygon in a batch trips a budget or
+carries a non-finite UV, when the margin expansion itself trips the run budget,
+on empty and all-degenerate input, and when the composite sort key overflows
+into the `lexsort` fallback. The adversarial case list and the randomized-quad
+generator were lifted to module scope so the batch and scalar tests share one
+definition rather than two copies.
+
+`_batched_rasterization_equivalence_test` in
+`tests/blender/test_analysis_preview.py` runs a 600-triangle fixture — enough to
+cross the 256-polygon seam — with scattered UVs and deliberate duplicate
+coverage keys, and requires every face's `RasterStats` and all six aggregate
+counters to equal an oracle built from the mesh with `rasterize_polygon`.
+
+The oracle is built from the mesh rather than by swapping `rasterize_batch` for
+a scalar shim underneath the adapter. That was the first version of this test
+and it was worthless: an adapter bug corrupts both sides of such a comparison
+equally and it still passes. Confirmed by sabotage — reversing the result-to-key
+mapping, adding one to the margin, and assigning a deduplicated coverage to only
+the first of its polygons all passed the shim version and all fail the current
+one.
+
+### Next measured bottleneck
+
+UV traversal is now the largest phase of the 3.962 s tier at 32.5 percent, ahead
+of rasterization at 16.9 percent and classification at 10.8 percent. It is the
+per-loop Python read of `uv_layer.uv[i].vector` followed by a per-point
+`uv_to_texel_edge` call, and it is a `foreach_get` away from being one array
+operation — the same change the structural signature already took.
+
+Unattributed time is 16.9 percent, but it did not grow: it is 0.669 s against
+0.657 s before, essentially unchanged in absolute terms while the phase around
+it shrank. That reinforces the earlier conclusion that it is diffuse interpreter
+overhead in the stepping loop rather than an unmeasured phase.

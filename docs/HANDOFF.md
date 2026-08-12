@@ -12,9 +12,9 @@ fresh profile, and a successful outcome does not require shipping GPU code.
 
 Stages 1 through 5 are complete. Stage 6A and 6B are complete, 6B twice: once
 against the grid fixture and then again against a realistic tier that ranks the
-candidates differently. The shared prerequisite both remaining paths needed --
-flat-array coverage -- has landed, so the gate is open with a stable baseline.
-No GPU prototype has been built and none is authorized.
+candidates differently. Both CPU candidates the re-ranking surfaced have landed:
+flat-array coverage and batched rasterization. The gate is open with a stable
+baseline. No GPU prototype has been built and none is authorized.
 
 ## Decisions
 
@@ -73,15 +73,21 @@ No GPU prototype has been built and none is authorized.
   `redo_post` blank `report_json` and `analysis_id`. The digests written into
   the `.blend` come from `material_fingerprint`, which it does not feed. The
   version tag moved to `STRUCTURAL_V2` to record the encoding change.
-- Stage 3's own name — vectorize the rasterizer — is measured but not built.
-  numpy inside the per-polygon call was 2.7x slower and stays rejected. Batching
-  was re-measured against the current implementation and is **5.8x all in**,
-  exact on all 76,647 captured polygons, projecting the realistic tier from
-  6.491 s to about 4.09 s. Two findings drove it: a three-key `lexsort` was 58
-  percent of the first prototype and one composite int64 key replaced it at
-  about 10x, and a 256-polygon chunk is more than twice as fast as batching
-  everything at once because the intermediates stay in cache. **Implementation
-  is not authorized.**
+- Stage 3's own name — vectorize the rasterizer — is measured, approved and
+  built. numpy inside the per-polygon call was 2.7x slower and stays rejected.
+  Batching was re-measured against the current implementation, projected 5.8x,
+  and shipped at 3.91x on the phase and 34.2 percent on the realistic tier. Two
+  findings drove the throughput: a three-key `lexsort` was 58 percent of the
+  first prototype and one composite int64 key replaced it at about 10x, and a
+  256-polygon chunk is about 20 percent faster than any other window because the
+  intermediates stay in cache.
+- Rasterization is deferred exactly like counting: `_analyze_polygon` records a
+  coverage-cache miss and `_flush_pending` rasterizes the whole step chunk. The
+  chunk size is a measured constant, not the caller's step budget.
+- Deferring the lookups ahead of the stores makes both copies of an in-chunk
+  duplicate coverage key miss the cache. `_rasterize_pending` rasterizes each
+  key once and moves the duplicate back to the hit counter, so all eight
+  benchmark counters are identical before and after.
 
 ## Commits
 
@@ -96,7 +102,8 @@ No GPU prototype has been built and none is authorized.
 - `d7e7ae3` — realistic benchmark tier and the re-ranked Stage 6 gate;
 - `7b25abd` — flat-array coverage and batched alpha counting;
 - `e1f2cbc` — the flat-array coverage result;
-- `ca2b4fe` — engine construction instrumentation.
+- `ca2b4fe` — engine construction instrumentation;
+- `0ad3852` — vectorized structural signature.
 
 ## GPU findings worth not rediscovering
 
@@ -119,9 +126,10 @@ agent the most time:
 
 Fresh local results on this branch:
 
-- unit suite on Blender's bundled Python 3.13.13: 135 passed;
+- unit suite on Blender's bundled Python 3.13.13: 141 passed;
 - headless Blender suite: exit 0, all 18 modules OK, including the new
   `ALPHA_MATERIAL_SEPARATOR_IMAGE_DATA_OK`;
+- `blender --factory-startup --command extension validate addon`: success;
 - `git diff --check`: clean before each commit;
 - same-session before/after benchmarks per stage, each with wall time and peak
   working set, recorded in `docs/performance.md`.
@@ -136,12 +144,21 @@ same-session:
 | Row prefixes | 14.049 s | 11.342 s | -19.3% |
 | Flat-array coverage | 10.983 s | 6.963 s | -36.6% |
 
-The signature vectorization was measured on the realistic tier only, since that
-is the tier that ranks candidates: 7.482 s to 6.491 s, -13.2 percent, with the
-signature phase itself going 1.188 s to 0.120 s.
+The last two changes were measured on the realistic tier only, since that is the
+tier that ranks candidates:
 
-The realistic tier, which is the one that ranks candidates, went 11.604 s to
-6.444 s on that last change, a 44.5 percent improvement.
+| Change | Before | After | Change |
+| --- | ---: | ---: | ---: |
+| Signature vectorization | 7.482 s | 6.491 s | -13.2% |
+| Batched rasterization | 6.017 s | 3.962 s | -34.2% |
+
+The signature phase itself went 1.188 s to 0.120 s, and the rasterization phase
+2.625 s to 0.672 s. The two before-figures are not comparable to each other:
+each pair is its own same-session measurement, and the batched pair's baseline
+was re-measured rather than carried over.
+
+The realistic tier went 11.604 s to 6.444 s on the flat-array change, a 44.5
+percent improvement.
 
 Peak working set never regressed; it fell slightly at Stages 1 and 4, was flat
 at Stage 3, and fell 2949.8 MiB to 2080.4 MiB with flat-array coverage. Coverage totals, run counts, and scanline counts are identical
@@ -166,10 +183,11 @@ before and after every stage on the benchmark fixtures.
   entered the repository.
 - No packaging, installed-ZIP, export, Unity, or human interaction gate has been
   run, none of which this branch's changes have yet required.
-- Rasterization is the dominant cost at 44.7 percent of the 6.491 s realistic
-  tier, followed by UV traversal at 18.7 percent and classification at 8.1
-  percent. The signature is now 1.8 percent. Unattributed time is diffuse
-  stepping-loop overhead rather than a single target.
+- UV traversal is now the dominant cost at 32.5 percent of the 3.962 s realistic
+  tier, ahead of rasterization at 16.9 percent and classification at 10.8
+  percent. Unattributed time is 16.9 percent but did not grow in absolute terms
+  — 0.669 s against 0.657 s — so it remains diffuse stepping-loop overhead
+  rather than a single target.
 - The signature vectorization improved the whole workflow 13.2 percent, below
   the repository's 20 percent keep threshold. Recorded rather than rounded; it
   is kept because the diff is smaller than what it replaces, which is not true
@@ -177,31 +195,34 @@ before and after every stage on the benchmark fixtures.
 - The 47 percent attributed to the flat-array change did not transfer from
   high-tier scale. The measured result is 44.5 percent on the realistic tier and
   36.6 percent on the high tier.
+- Batched rasterization shipped at 3.91x on the phase against a projected 5.8x.
+  The gap is the tuple-to-array flattening and the coverage-key deduplication
+  pass, neither of which the prototype paid for. It clears the keep threshold at
+  34.2 percent regardless.
+- Batched rasterization was measured on the realistic tier only. The high tier
+  has not been re-measured since flat-array coverage.
 
 ## Next action
 
-Decide whether to implement batched rasterization. The measurement is done and
-favourable — 5.8x on the phase, about 37 percent on the whole realistic tier,
-exact on every captured polygon — and it is the only remaining CPU candidate
-above the keep threshold. Implementation is a multi-step production change and
-needs an approved test-first plan, not just the measurement.
+Decide whether to take UV traversal, which the batched-rasterization profile
+promoted to the largest phase at 32.5 percent of the 3.962 s realistic tier.
+It is a per-loop Python read of `uv_layer.uv[i].vector` followed by a per-point
+`uv_to_texel_edge` call, and it is a `foreach_get` away from being one array
+operation per mesh — the same change the structural signature already took, on
+a phase that is now 18 times larger than the signature was. Nothing about it has
+been measured yet, so the first step is a scratchpad prototype, not a plan.
 
-The throughput path is proven; what is unbuilt is the correctness work around
-it, and that is where the plan has to concentrate: per-polygon `max_scanlines`
-and `max_run_emissions` budgets become segment sums rather than a raise inside
-the loop, `InvalidRasterInput` becomes a vectorized finiteness test, the
-`margin_texels` expansion needs its second merge pass, and batch results have to
-split back into the per-polygon coverage cache. None of these changes what
-classification a polygon receives, and each needs a regression that proves it.
+Rasterization at 16.9 percent and classification at 10.8 percent are the next
+two, and both are already vectorized; neither has an untaken CPU idea behind it.
 
 The GPU prototype is deferred by the user until the CPU path is exhausted. A 6E
-prototype of the fused rasterize-and-classify dataflow is worth at most 52.8
-percent of the realistic tier, rasterization plus classification, and batched
-rasterization would take most of that first.
+prototype of the fused rasterize-and-classify dataflow is now worth at most 27.7
+percent of the realistic tier, down from 52.8, because batched rasterization
+took most of what it was competing for.
 
-If batched rasterization is declined, the branch is complete as a measurement
-result: the high tier went from 80.239 s to 6.963 s and the realistic tier
-stands at 6.491 s.
+If no further work is taken, the branch is complete as a measurement result: the
+high tier went from 80.239 s to 6.963 s and the realistic tier stands at
+3.962 s.
 
 Push and pull-request creation require separate authorization and have not been
 requested.

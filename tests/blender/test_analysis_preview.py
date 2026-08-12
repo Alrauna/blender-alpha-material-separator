@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import json
+import random
 from array import array
+from collections import Counter
 
 import bmesh
 import bpy
@@ -20,7 +22,7 @@ from addon.adapters.analysis import (
 from addon.adapters.assignment import build_assignment_plan
 from addon.adapters.image_data import ImageReadError, read_image_snapshot
 from addon.adapters.material_resolver import resolve_material
-from addon.core import FaceClass
+from addon.core import FaceClass, rasterize_polygon, uv_to_texel_edge
 from addon.operators import analyze as analyze_operator
 
 
@@ -515,6 +517,126 @@ def _single_preparation_pass_test(*objects) -> None:
     assert max(fingerprint_calls.values(), default=0) == 1, fingerprint_calls
 
 
+def _batched_raster_object(name: str, count: int):
+    """Scattered UV triangles, deliberately crossing the batch's seams.
+
+    Rasterization batches 256 polygons at a time and deduplicates by coverage
+    key, so an equivalence fixture has to cross that boundary and repeat some
+    triangles rather than being a handful of distinct quads.
+    """
+    image = _image(f"{name}_IMAGE")
+    material, _tree, _principled, _texture = _material(f"{name}_MATERIAL", image)
+    generator = random.Random(0x5CA1E)
+    vertices = []
+    faces = []
+    uvs = []
+    for index in range(count):
+        offset = len(vertices)
+        x = float(index)
+        vertices.extend(((x, 0.0, 0.0), (x + 0.5, 0.0, 0.0), (x, 0.5, 0.0)))
+        faces.append((offset, offset + 1, offset + 2))
+        if index and index % 7 == 0:
+            # Two polygons with one coverage key, which the cache used to
+            # collapse and the batch has to collapse for itself.
+            uvs.extend(uvs[-3:])
+        else:
+            uvs.extend(
+                (generator.uniform(-0.5, 1.5), generator.uniform(-0.5, 1.5))
+                for _ in range(3)
+            )
+    mesh = bpy.data.meshes.new(f"{name}_MESH")
+    mesh.from_pydata(vertices, (), faces)
+    mesh.materials.append(material)
+    uv_layer = mesh.uv_layers.new(name="UVMap", do_init=False)
+    uv_layer.active_render = True
+    modern = getattr(uv_layer, "uv", None)
+    for loop in mesh.loops:
+        if modern is not None:
+            modern[loop.index].vector = uvs[loop.index]
+        else:
+            uv_layer.data[loop.index].uv = uvs[loop.index]
+    object_ = bpy.data.objects.new(name, mesh)
+    bpy.context.collection.objects.link(object_)
+    object_.select_set(True)
+    return object_, image
+
+
+_RASTER_COUNTERS = (
+    "triangles",
+    "degenerate_triangles",
+    "scanlines",
+    "emitted_runs",
+    "union_runs",
+    "covered_texels",
+)
+
+
+def _batched_rasterization_equivalence_test() -> None:
+    """Every face must get the coverage the single-polygon path would give it.
+
+    The unit suite proves `rasterize_batch` matches `rasterize_polygon` on
+    synthetic triangles. What only a live analysis can prove is that the adapter
+    groups the right triangles into a batch, deduplicates by coverage key
+    correctly, and returns each result to the polygon it came from. So the
+    oracle here is built from the mesh directly. Swapping the rasterizer
+    underneath the adapter would prove nothing: an adapter bug would corrupt
+    both sides equally and the comparison would still pass.
+    """
+    _clear_scene()
+    object_, image = _batched_raster_object("ams_batch_seam", 600)
+    settings = AnalysisConfig().settings
+    mesh = object_.data
+    uv_layer = mesh.uv_layers[0]
+    modern = getattr(uv_layer, "uv", None)
+    expected = {}
+    for polygon in mesh.polygons:
+        triangle = tuple(
+            uv_to_texel_edge(
+                modern[loop].vector if modern is not None else uv_layer.data[loop].uv,
+                image.size[0],
+                image.size[1],
+            )
+            for loop in polygon.loop_indices
+        )
+        expected[polygon.index] = rasterize_polygon(
+            [triangle],
+            margin_texels=settings.margin_texels,
+            max_scanlines=settings.max_scanlines,
+            max_run_emissions=settings.max_run_emissions,
+        ).stats
+
+    runtime.clear_coverage_cache()
+    engine = AnalysisEngine([object_], AnalysisConfig())
+    while not engine.step(4_096):
+        pass
+    report = engine.finish()
+    faces = {
+        index: face.result
+        for result in report.object_results.values()
+        for index, face in result.faces.items()
+    }
+    assert len(faces) == len(expected) == 600, (len(faces), len(expected))
+    for index, stats in expected.items():
+        assert faces[index].raster_stats == stats, (
+            index,
+            faces[index].raster_stats,
+            stats,
+        )
+    totals = Counter()
+    for stats in expected.values():
+        for name in _RASTER_COUNTERS:
+            totals[name] += getattr(stats, name)
+    for name in _RASTER_COUNTERS:
+        assert engine.metrics[name] == totals[name], (
+            name,
+            engine.metrics[name],
+            totals[name],
+        )
+    assert totals["covered_texels"] > 0, totals
+    assert totals["union_runs"] > 600, totals
+    _clear_scene()
+
+
 def _structural_signature_sensitivity_test() -> None:
     """Every mesh array the signature hashes must move the digest.
 
@@ -810,6 +932,7 @@ def run() -> None:
     _out_of_range_uv_test()
     _preview_component_selection_test()
     _clear_scene()
+    _batched_rasterization_equivalence_test()
     _structural_signature_sensitivity_test()
     _clear_scene()
     _analysis_cadence_tests()
