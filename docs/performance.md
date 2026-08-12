@@ -10,6 +10,11 @@ and the repeatable method used to detect regressions.
   materials.
 - High complexity: about 150,000 polygons, two 4K images, one 8K image, and
   sixteen materials.
+- Realistic: the same polygon count, but shaped like an actual asset rather than
+  an even grid — unevenly sized UV islands, multi-tile addressing throughout,
+  half the polygons reusing a shared island so the coverage cache hits, five
+  images at mixed square and non-square resolutions, collapsed UV quads, and
+  structured alpha. Use this tier, not High complexity, to rank any accelerator.
 - Large UV footprint: negative and multi-tile addressing.
 - Pathological: deterministic scanline/run budget termination.
 
@@ -683,38 +688,103 @@ no warp divergence, so the fixture flatters a GPU rasterizer relative to a real
 mesh of mixed triangle sizes. Against that, it understates arithmetic intensity:
 no UV tiling outside one tier, no overlapping shells, and no alpha structure.
 
-Private characterization against an authorized local asset confirms the fixture
-is unrepresentative, in five ways that all matter to this ranking. Numbers stay
-out of this document per the repository's private-input policy; the directions
-do not, because a future agent ranking accelerators from the committed fixture
-alone would reach the wrong answer:
+Private characterization against an authorized local asset confirmed the fixture
+is unrepresentative in five ways that all matter to this ranking, so the
+`realistic` tier was added to reproduce them from generated, redistributable
+data. Its parameters were tuned until its shape matched what the private asset
+measured; the private numbers themselves stay out of this document per the
+repository's private-input policy, but the tier's numbers are committable and
+every figure below comes from it.
 
-- **run counting is a much larger share** of a real workload than of the
-  fixture, and on the private asset it clears the 20 percent keep threshold on
-  its own, where the fixture ranked it well below;
-- **triangles span far more scanline rows on average, with far more variance**,
-  because real UV layouts tile outside the unit square;
-- **the coverage cache hits on a majority of polygons**, because real scenes
-  contain repeated geometry, so rasterization is paid for a minority of them
-  while classification is paid for all;
-- **many images per scene at mixed resolutions**, rather than three at two
-  sizes, which changes both upload volume and per-image reuse;
-- **degenerate UV triangles occur**, where the fixture produces none.
+## Realistic tier
 
-The fixture should be regenerated to match those characteristics so this
-evidence becomes committable. Until it is, every share in the ranking table
-above is provisional, and rasterization plus run counting together are a larger
-fraction of a realistic workload than the fixture shows, not a smaller one.
+Same 150,544 polygons and 301,088 triangles as the high tier, but with unevenly
+sized UV islands, multi-tile addressing throughout, half the polygons reusing a
+shared island, five images at mixed square and non-square resolutions, a
+collapsed UV quad every 83 polygons, and structured alpha instead of a uniformly
+opaque fill. Cold 11.554 s, coverage reuse 7.025 s, reuse with a changed image
+6.902 s, peak working set 2.887 GiB.
+
+| Phase | Seconds | Share |
+| --- | ---: | ---: |
+| Rasterization | 4.711 | 40.8% |
+| Classification | 2.982 | 25.8% |
+| UV traversal | 1.301 | 11.3% |
+| Coverage cache key | 0.233 | 2.0% |
+| Image digest | 0.112 | 1.0% |
+| Row-prefix construction | 0.067 | 0.6% |
+| Image read | 0.064 | 0.6% |
+| Coverage cache lookup | 0.039 | 0.3% |
+| Image mask | 0.024 | 0.2% |
+| Image channel select | 0.016 | 0.1% |
+| Coverage cache store | 0.015 | 0.1% |
+| Unattributed | 1.991 | 17.2% |
+
+What separates it from the high tier, at a nearly identical 11.124 s cold:
+
+| Characteristic | High complexity | Realistic |
+| --- | ---: | ---: |
+| Scanline rows per triangle | 14.8 | 37.2 |
+| Unioned runs | 2,234,880 | 5,599,082 |
+| Covered virtual texels | 36,782,080 | 305,101,168 |
+| Coverage cache hit rate | 0% | 49.1% |
+| Degenerate UV triangles | 0 | 3,628 |
+| Classification share | 14.3% | 25.8% |
+
+The two tiers take the same wall time and rank accelerators differently. On the
+even grid, classification is 14.3 percent and was rejected; on a realistic
+workload it is 25.8 percent and clears the 20 percent keep threshold on its own.
+It is also the more reliably hot phase of the two, because the coverage cache
+absorbs roughly half of rasterization while classification is paid for every
+polygon. Rasterization plus classification is 66.6 percent of the tier.
+
+Adding the tier changed no existing tier: `small`, `typical`, `high`, and
+`large_tiled_uv` all produce byte-identical `triangles`, `scanlines`,
+`emitted_runs`, `union_runs`, `covered_texels`, `degenerate_triangles`, and
+`coverage_cache_misses` before and after, with cold times within noise.
+
+### Candidate ranking, recomputed against the realistic tier
+
+The ranking above is superseded by this one. Same candidates, same method,
+11.554 s realistic profile instead of the 11.342 s high tier: 301,088 triangles,
+11,198,164 scanline rows, 11,198,164 emitted runs unioned to 5,599,082,
+305,101,168 covered texels, and 38.5 M texels across five images.
+
+| Candidate | CPU | Share | Input volume | Output volume | Work items | Reuse | Exactness |
+| --- | ---: | ---: | --- | --- | ---: | --- | --- |
+| Rasterization | 4.711 s | 40.8% | 7.2 MB of f32 triangles | 11.2 M runs, or 76,647 counts if fused | 11.2 M rows | masks reused by every triangle | needs f64 or 64-bit fixed point, both available |
+| Classification | 2.982 s | 25.8% | 154 MB of f32 prefixes plus 67 MB of runs | 150,544 counts | 5.6 M runs | prefixes reusable per image | easy, integer subtraction |
+| UV traversal | 1.301 s | 11.3% | Blender RNA | UV array | 602,176 loops | none | not GPU work; it is host marshalling |
+| Row prefixes | 0.067 s | 0.6% | 38.5 M texels | 38.5 M prefixes | 11,264 rows | per image | easy |
+| Image digest, cache key | 0.345 s | 3.0% | — | — | — | — | out of scope per the plan |
+
+Two rankings change materially against the grid fixture, and both change in the
+same direction — toward classification:
+
+- **Classification clears the keep threshold on its own.** 25.8 percent against
+  14.3 percent on the grid, because real UV layouts tile and unevenly sized
+  islands produce 2.5x the runs per triangle.
+- **Rasterization is paid for half the polygons and classification for all of
+  them.** The coverage cache hits 73,897 of 150,544 polygons, so the fused
+  candidate's rasterization half is discounted by the hit rate while its
+  classification half is not. On the grid fixture the hit rate is zero and this
+  asymmetry is invisible.
+
+Row prefixes fall further, to 0.6 percent, and are rejected more firmly than
+before. UV traversal rises but remains host marshalling that no accelerator
+addresses.
 
 ### Position of the Stage 6 gate
 
 The gate does not close, but it does not proceed on this profile either.
 
 Two of the three original rejections stand on their own measurements and are not
-sensitive to workload complexity. Row prefixes are 1.6 percent of the workflow,
-so Amdahl caps them regardless of how fast the GPU is, and the reduction spike
-measured the GPU slower than the numpy it would replace. Run counting needs 439
-MB across the bus to save 1.433 s.
+sensitive to workload complexity. Row prefixes are 0.6 percent of the realistic
+workflow, so Amdahl caps them regardless of how fast the GPU is, and the
+reduction spike measured the GPU slower than the numpy it would replace.
+Classification as a standalone candidate needs 221 MB across the bus to save
+2.982 s; it is worth more on a realistic workload than the grid fixture showed,
+but it is bandwidth-bound in exactly the way the reduction spike measured.
 
 The fused rasterize-and-classify candidate is the one that survives. Its
 expensive input, the alpha mask, uploads once and is reused by every polygon
@@ -726,9 +796,14 @@ two have different dataflows, and no prototype of the fused candidate exists.
 
 What blocks it is sequencing, not feasibility. The GPU candidate and the CPU
 flat-array change need the same prerequisite: coverage must stop crossing into
-classification as a mapping of Python tuples. That data-model change is worth
-about 47 percent on its own, and it moves the denominator every GPU number would
-be measured against — after it lands, rasterization plus run counting is roughly
-1.7 s of a roughly 6 s workflow, so a perfect GPU replacement for both would be
-worth about 27 percent rather than 62. Prototyping the GPU path first would
-measure it against a baseline that is about to change.
+classification as a mapping of Python tuples. That data-model change moves the
+denominator every GPU number would be measured against, so prototyping the GPU
+path first would measure it against a baseline that is about to change.
+
+The 47 percent estimated for that change, and the 27 percent left for a perfect
+GPU replacement afterwards, both come from microbenchmarks run at high-tier
+scale — 2,558,205 rows, no cache hits, no degenerate triangles. The realistic
+tier has 11.2 M rows and a 49.1 percent hit rate, so neither number transfers
+and neither has been re-measured. What does transfer is the ordering: the two
+phases the change targets are 66.6 percent of the realistic tier, more than the
+61.9 percent they were on the grid.
