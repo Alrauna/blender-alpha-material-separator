@@ -10,10 +10,12 @@ that GPU acceleration is a candidate gated on measurement, not a specification:
 the CPU implementation stays authoritative, every later target is chosen from a
 fresh profile, and a successful outcome does not require shipping GPU code.
 
-Stages 1 through 5 are complete. Stage 6A and 6B are complete. The gate is open
-but not proceeding to 6E yet: the fused rasterize-and-classify candidate is the
-only survivor, and it shares a prerequisite with the CPU alternative, so
-prototyping it now would measure it against a baseline that is about to change.
+Stages 1 through 5 are complete. Stage 6A and 6B are complete, 6B twice: once
+against the grid fixture and then again against a realistic tier that ranks the
+candidates differently. The gate is open but not proceeding to 6E yet: the fused
+rasterize-and-classify candidate is the only survivor, and it shares a
+prerequisite with the CPU alternative, so prototyping it now would measure it
+against a baseline that is about to change.
 
 ## Decisions
 
@@ -44,9 +46,14 @@ prototyping it now would measure it against a baseline that is about to change.
   in place: Blender's shader interface *does* expose exact `double` and
   `int64_t`, and the bandwidth-bound reduction measurements do *not* price the
   fused rasterize-and-classify candidate, which has a different dataflow.
-- All timing in this branch comes from the generated grid fixture, which has
-  uniform triangles, no UV tiling outside one tier, and uniform alpha. No
-  measurement has been taken against a realistic asset.
+- The grid fixture misranks accelerators, so a `realistic` tier was added rather
+  than continuing to rank from it. Its shape was learned from an authorized
+  private asset and then reproduced from generated data, so the evidence is
+  committable; no private number entered the repository. Ranking uses this tier,
+  not High complexity.
+- Classification was rejected at 14.3 percent on the grid and is 25.8 percent on
+  the realistic tier, which clears the keep threshold. **The Stage 6B ranking
+  changed as a result and the earlier grid-based ranking is superseded.**
 - Stage 3's own name — vectorize the rasterizer — is still unfulfilled. Both
   drop-in scopes were measured and both are rejected: numpy inside the
   per-polygon call is 2.7x slower, and batching every triangle is 1.4x, about
@@ -62,7 +69,9 @@ prototyping it now would measure it against a baseline that is about to change.
 - `8b1b812` — `numpy.cumsum` row prefixes (Stage 4);
 - `f749202` — Stage 6A spike and Stage 6B ranking;
 - `3a8b636` — corrected numpy rasterizer projection;
-- `34629bf` — corrected the exactness blocker and the fixture's representativeness.
+- `34629bf` — corrected the exactness blocker and the fixture's representativeness;
+- `405c9f3` — Stage 6 handoff correction;
+- `d7e7ae3` — realistic benchmark tier and the re-ranked Stage 6 gate.
 
 ## GPU findings worth not rediscovering
 
@@ -118,12 +127,18 @@ before and after every stage on the benchmark fixtures.
 - Stage 4 improved the high tier 19.3 percent, marginally below the repository's
   20 percent keep threshold. Recorded rather than rounded; the reasoning for
   keeping it is in `docs/performance.md`.
-- No private characterization has been run on this branch. No packaging,
-  installed-ZIP, export, Unity, or human interaction gate has been run, none of
-  which this branch's changes have yet required.
-- Rasterization is again the dominant cost at 49.3 percent of an 11.342 s high
-  tier, followed by run counting at 12.6 percent and UV traversal at 9.5
-  percent. About 18.9 percent remains outside the instrumented phases.
+- Private characterization was authorized and run. Its script and output stay in
+  the session scratchpad and were never committed, per the user's instruction
+  that tests using local references remain local. Only the derived fixture shape
+  entered the repository.
+- No packaging, installed-ZIP, export, Unity, or human interaction gate has been
+  run, none of which this branch's changes have yet required.
+- Rasterization is the dominant cost at 40.8 percent of the 11.554 s realistic
+  tier, followed by classification at 25.8 percent and UV traversal at 11.3
+  percent. About 17.2 percent remains outside the instrumented phases.
+- The 47 percent attributed to the flat-array change and the 27 percent left for
+  a GPU afterwards were measured at high-tier scale and do not transfer to the
+  realistic tier. Neither has been re-measured.
 
 ## Next action
 
@@ -133,17 +148,14 @@ both remaining paths. It changes `Coverage`, the coverage cache payload, and
 before any code. It is worth roughly 47 percent on its own, and until it lands
 no GPU prototype can be measured against a stable baseline.
 
-Two secondary items are open and neither is authorized:
-
-- benchmarking against `.local-references/default-example`, which would replace
-  the grid fixture's uniform triangles and uniform alpha with a realistic
-  workload;
-- a 6E prototype of the fused rasterize-and-classify GPU dataflow, worth about
-  27 percent once the flat-array change lands.
+One secondary item is open and is not authorized: a 6E prototype of the fused
+rasterize-and-classify GPU dataflow. Ranking it now requires the flat-array
+change first, because that change moves the baseline it would be measured
+against.
 
 If both remaining paths are declined, the branch is complete as a measurement
 result: the high tier went from 80.239 s to 11.342 s across four landed changes.
 
-No production code changed in this session; the three commits above are
-documentation. Push and pull-request creation require separate authorization and
-have not been requested.
+No production code changed in this session. The commits are documentation plus
+the benchmark fixture, which is test-only. Push and pull-request creation
+require separate authorization and have not been requested.
