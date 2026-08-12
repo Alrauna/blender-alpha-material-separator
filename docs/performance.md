@@ -481,3 +481,147 @@ Cumulative effect of the four landed changes on this machine: the high tier went
 from 80.239 s to 11.342 s, and the typical tier from 10.333 s to 3.451 s. Those
 endpoints come from different sessions and are not a single controlled
 measurement; each stage's percentage above is same-session.
+
+## GPU capability at scale
+
+Measured 2026-08-12 with a discardable spike that is not committed. Blender
+5.2.0 LTS, Windows 11, NVIDIA GeForce RTX 4080, driver 610.88, OpenGL backend
+reporting 4.6.0. Device limits: 8 image slots, 32768 maximum texture size, work
+group counts 2147483647/65535/65535, work group sizes 1024/1024/64. Headless
+`gpu.init()` costs 0.357 s once.
+
+### The only exact upload channel is R32F
+
+`GPUTexture` exposes no write method, so the constructor's `data=` argument is
+the only route from CPU memory into a texture, and it accepts nothing but a
+`FLOAT` buffer: `Only Buffer of format 'FLOAT' is currently supported`. Feeding
+that float buffer to a non-float texture does not reinterpret the bits, it
+produces garbage.
+
+| Texture format | A FLOAT buffer of 0..15 reads back as |
+| --- | --- |
+| `R32F` | `0.0 .. 15.0` — exact |
+| `R32UI` | uninitialized integers |
+| `R32I` | float32 values, the known broken `R32I` readback |
+| `R8UI` | all zeros |
+
+The float32 channel is exact for integers through 2^24; 16777215 and 16777216
+survive, 16777217 collapses to 16777216 and 2147483647 to 2147483648. Any exact
+integer payload sent this way must stay below 2^24, which a 0/1 mask and any row
+prefix over a 32768-wide image both satisfy.
+
+`gpu.texture.from_image()` is not an exact alternative. It returns `SRGB8_A8`
+for byte images and `RGBA16F` — half precision — for float images, so it cannot
+carry float image data without loss.
+
+Output is exact in the other direction: `R32UI` written by the shader and read
+through `GPUTexture.read()` matched numpy on every case at every size.
+
+### Reduction at scale works, and synchronizes
+
+Per-row affected counts over an `R32F` mask into a one-value-per-row `R32UI`
+result, two of the eight image slots, one dispatch, median of five warm runs.
+
+| Texels | Host f32 convert | Upload | Warm dispatch | Readback | GPU end to end | numpy row sum |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1,048,576 | 0.0003 s | 0.0006 s | 0.00003 s | 0.0001 s | 0.0011 s | 0.0003 s |
+| 4,194,304 | 0.0012 s | 0.0021 s | 0.00003 s | 0.0003 s | 0.0036 s | 0.0014 s |
+| 16,777,216 | 0.0089 s | 0.0062 s | 0.00003 s | 0.0005 s | 0.0156 s | 0.0049 s |
+| 67,108,864 | 0.0377 s | 0.0263 s | 0.00003 s | 0.0008 s | 0.0648 s | 0.0216 s |
+
+Every result was exact with zero mismatches, including after twenty dispatches
+were queued and the texture read immediately, so `GPUTexture.read()` does
+synchronize even though no barrier is exposed. Shader creation is 0.0007 s warm
+and 0.029 s for the first shader in a process.
+
+The shape matters more than the totals. Dispatch costs about 30 microseconds at
+every size, so compute is effectively free; upload runs at roughly 10 GB/s and
+is the entire cost. numpy is about three times faster end to end at every size,
+because the GPU pays for a host float32 conversion and a bus crossing the CPU
+never makes. A GPU pass can therefore only pay when its input is already
+resident or reused many times, or when it replaces far more CPU work than a
+single reduction.
+
+### `gpu.compute.dispatch` leaves the shader bound, and that crashes Blender
+
+Reproducible `EXCEPTION_ACCESS_VIOLATION` reading `0xFFFFFFFFFFFFFFFF`, twice at
+the same address, with this stack:
+
+```
+blender::GPU_shader_bind
+blender::GPU_texture_update_mipmap_chain
+blender::image_get_gpu_texture
+blender::BKE_image_get_gpu_texture
+blender::pygpu_texture_from_image
+```
+
+`gpu.compute.dispatch()` leaves the shader bound. If the `GPUShader` is then
+released — a local going out of scope is enough — Blender still holds it as the
+active shader, and the next operation that binds one dereferences freed memory.
+An isolated probe confirms it: dispatching from inside a function and collecting
+the shader crashes on the following `gpu.texture.from_image()`, and adding
+`gpu.shader.unbind()` before the function returns makes the same script exit
+cleanly. Any GPU code in this extension must unbind after dispatch; the failure
+mode is a hard crash of the user's Blender, not an exception.
+
+## GPU candidate ranking
+
+Ranked against the 11.342 s high-tier profile above: 301,088 triangles,
+4,469,760 scanline rows, 4,469,760 emitted runs unioned to 2,234,880, 36,782,080
+covered texels, and 100.7 M texels across 4096, 4096, and 8192 images.
+
+| Candidate | CPU | Share | Input volume | Output volume | Work items | Reuse | Exactness |
+| --- | ---: | ---: | --- | --- | ---: | --- | --- |
+| Rasterization | 5.597 s | 49.3% | 7.2 MB of f32 triangles | 4.47 M runs, or 150,544 counts if fused | 4.47 M rows | masks reused by every triangle | **hard** — needs f64 or 64-bit fixed point |
+| Run counting | 1.433 s | 12.6% | 403 MB of f32 prefixes plus 36 MB of runs | 150,544 counts | 4.47 M runs | prefixes reusable per image | easy, integer subtraction |
+| UV traversal | 1.075 s | 9.5% | Blender RNA | UV array | 602,176 loops | none | not GPU work; it is host marshalling |
+| Row prefixes | 0.186 s | 1.6% | 100.7 M texels | 100.7 M prefixes | 12,288 rows | per image | easy |
+| Image digest, cache key | 0.541 s | 4.8% | — | — | — | — | out of scope per the plan |
+
+Row prefixes are rejected on Amdahl grounds, as anticipated: removing the phase
+entirely buys 1.6 percent, and the measurement above shows the GPU would be
+slower than the numpy it would replace. Run counting is exact and cheap to
+express but needs 439 MB across the bus to save 1.433 s, and the reduction
+measurement prices that crossing at roughly 0.05 s only after a host float32
+conversion that costs more than the transfer.
+
+Rasterization is the only phase large enough to clear a 20 percent
+whole-workflow gate on its own, and it is the one with the worst exactness
+story. The oracle is exact positive-area coverage of float64 UV triangles.
+f32 has a 24-bit mantissa and cannot survive the adversarial suite, which
+includes coordinates near 1e7 with sub-ulp spacing; GLSL exposes no 64-bit
+integers through Blender's shader interface, so an exact formulation means
+synthesizing 64-bit fixed point from paired 32-bit words with 128-bit
+intermediates for the cross products.
+
+### The rasterizer has an untaken numpy vectorization worth more than any GPU path
+
+Before that work could be justified, the plan's own rule — take or explicitly
+reject every remaining CPU improvement first — required pricing the obvious one.
+Stage 3 rewrote `rasterize_polygon` in pure Python and deliberately did not
+vectorize it. Computing the same height-sorted cross-sections for every triangle
+at once, with `numpy.repeat` to expand triangles into their scanline rows,
+measures as follows on 301,088 triangles shaped like the high tier's, 8.5 rows
+each:
+
+| Path | Seconds |
+| --- | ---: |
+| Shipped Python, projected from a 20,000-triangle sample | 4.588 |
+| numpy, whole batch | 0.278 |
+
+That is 16.5x, and the runs are **identical**, not merely equivalent: on 2,000
+triangles at 4K scale producing 4,053,250 runs, and on 2,000 small triangles
+producing 65,283 runs, the sorted run triples match the shipped rasterizer
+exactly. The formulation is the same float64 arithmetic in the same order, so
+this is expected rather than lucky, but it is measured rather than assumed.
+
+Scaled to the benchmark's 4,469,760 rows that predicts about 0.49 s for a phase
+now costing 5.597 s, a saving near 5.1 s, or roughly 45 percent of the whole
+workflow — against a GPU rasterizer that would need 64-bit fixed-point emulation
+to reach the same oracle and whose measured transfer costs are already the
+dominant term.
+
+The Stage 6 gate therefore does not proceed to a dataflow prototype on this
+profile. The ranking is recomputed after the CPU vectorization lands, because
+every share in the table above is a share of a workflow that is about to get
+much smaller.
