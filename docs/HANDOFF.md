@@ -73,11 +73,15 @@ No GPU prototype has been built and none is authorized.
   `redo_post` blank `report_json` and `analysis_id`. The digests written into
   the `.blend` come from `material_fingerprint`, which it does not feed. The
   version tag moved to `STRUCTURAL_V2` to record the encoding change.
-- Stage 3's own name — vectorize the rasterizer — is still unfulfilled. numpy
-  inside the per-polygon call was measured 2.7x slower and stays rejected.
-  Batching every triangle measured 1.4x, but that measurement was dominated by a
-  1.282 s scatter into per-polygon dicts which no longer exists, **so batching
-  the rasterizer needs re-measuring before it can be judged again.**
+- Stage 3's own name — vectorize the rasterizer — is measured but not built.
+  numpy inside the per-polygon call was 2.7x slower and stays rejected. Batching
+  was re-measured against the current implementation and is **5.8x all in**,
+  exact on all 76,647 captured polygons, projecting the realistic tier from
+  6.491 s to about 4.09 s. Two findings drove it: a three-key `lexsort` was 58
+  percent of the first prototype and one composite int64 key replaced it at
+  about 10x, and a 256-polygon chunk is more than twice as fast as batching
+  everything at once because the intermediates stay in cache. **Implementation
+  is not authorized.**
 
 ## Commits
 
@@ -176,20 +180,28 @@ before and after every stage on the benchmark fixtures.
 
 ## Next action
 
-Re-measure batched rasterization, which the user selected as the follow-on to
-the signature work. It is the second half of the original flat-array design and
-is now 44.7 percent of the realistic tier, by far the largest remaining phase.
-The 1.4x measurement that rejected drop-in batching was dominated by a 1.282 s
-scatter into per-polygon dicts that no longer exists, so the measurement needs
-redoing before the option can be judged again.
+Decide whether to implement batched rasterization. The measurement is done and
+favourable — 5.8x on the phase, about 37 percent on the whole realistic tier,
+exact on every captured polygon — and it is the only remaining CPU candidate
+above the keep threshold. Implementation is a multi-step production change and
+needs an approved test-first plan, not just the measurement.
+
+The throughput path is proven; what is unbuilt is the correctness work around
+it, and that is where the plan has to concentrate: per-polygon `max_scanlines`
+and `max_run_emissions` budgets become segment sums rather than a raise inside
+the loop, `InvalidRasterInput` becomes a vectorized finiteness test, the
+`margin_texels` expansion needs its second merge pass, and batch results have to
+split back into the per-polygon coverage cache. None of these changes what
+classification a polygon receives, and each needs a regression that proves it.
 
 The GPU prototype is deferred by the user until the CPU path is exhausted. A 6E
 prototype of the fused rasterize-and-classify dataflow is worth at most 52.8
-percent of the realistic tier, rasterization plus classification.
+percent of the realistic tier, rasterization plus classification, and batched
+rasterization would take most of that first.
 
-If batched rasterization is also declined, the branch is complete as a
-measurement result: the high tier went from 80.239 s to 6.963 s and the
-realistic tier stands at 6.491 s.
+If batched rasterization is declined, the branch is complete as a measurement
+result: the high tier went from 80.239 s to 6.963 s and the realistic tier
+stands at 6.491 s.
 
 Push and pull-request creation require separate authorization and have not been
 requested.

@@ -1021,3 +1021,86 @@ silently stop reading.
 The test was confirmed non-vacuous before the change by deleting the edge loop
 from the old implementation, which failed it with `edge_vertices did not change
 the structural signature`.
+
+## Batched rasterization, re-measured
+
+The 1.4x that rejected drop-in batched rasterization was measured when the
+rasterizer scattered runs into a per-polygon dict, and that 1.282 s scatter no
+longer exists. The measurement was redone against the current implementation,
+on the real triangle distribution: every `rasterize_polygon` input the realistic
+tier issues, captured to an array — 76,647 calls, 153,294 triangles, exactly two
+per polygon because the fixture is quads.
+
+### The prototype is exact
+
+A batched prototype reproduces the scalar rasterizer bit for bit: **0 of 76,647
+polygons differ**, at every chunk size tested, with the same 2,811,456 union
+runs. Exactness needs three details that are easy to get wrong.
+
+The scalar loop carries `previous_long` and `previous_short` across rows, which
+looks like a sequential dependency but is not: those are the cross-sections at
+the row's lower boundary, which is the bottom vertex on a triangle's first row
+and the integer scanline everywhere else. Computing them directly is equivalent.
+
+The chained `if/elif` that narrows `minimum` and `maximum` is a plain min and
+max of the four cross-sections, because a value below the running minimum is
+necessarily below the running maximum.
+
+The last band reassigns `upper` to `high_y`, so the middle-vertex straddle test
+`row < mid_y < upper` compares against the clamped value, not `row + 1`.
+
+### The three-key sort was most of the cost
+
+The first prototype ran 1.69x — better than 1.4x but far short of what the
+arithmetic suggested. The merge was 58 percent of it, and `numpy.lexsort` on
+`(start, row, polygon)` was 0.732 s of the merge's 0.884 s.
+
+One composite int64 key does the same ordering in 0.074 s, about 10x less. Row
+and start ranges are offset to non-negative and packed with the polygon index
+into a single sort key; the observed ranges need 46 bits, and anything that does
+not fit in 62 falls back to lexsort.
+
+### Chunk size matters more than expected
+
+| Chunk | Seconds | Speedup |
+| ---: | ---: | ---: |
+| 128 | 0.392 | 6.39x |
+| 192 | 0.348 | 7.13x |
+| **256** | **0.339** | **7.41x** |
+| 320 | 0.384 | 6.48x |
+| 512 | 0.429 | 5.90x |
+| 1024 | 0.500 | 5.07x |
+| 2048 | 0.785 | 3.21x |
+| 4096 | 0.757 | 3.37x |
+| all 76,647 | 0.809 | 3.11x |
+
+Batching everything at once is less than half the speed of batching 256
+polygons. At 256 the intermediate arrays are about 19,000 rows, which stays in
+cache; past that every pass re-reads from memory. This is the opposite of the
+intuition that a bigger batch amortizes more overhead, and it is why the chunk
+size is a measured constant rather than the analysis loop's step budget.
+
+### What the prototype leaves out, priced
+
+The prototype rasterizes and merges. Production also has to convert the UV
+phase's Python tuples into an array and produce per-polygon `RasterStats`:
+
+| | Seconds |
+| --- | ---: |
+| Batched rasterize and merge, chunk 256 | 0.339 |
+| Tuple-to-array conversion, 153,294 triangles | 0.057 |
+| Per-polygon stats via `bincount` | 0.033 |
+| Total | 0.429 |
+| Scalar reference on the same data | 2.500 |
+
+That is **5.8x** all in. Against the measured 2.899 s rasterization phase it
+projects to about 0.50 s, taking the realistic tier from 6.491 s to roughly
+4.09 s, a 37 percent whole-workflow improvement — comfortably above the 20
+percent keep threshold, unlike the last two changes.
+
+Still unpriced, because they are correctness work rather than throughput: the
+per-polygon `max_scanlines` and `max_run_emissions` budgets, which become
+segment sums and a comparison rather than a raise mid-loop; `InvalidRasterInput`
+for non-finite UVs; the `margin_texels` expansion; and splitting batch results
+back to the per-polygon coverage cache. None of them changes the classification
+a polygon receives, but all of them have to be reproduced before this can ship.
