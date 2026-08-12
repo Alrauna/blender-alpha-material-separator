@@ -21,7 +21,7 @@ from ..core import (
     FaceClass,
     InvalidRasterInput,
     RasterBudgetExceeded,
-    classify_coverage,
+    classify_counted,
     rasterize_polygon,
     uv_to_texel_edge,
 )
@@ -282,6 +282,23 @@ class _PreparedObject:
     resolutions: dict[int, MaterialResolution]
     snapshots: dict[int, ImageSnapshot]
     triangle_loops: dict[int, list[tuple[int, int, int]]]
+
+
+@dataclass(slots=True)
+class _DeferredFace:
+    """One polygon awaiting the step chunk's batched alpha count.
+
+    Holds the polygon index rather than the polygon, because that is all
+    recording needs and an RNA reference is not worth carrying across the chunk.
+    """
+
+    prepared: _PreparedObject
+    polygon_index: int
+    slot_index: int
+    material: bpy.types.Material
+    resolution: MaterialResolution
+    snapshot: ImageSnapshot
+    coverage: Any
 
 
 class _Signature:
@@ -911,6 +928,7 @@ class AnalysisEngine:
         self.cancelled = False
         self._prepared_index = 0
         self._polygon_index = 0
+        self._pending: list[_DeferredFace] = []
         self.counts: Counter = Counter()
         self.skip_counts: Counter = Counter()
         self.metrics: Counter = Counter()
@@ -1077,6 +1095,7 @@ class AnalysisEngine:
         self.metrics["phase_uv_seconds"] += key_started - uv_started
         self.metrics["phase_cache_key_seconds"] += lookup_started - key_started
         self.metrics["phase_cache_lookup_seconds"] += raster_started - lookup_started
+        classified = None
         if coverage is None:
             self.metrics["coverage_cache_misses"] += 1
             try:
@@ -1107,44 +1126,49 @@ class AnalysisEngine:
             else:
                 stored_started = time.perf_counter()
                 runtime.coverage_set(coverage_key, coverage)
-                classify_started = time.perf_counter()
-                classified = classify_coverage(
-                    coverage,
-                    snapshot.grid,
-                    address_mode=resolution.address_mode,
-                    settings=self.config.settings,
-                )
                 self.metrics["phase_raster_seconds"] += stored_started - raster_started
                 self.metrics["phase_cache_store_seconds"] += (
-                    classify_started - stored_started
-                )
-                self.metrics["phase_classify_seconds"] += (
-                    time.perf_counter() - classify_started
+                    time.perf_counter() - stored_started
                 )
         else:
             self.metrics["coverage_cache_hits"] += 1
-            classified = classify_coverage(
-                coverage,
-                snapshot.grid,
-                address_mode=resolution.address_mode,
-                settings=self.config.settings,
-            )
-            self.metrics["phase_classify_seconds"] += (
-                time.perf_counter() - raster_started
-            )
+        deferred = _DeferredFace(
+            prepared=prepared,
+            polygon_index=polygon.index,
+            slot_index=slot_index,
+            material=material,
+            resolution=resolution,
+            snapshot=snapshot,
+            coverage=coverage,
+        )
+        if classified is None:
+            # Counting is deferred so a whole step chunk can be counted in one
+            # pass. A run at a time costs a Python call per run, and a real mesh
+            # produces millions of them.
+            self._pending.append(deferred)
+            return
+        self._record_face(deferred, classified)
+
+    def _record_face(
+        self, deferred: _DeferredFace, classified: ClassificationResult
+    ) -> None:
+        prepared = deferred.prepared
+        polygon_index = deferred.polygon_index
+        material = deferred.material
         pointer = material.as_pointer()
-        face = FaceAnalysis(polygon.index, slot_index, pointer, classified)
-        prepared.result.faces[polygon.index] = face
+        snapshot = deferred.snapshot
+        face = FaceAnalysis(polygon_index, deferred.slot_index, pointer, classified)
+        prepared.result.faces[polygon_index] = face
         group = prepared.result.groups.get(pointer)
         if group is None:
             group = MaterialGroupAnalysis(
                 material=material,
-                resolution=resolution,
+                resolution=deferred.resolution,
                 image_digest=snapshot.digest,
                 source_fingerprint=source_fingerprint(material, snapshot.digest),
             )
             prepared.result.groups[pointer] = group
-        group.face_indices[classified.classification].append(polygon.index)
+        group.face_indices[classified.classification].append(polygon_index)
         group.affected_texels += classified.affected_texels
         group.covered_texels += classified.covered_texels
         self.counts[classified.classification] += 1
@@ -1160,6 +1184,40 @@ class AnalysisEngine:
                     "covered_texels": stats.covered_texels,
                 }
             )
+
+    def _flush_pending(self) -> None:
+        """Count and classify every polygon deferred during this step chunk.
+
+        Grouped by image and address mode because a batch shares one prefix
+        gather. Results are recorded in the original polygon order so grouping
+        does not reorder the report.
+        """
+        if not self._pending:
+            return
+        started = time.perf_counter()
+        groups: dict[tuple[int, AddressMode], list[int]] = defaultdict(list)
+        for position, deferred in enumerate(self._pending):
+            key = (id(deferred.snapshot.grid), deferred.resolution.address_mode)
+            groups[key].append(position)
+        affected = [0] * len(self._pending)
+        for positions in groups.values():
+            first = self._pending[positions[0]]
+            counts = first.snapshot.grid.count_batch(
+                [self._pending[position].coverage for position in positions],
+                first.resolution.address_mode,
+            )
+            for position, count in zip(positions, counts):
+                affected[position] = count
+        classifications = [
+            classify_counted(
+                deferred.coverage, count, settings=self.config.settings
+            )
+            for deferred, count in zip(self._pending, affected)
+        ]
+        self.metrics["phase_classify_seconds"] += time.perf_counter() - started
+        for deferred, classified in zip(self._pending, classifications):
+            self._record_face(deferred, classified)
+        self._pending.clear()
 
     def step(
         self,
@@ -1208,10 +1266,12 @@ class AnalysisEngine:
                 self.completed += 1
                 processed += 1
                 if deadline is not None and clock() >= deadline:
+                    self._flush_pending()
                     return False
             if self._polygon_index >= len(polygons):
                 self._polygon_index = 0
                 self._prepared_index += 1
+        self._flush_pending()
         return self._prepared_index >= len(self.prepared)
 
     def finish(self) -> AnalysisReport:

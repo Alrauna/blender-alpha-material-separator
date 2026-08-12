@@ -62,6 +62,24 @@ def classify_coverage(
     settings: AnalysisSettings = AnalysisSettings(),
 ) -> ClassificationResult:
     """Classify a previously rasterized polygon coverage union."""
+    if coverage.stats.covered_texels == 0:
+        return classify_counted(coverage, 0, settings=settings)
+    return classify_counted(
+        coverage, alpha.count_coverage(coverage, address_mode), settings=settings
+    )
+
+
+def classify_counted(
+    coverage: Coverage,
+    affected: int,
+    *,
+    settings: AnalysisSettings = AnalysisSettings(),
+) -> ClassificationResult:
+    """Apply the classification rule to an already-counted polygon.
+
+    Split out so the analysis engine can count a whole step chunk at once and
+    still reach the same rule the single-polygon entry points use.
+    """
     covered = coverage.stats.covered_texels
     if covered == 0:
         return ClassificationResult(
@@ -74,7 +92,6 @@ def classify_coverage(
             raster_stats=coverage.stats,
         )
 
-    affected = alpha.count_coverage(coverage, address_mode)
     opaque = covered - affected
     fraction = affected / covered
     if affected == 0:

@@ -7,6 +7,8 @@ import math
 import random
 import unittest
 
+import numpy
+
 from addon.core import RasterBudgetExceeded, rasterize_polygon, uv_to_texel_edge
 
 
@@ -69,9 +71,8 @@ def _oracle_cells(triangle):
 
 def _coverage_cells(coverage):
     return {
-        (x, row)
-        for row, runs in coverage.rows.items()
-        for start, stop in runs
+        (x, int(row))
+        for row, start, stop in zip(coverage.rows, coverage.starts, coverage.stops)
         for x in range(start, stop)
     }
 
@@ -107,7 +108,7 @@ class RasterizationTests(unittest.TestCase):
 
     def test_degenerate_triangle_emits_no_cells(self):
         coverage = rasterize_polygon((((0.0, 0.0), (1.0, 1.0), (2.0, 2.0)),))
-        self.assertFalse(coverage.rows)
+        self.assertEqual(coverage.spans.shape, (3, 0))
         self.assertEqual(coverage.stats.degenerate_triangles, 1)
 
     def test_scanline_and_run_budgets_raise(self):
@@ -275,7 +276,9 @@ class RasterizationTests(unittest.TestCase):
         )
         first = rasterize_polygon(triangles)
         for _ in range(20):
-            self.assertEqual(rasterize_polygon(triangles), first)
+            repeated = rasterize_polygon(triangles)
+            self.assertTrue(numpy.array_equal(repeated.spans, first.spans))
+            self.assertEqual(repeated.stats, first.stats)
 
 
 if __name__ == "__main__":

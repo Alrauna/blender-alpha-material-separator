@@ -4,15 +4,15 @@
 from __future__ import annotations
 
 import math
-from collections import defaultdict
 from collections.abc import Iterable, Sequence
 from operator import itemgetter
+
+import numpy
 
 from .model import Coverage, InvalidRasterInput, RasterBudgetExceeded, RasterStats
 
 Point = tuple[float, float]
 Triangle = tuple[Point, Point, Point]
-Run = tuple[int, int]
 
 _height = itemgetter(1)
 
@@ -31,20 +31,35 @@ def _twice_area(triangle: Triangle) -> float:
     return (bx - ax) * (cy - ay) - (by - ay) * (cx - ax)
 
 
-def _merge_runs(runs: Iterable[Run]) -> tuple[Run, ...]:
-    ordered = sorted(runs)
-    if not ordered:
-        return ()
-    merged: list[Run] = []
-    start, stop = ordered[0]
-    for next_start, next_stop in ordered[1:]:
-        if next_start <= stop:
-            stop = max(stop, next_stop)
-        else:
-            merged.append((start, stop))
-            start, stop = next_start, next_stop
-    merged.append((start, stop))
-    return tuple(merged)
+def _merge_spans(
+    emitted: list[tuple[int, int, int]]
+) -> tuple[list[int], list[int], list[int]]:
+    """Union overlapping runs, in one pass over all rows at once.
+
+    Sorting `(row, start, stop)` orders rows and orders runs within each row
+    exactly as a per-row sort would, so a single merge that breaks on a row
+    change replaces the per-row dict the earlier version accumulated.
+    """
+    emitted.sort()
+    rows: list[int] = []
+    starts: list[int] = []
+    stops: list[int] = []
+    if not emitted:
+        return rows, starts, stops
+    row, start, stop = emitted[0]
+    for next_row, next_start, next_stop in emitted[1:]:
+        if next_row == row and next_start <= stop:
+            if next_stop > stop:
+                stop = next_stop
+            continue
+        rows.append(row)
+        starts.append(start)
+        stops.append(stop)
+        row, start, stop = next_row, next_start, next_stop
+    rows.append(row)
+    starts.append(start)
+    stops.append(stop)
+    return rows, starts, stops
 
 
 def rasterize_polygon(
@@ -65,7 +80,7 @@ def rasterize_polygon(
     if max_scanlines <= 0 or max_run_emissions <= 0:
         raise ValueError("raster budgets must be positive")
 
-    rows: dict[int, list[Run]] = defaultdict(list)
+    emitted: list[tuple[int, int, int]] = []
     triangle_count = 0
     degenerate_triangles = 0
     scanlines = 0
@@ -155,29 +170,25 @@ def rasterize_polygon(
             emitted_runs += 1
             if emitted_runs > max_run_emissions:
                 raise RasterBudgetExceeded("run_emissions", max_run_emissions)
-            rows[row].append((start, stop))
+            emitted.append((row, start, stop))
 
-    unioned = {row: _merge_runs(runs) for row, runs in rows.items()}
+    rows, starts, stops = _merge_spans(emitted)
     if margin_texels:
-        expanded: dict[int, list[Run]] = defaultdict(list)
-        for row in sorted(unioned):
-            for start, stop in unioned[row]:
-                for expanded_row in range(row - margin_texels, row + margin_texels + 1):
-                    emitted_runs += 1
-                    if emitted_runs > max_run_emissions:
-                        raise RasterBudgetExceeded("run_emissions", max_run_emissions)
-                    expanded[expanded_row].append(
-                        (start - margin_texels, stop + margin_texels)
-                    )
-        unioned = {row: _merge_runs(runs) for row, runs in expanded.items()}
+        expanded: list[tuple[int, int, int]] = []
+        for row, start, stop in zip(rows, starts, stops):
+            for expanded_row in range(row - margin_texels, row + margin_texels + 1):
+                emitted_runs += 1
+                if emitted_runs > max_run_emissions:
+                    raise RasterBudgetExceeded("run_emissions", max_run_emissions)
+                expanded.append(
+                    (expanded_row, start - margin_texels, stop + margin_texels)
+                )
+        rows, starts, stops = _merge_spans(expanded)
 
-    stable_rows = {row: unioned[row] for row in sorted(unioned) if unioned[row]}
-    union_runs = sum(len(runs) for runs in stable_rows.values())
-    covered_texels = sum(
-        stop - start for runs in stable_rows.values() for start, stop in runs
-    )
+    union_runs = len(rows)
+    covered_texels = sum(stops) - sum(starts)
     return Coverage(
-        rows=stable_rows,
+        spans=numpy.array((rows, starts, stops), dtype=numpy.int64),
         stats=RasterStats(
             triangles=triangle_count,
             degenerate_triangles=degenerate_triangles,
