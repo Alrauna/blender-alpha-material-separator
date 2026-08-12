@@ -25,9 +25,11 @@ from ..core import (
     rasterize_polygon,
     uv_to_texel_edge,
 )
+from ..core import alpha as alpha_core
 from ..overrides import MaterialOverride, OverrideConfigError
 from ..unsupported import unsupported_scope
 from .fingerprints import material_fingerprint, source_fingerprint
+from . import image_data
 from .image_data import (
     ImageReadError,
     ImageSnapshot,
@@ -38,6 +40,21 @@ from .material_metadata import POINTER_PROPERTY, PREFIX
 from .material_resolver import MaterialResolution, resolve_material
 
 ImageCache = dict[tuple[int, str, float], ImageSnapshot]
+
+
+def _phase_totals() -> dict[str, float]:
+    """Process-wide phase accumulators, sampled as deltas around one analysis."""
+    totals = {
+        f"phase_image_{name}_seconds": seconds
+        for name, seconds in image_data.PHASE_SECONDS.items()
+    }
+    totals.update(
+        {
+            f"phase_{name}_seconds": seconds
+            for name, seconds in alpha_core.PHASE_SECONDS.items()
+        }
+    )
+    return totals
 
 
 @dataclass(frozen=True, slots=True)
@@ -839,6 +856,7 @@ class AnalysisEngine:
         self.objects = tuple(objects)
         self.config = config
         self.started = time.perf_counter()
+        self._phase_baseline = _phase_totals()
         self.structural_signature = _structural_signature(self.objects, self.config)
         self.assignment_signature = _assignment_signature(self.objects)
         self.image_cache: ImageCache = {}
@@ -1024,6 +1042,7 @@ class AnalysisEngine:
             self._record_unsupported(prepared, polygon, "UV_TRIANGLES_UNAVAILABLE", material)
             return
 
+        uv_started = time.perf_counter()
         uv_data = getattr(uv_layer, "uv", None)
         triangles = []
         for loops in loop_triangles:
@@ -1035,6 +1054,7 @@ class AnalysisEngine:
                     uv = uv_layer.data[loop_index].uv
                 points.append(uv_to_texel_edge(uv, snapshot.width, snapshot.height))
             triangles.append(tuple(points))
+        key_started = time.perf_counter()
         cache_digest = hashlib.blake2b(digest_size=24)
         cache_digest.update(b"AMS_COVERAGE_V1")
         cache_digest.update(
@@ -1051,7 +1071,12 @@ class AnalysisEngine:
             for point in triangle:
                 cache_digest.update(struct.pack("<2d", *point))
         coverage_key = cache_digest.hexdigest()
+        lookup_started = time.perf_counter()
         coverage = runtime.coverage_get(coverage_key)
+        raster_started = time.perf_counter()
+        self.metrics["phase_uv_seconds"] += key_started - uv_started
+        self.metrics["phase_cache_key_seconds"] += lookup_started - key_started
+        self.metrics["phase_cache_lookup_seconds"] += raster_started - lookup_started
         if coverage is None:
             self.metrics["coverage_cache_misses"] += 1
             try:
@@ -1080,12 +1105,21 @@ class AnalysisEngine:
                     unsupported_reason="INVALID_UV",
                 )
             else:
+                stored_started = time.perf_counter()
                 runtime.coverage_set(coverage_key, coverage)
+                classify_started = time.perf_counter()
                 classified = classify_coverage(
                     coverage,
                     snapshot.grid,
                     address_mode=resolution.address_mode,
                     settings=self.config.settings,
+                )
+                self.metrics["phase_raster_seconds"] += stored_started - raster_started
+                self.metrics["phase_cache_store_seconds"] += (
+                    classify_started - stored_started
+                )
+                self.metrics["phase_classify_seconds"] += (
+                    time.perf_counter() - classify_started
                 )
         else:
             self.metrics["coverage_cache_hits"] += 1
@@ -1094,6 +1128,9 @@ class AnalysisEngine:
                 snapshot.grid,
                 address_mode=resolution.address_mode,
                 settings=self.config.settings,
+            )
+            self.metrics["phase_classify_seconds"] += (
+                time.perf_counter() - raster_started
             )
         pointer = material.as_pointer()
         face = FaceAnalysis(polygon.index, slot_index, pointer, classified)
@@ -1133,29 +1170,34 @@ class AnalysisEngine:
     ) -> bool:
         if self.cancelled:
             return True
-        if self._deferred_images:
-            if self._image_builder_index < len(self._image_builders):
-                builder = self._image_builders[self._image_builder_index]
-                rows = builder.step()
-                self.completed += rows
-                self.metrics["image_digest_rows"] += rows
-                if builder.complete:
-                    snapshot = builder.finish()
-                    key = (
-                        snapshot.image.as_pointer(),
-                        snapshot.channel,
-                        self.config.settings.alpha_threshold,
-                    )
-                    self.image_cache[key] = snapshot
-                    self.metrics["full_image_digests"] += 1
-                    self._image_builder_index += 1
-                return False
-            self._finalize_deferred_images()
         if time_budget_seconds is not None:
             clock = clock or time.perf_counter
             deadline = clock() + time_budget_seconds
         else:
             deadline = None
+        if self._deferred_images:
+            if self._image_builder_index < len(self._image_builders):
+                # Vectorized chunks are far shorter than one timer interval, so
+                # spend the same budget here instead of one chunk per callback.
+                while self._image_builder_index < len(self._image_builders):
+                    builder = self._image_builders[self._image_builder_index]
+                    rows = builder.step()
+                    self.completed += rows
+                    self.metrics["image_digest_rows"] += rows
+                    if builder.complete:
+                        snapshot = builder.finish()
+                        key = (
+                            snapshot.image.as_pointer(),
+                            snapshot.channel,
+                            self.config.settings.alpha_threshold,
+                        )
+                        self.image_cache[key] = snapshot
+                        self.metrics["full_image_digests"] += 1
+                        self._image_builder_index += 1
+                    if deadline is None or clock() >= deadline:
+                        break
+                return False
+            self._finalize_deferred_images()
         processed = 0
         while self._prepared_index < len(self.prepared) and processed < polygon_budget:
             prepared = self.prepared[self._prepared_index]
@@ -1179,6 +1221,8 @@ class AnalysisEngine:
             or self._prepared_index < len(self.prepared)
         ):
             raise RuntimeError("analysis is incomplete")
+        for name, total in _phase_totals().items():
+            self.metrics[name] += total - self._phase_baseline.get(name, 0.0)
         analysis_id = hashlib.blake2b(
             (self.signature + json.dumps(self.config.payload(), sort_keys=True)).encode(),
             digest_size=16,

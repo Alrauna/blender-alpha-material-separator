@@ -25,6 +25,7 @@ from tests.blender.test_assignment_policies import (  # noqa: E402
 from tests.blender.test_identity_transitions import (  # noqa: E402
     run as run_identity_transition_tests,
 )
+from tests.blender.test_image_data import run as run_image_data_tests  # noqa: E402
 from tests.blender.test_significance_settings import (  # noqa: E402
     run as run_significance_settings_tests,
 )
@@ -109,6 +110,7 @@ def run() -> None:
         )
         assert_operator_registered()
         if iteration == 0:
+            run_image_data_tests()
             run_analysis_preview_tests()
             run_assignment_tests()
             run_assignment_policy_tests()

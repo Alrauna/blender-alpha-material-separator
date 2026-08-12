@@ -28,7 +28,8 @@ from addon.adapters.analysis import (  # noqa: E402
     AnalysisEngine,
     validate_report,
 )
-from addon.adapters.image_data import read_image_snapshot  # noqa: E402
+from addon.adapters import image_data  # noqa: E402
+from addon.adapters.image_data import ImageSnapshotBuilder  # noqa: E402
 from addon.adapters.assignment import build_assignment_plan  # noqa: E402
 from addon.core import AddressMode, RasterBudgetExceeded, rasterize_polygon  # noqa: E402
 from addon.operators.assign_materials import _validated_plan  # noqa: E402
@@ -159,12 +160,23 @@ def _digest_benchmark(size: int) -> dict:
     )
     times = []
     retained = None
+    phases: dict[str, float] = {}
+    read_path = ""
     for run in range(6):
+        before = dict(image_data.PHASE_SECONDS)
         started = time.perf_counter()
-        snapshot = read_image_snapshot(image, channel="ALPHA", threshold=0.999)
+        builder = ImageSnapshotBuilder(image, channel="ALPHA", threshold=0.999)
+        while not builder.complete:
+            builder.step()
+        snapshot = builder.finish()
         elapsed = time.perf_counter() - started
+        read_path = "bulk" if builder.use_bulk_read else "chunked"
         if run:
             times.append(elapsed)
+            phases = {
+                f"{name}_seconds": image_data.PHASE_SECONDS[name] - before[name]
+                for name in before
+            }
         retained = snapshot
         if run < 5:
             del snapshot
@@ -178,12 +190,14 @@ def _digest_benchmark(size: int) -> dict:
         retained.grid.count_run(row, 0, size, AddressMode.REPEAT)
     prefix_reuse = time.perf_counter() - prefix_started
     result = {
+        "digest_phase_seconds": phases,
         "digest_seconds_median_5": statistics.median(times),
         "digest_seconds_runs": times,
         "image_size": size,
         "prefix_build_seconds": prefix_first,
         "prefix_reuse_seconds": prefix_reuse,
         "memory": _memory(),
+        "read_path": read_path,
         "texels": size * size,
     }
     del retained

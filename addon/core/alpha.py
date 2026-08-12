@@ -4,11 +4,16 @@
 from __future__ import annotations
 
 import math
+import time
 from array import array
 from dataclasses import dataclass, field
 from typing import Iterable
 
 from .model import AddressMode, Coverage
+
+#: Accumulated prefix-construction cost; read as deltas by the analysis engine.
+#: Counting cost is the classification total minus this.
+PHASE_SECONDS: dict[str, float] = {"prefix": 0.0}
 
 
 def _prefix(values: Iterable[bool]) -> array:
@@ -81,15 +86,19 @@ class AlphaGrid:
     def _row_prefix(self, row: int) -> array:
         prefix = self._row_prefixes.get(row)
         if prefix is None:
+            started = time.perf_counter()
             prefix = _prefix(self._row_values(row))
+            PHASE_SECONDS["prefix"] += time.perf_counter() - started
             self._row_prefixes[row] = prefix
         return prefix
 
     def _mirror_prefix(self, row: int) -> array:
         prefix = self._mirror_prefixes.get(row)
         if prefix is None:
+            started = time.perf_counter()
             values = self._row_values(row)
             prefix = _prefix((*values, *reversed(values)))
+            PHASE_SECONDS["prefix"] += time.perf_counter() - started
             self._mirror_prefixes[row] = prefix
         return prefix
 
