@@ -1254,18 +1254,6 @@ class AnalysisEngine:
         group.affected_texels += classified.affected_texels
         group.covered_texels += classified.covered_texels
         self.counts[classified.classification] += 1
-        if classified.raster_stats is not None:
-            stats = classified.raster_stats
-            self.metrics.update(
-                {
-                    "triangles": stats.triangles,
-                    "degenerate_triangles": stats.degenerate_triangles,
-                    "scanlines": stats.scanlines,
-                    "emitted_runs": stats.emitted_runs,
-                    "union_runs": stats.union_runs,
-                    "covered_texels": stats.covered_texels,
-                }
-            )
 
     def _rasterize_pending(self) -> None:
         """Rasterize this chunk's coverage-cache misses in batched sub-chunks.
@@ -1363,8 +1351,36 @@ class AnalysisEngine:
             for deferred, count in zip(self._pending, affected)
         ]
         self.metrics["phase_classify_seconds"] += time.perf_counter() - started
+        # The six raster counters are summed into locals and added to `metrics`
+        # once per chunk. Adding them per face cost more than the whole of the
+        # rest of `_record_face`: a fresh dict literal and a `Counter.update`
+        # 150,544 times over.
+        rasterized = False
+        triangles = degenerate = scanlines = emitted = union = covered = 0
         for deferred, classified in zip(self._pending, classifications):
             self._record_face(deferred, classified)
+            stats = classified.raster_stats
+            if stats is not None:
+                rasterized = True
+                triangles += stats.triangles
+                degenerate += stats.degenerate_triangles
+                scanlines += stats.scanlines
+                emitted += stats.emitted_runs
+                union += stats.union_runs
+                covered += stats.covered_texels
+        if not rasterized:
+            # A chunk in which nothing rasterized left these keys absent before,
+            # and `report.metrics` is the whole counter, so creating them at zero
+            # would change the report rather than only its timing.
+            self._pending.clear()
+            return
+        metrics = self.metrics
+        metrics["triangles"] += triangles
+        metrics["degenerate_triangles"] += degenerate
+        metrics["scanlines"] += scanlines
+        metrics["emitted_runs"] += emitted
+        metrics["union_runs"] += union
+        metrics["covered_texels"] += covered
         self._pending.clear()
 
     def step(

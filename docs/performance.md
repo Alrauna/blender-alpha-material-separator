@@ -1418,3 +1418,75 @@ stepping loop, which is where the failed hypothesis above says the money is not.
 So the per-polygon loop removal has a much weaker case than the 31.1 percent
 figure suggested. The genuinely diffuse part of the stepping loop is about 10
 percent of the tier, not 31, and the named statements inside it total under 6.
+
+## Per-chunk raster counters, implemented
+
+The `metrics.update({6 keys})` measured at half of `_record_face` is pure
+aggregation. `_flush_pending` now sums the six raster counters into local
+integers across the chunk's record loop and adds them to `metrics` once, and
+`_record_face` no longer touches `metrics` at all.
+
+### Result
+
+Same-session, realistic tier, run as two independent before/after pairs because
+the first pair showed an unexplained movement in a phase nothing had touched:
+
+| | Before | After | Change |
+| --- | ---: | ---: | ---: |
+| Whole tier, pair 1 | 2.415 s | 2.264 s | -6.2% |
+| Whole tier, pair 2 | 2.430 s | 2.285 s | -6.0% |
+| Coverage reuse, pair 1 | 1.884 s | 1.723 s | -8.6% |
+| Coverage reuse, pair 2 | 1.890 s | 1.746 s | -7.6% |
+| Peak working set | 1002.1 MiB | 996.6 MiB | -0.5% |
+
+All eight counters are identical before and after. The measured saving is 0.145
+to 0.147 s against 0.13 s predicted from the statement breakdown.
+
+`phase_classify_seconds` rose 16 percent in the first pair, in a region the
+change does not touch. It did not reproduce: the second pair moved it 1.1
+percent. Across five benchmark invocations that phase reports either about
+0.39 s or about 0.46 s, in both configurations, so it is bimodal per invocation
+and phase-level comparisons of classification at that granularity are not
+meaningful. The whole-tier figure, which is a median of five runs within each
+invocation, is stable to about 0.2 percent between the two pairs.
+
+At 6.1 percent this is well under the 20 percent keep threshold. It is kept on
+the same argument as the signature vectorization: the diff is smaller than what
+it replaces. One guard was added with it — a chunk in which nothing rasterizes
+must not create the six keys at zero, because `report.metrics` is the whole
+counter and that would change the report rather than only its timing.
+`_raster_counters_absent_when_nothing_rasterizes_test` drives a polygon whose UV
+triangle exceeds the scanline budget and requires the keys to stay absent; it
+fails when the guard is removed.
+
+### Engine construction was already attributed
+
+The previous section said roughly 0.21 s of the 0.379 s engine construction was
+unattributed, because `phase_prepare_seconds` and `phase_signature_seconds`
+cover only 0.165 s of it. That subtraction was wrong. Construction also runs the
+four image phases, which `_prepare` nests and reports as their own deltas
+exactly as the comment above `phase_prepare_seconds` says. Signature 0.112 s,
+prepare 0.053 s, image digest 0.112 s, image read 0.065 s, image mask 0.024 s
+and image select 0.015 s total 0.382 s against 0.379 s measured. There is
+nothing unattributed in construction and nothing to instrument.
+
+The whole residual is therefore in the stepping loop, and always was.
+
+### Where the tier stands
+
+| Phase | Seconds | Share |
+| --- | ---: | ---: |
+| Rasterization | 0.482 | 21.3% |
+| Classification | 0.456 | 20.2% |
+| UV traversal | 0.250 | 11.1% |
+| Image digest | 0.110 | 4.9% |
+| Cache key | 0.104 | 4.6% |
+| Structural signature | 0.097 | 4.3% |
+| Everything else attributed | 0.242 | 10.7% |
+| Unattributed | 0.518 | 22.9% |
+
+Of the unattributed 0.518 s, about 0.15 s is what remains of `_record_face` —
+`FaceAnalysis` construction and the dict and list bookkeeping, which the report
+contract requires — leaving roughly 0.37 s genuinely diffuse across the stepping
+loop. The statements named earlier in that loop total 0.134 s of it, and
+replacing the largest of them was measured at 0.9 percent of the tier.

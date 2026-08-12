@@ -168,6 +168,7 @@ tier that ranks candidates:
 | Signature vectorization | 7.482 s | 6.491 s | -13.2% |
 | Batched rasterization | 6.017 s | 3.962 s | -34.2% |
 | Vectorized UV traversal | 3.742 s | 2.412 s | -35.5% |
+| Per-chunk raster counters | 2.415 s | 2.264 s | -6.2% |
 
 The signature phase itself went 1.188 s to 0.120 s, the rasterization phase
 2.625 s to 0.672 s, and the UV phase 1.220 s to 0.247 s. The before-figures are
@@ -202,18 +203,18 @@ benchmark fixtures.
   entered the repository.
 - No packaging, installed-ZIP, export, Unity, or human interaction gate has been
   run, none of which this branch's changes have yet required.
-- `_record_face` is 11.9 percent of the tier and no phase timer has ever seen
-  it. It runs once per polygon at the tail of `_flush_pending`, outside every
-  accumulator, and it is the third-largest cost after rasterization and
-  classification. Half of it is one `metrics.update` of six raster counters
-  through a fresh dict literal, per face, which can be accumulated per chunk
-  instead for about 5.2 percent of the tier. **Measured but not implemented.**
-- The rest of the unattributed time is 19.4 percent, split about 0.21 s inside
-  engine construction — which the prepare and signature timers cover only
-  0.165 s of — and about 0.25 s genuinely spread across the stepping loop. The
-  earlier claim that the whole 31.1 percent was diffuse overhead needing the
-  per-polygon loop replaced is corrected in `docs/performance.md`; replacing the
-  loop's RNA reads was measured at 0.9 percent of the tier and is not worth it.
+- `_record_face` was 11.9 percent of the tier and no phase timer had ever seen
+  it: it runs once per polygon at the tail of `_flush_pending`, outside every
+  accumulator. Half of it was one `metrics.update` of six raster counters
+  through a fresh dict literal, per face. Summing them per chunk instead landed
+  at 6.1 percent of the tier.
+- Engine construction is fully attributed and was all along. The claim that
+  0.21 s of it was unattributed came from subtracting only the prepare and
+  signature timers and forgetting the four image phases that `_prepare` nests.
+  The whole residual is in the stepping loop.
+- The earlier claim that the residual was diffuse overhead needing the
+  per-polygon loop replaced is corrected in `docs/performance.md`. Replacing the
+  loop's RNA reads was measured at 0.9 percent of the tier and rejected.
 - The signature vectorization improved the whole workflow 13.2 percent, below
   the repository's 20 percent keep threshold. Recorded rather than rounded; it
   is kept because the diff is smaller than what it replaces, which is not true
@@ -235,20 +236,17 @@ benchmark fixtures.
 
 ## Next action
 
-Decide whether to take the `_record_face` aggregation. Accumulating the six
-raster counters into local integers and adding them to `metrics` once per chunk,
-instead of one `metrics.update({6 keys})` per face, measures 0.13 s — 5.2 percent
-of the tier — for a change of a few lines in `_flush_pending` and `_record_face`.
-It is well under the 20 percent keep threshold, and the argument for it is that
-the diff is smaller than what it replaces, the same argument that kept the
-signature vectorization at 13.2 percent.
+Decide whether the branch is done. The CPU path is exhausted as far as
+measurement can currently see: rasterization at 21.3 percent and classification
+at 20.2 are both vectorized and batched with no untaken idea behind either, UV
+traversal at 11.1 is newly vectorized, and every named statement in the
+stepping loop has been timed. The largest remaining item is 22.9 percent
+unattributed, of which about 0.15 s is `_record_face` bookkeeping the report
+contract requires and roughly 0.37 s is genuinely diffuse.
 
-Engine construction is the remaining unknown: 0.379 s with only 0.165 s
-attributed. Nobody has looked at what the other 0.21 s is.
-
-Beyond those two the CPU path is exhausted. Rasterization at 19.4 percent and
-classification at 15.8 are both already vectorized and batched, and neither has
-an untaken idea behind it.
+Nothing further is designed, and the two candidates that would need designing —
+replacing the per-polygon loop, and the 6E GPU prototype — are both larger than
+anything this branch has taken.
 
 The GPU prototype is deferred by the user until the CPU path is exhausted. A 6E
 prototype of the fused rasterize-and-classify dataflow is now worth at most 35.2
@@ -257,7 +255,7 @@ percent of the realistic tier — rasterization plus classification — down fro
 
 If no further work is taken, the branch is complete as a measurement result: the
 high tier went from 80.239 s to 6.963 s and the realistic tier stands at
-2.412 s, from 6.017 s when the tier was introduced.
+2.264 s, from 6.017 s when the tier was introduced.
 
 Push and pull-request creation require separate authorization and have not been
 requested.

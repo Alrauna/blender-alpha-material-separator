@@ -567,6 +567,42 @@ def _batched_raster_object(name: str, count: int, *, duplicates: bool = True):
     return object_, image
 
 
+def _raster_counters_absent_when_nothing_rasterizes_test() -> None:
+    """A chunk where every face trips a budget must not report zeroed counters.
+
+    The six raster counters are summed per chunk rather than per face, and
+    `report.metrics` is the whole counter, so an unguarded `+= 0` would add six
+    keys to a report that never had them. Here the only polygon's UV triangle
+    exceeds the scanline budget, so nothing rasterizes at all.
+    """
+    _clear_scene()
+    object_, _image = _batched_raster_object("ams_no_raster", 1, duplicates=False)
+    uv_layer = object_.data.uv_layers[0]
+    modern = getattr(uv_layer, "uv", None)
+    tall = ((0.0, 0.0), (1.0, 0.0), (0.0, 600_000.0))
+    for loop in range(3):
+        if modern is not None:
+            modern[loop].vector = tall[loop]
+        else:
+            uv_layer.data[loop].uv = tall[loop]
+
+    runtime.clear_coverage_cache()
+    engine = AnalysisEngine([object_], AnalysisConfig())
+    while not engine.step(4_096):
+        pass
+    report = engine.finish()
+    faces = [
+        face.result
+        for result in report.object_results.values()
+        for face in result.faces.values()
+    ]
+    assert len(faces) == 1, faces
+    assert faces[0].classification is FaceClass.UNSUPPORTED, faces[0]
+    present = [name for name in _RASTER_COUNTERS if name in engine.metrics]
+    assert not present, present
+    _clear_scene()
+
+
 def _loop_triangle_order_test() -> None:
     """`mesh.loop_triangles` is grouped by polygon and ascending.
 
@@ -1061,6 +1097,7 @@ def run() -> None:
     _loop_triangle_order_test()
     _uv_traversal_values_test()
     _non_finite_uv_test()
+    _raster_counters_absent_when_nothing_rasterizes_test()
     _batched_rasterization_equivalence_test()
     _structural_signature_sensitivity_test()
     _clear_scene()
