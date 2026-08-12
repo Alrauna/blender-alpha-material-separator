@@ -682,7 +682,29 @@ Uniform triangles spanning 11 or 21 rows are the best case for SIMT, with almost
 no warp divergence, so the fixture flatters a GPU rasterizer relative to a real
 mesh of mixed triangle sizes. Against that, it understates arithmetic intensity:
 no UV tiling outside one tier, no overlapping shells, and no alpha structure.
-Any GPU verdict taken from this fixture alone is provisional.
+
+Private characterization against an authorized local asset confirms the fixture
+is unrepresentative, in five ways that all matter to this ranking. Numbers stay
+out of this document per the repository's private-input policy; the directions
+do not, because a future agent ranking accelerators from the committed fixture
+alone would reach the wrong answer:
+
+- **run counting is a much larger share** of a real workload than of the
+  fixture, and on the private asset it clears the 20 percent keep threshold on
+  its own, where the fixture ranked it well below;
+- **triangles span far more scanline rows on average, with far more variance**,
+  because real UV layouts tile outside the unit square;
+- **the coverage cache hits on a majority of polygons**, because real scenes
+  contain repeated geometry, so rasterization is paid for a minority of them
+  while classification is paid for all;
+- **many images per scene at mixed resolutions**, rather than three at two
+  sizes, which changes both upload volume and per-image reuse;
+- **degenerate UV triangles occur**, where the fixture produces none.
+
+The fixture should be regenerated to match those characteristics so this
+evidence becomes committable. Until it is, every share in the ranking table
+above is provisional, and rasterization plus run counting together are a larger
+fraction of a realistic workload than the fixture shows, not a smaller one.
 
 ### Position of the Stage 6 gate
 
