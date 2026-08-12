@@ -47,7 +47,7 @@ Pull requests targeting `main` and pushes to `main` run three stable checks:
 
 All three use Blender 5.2.0 exactly and run the unit suite, complete headless
 Blender suite with auto-execution disabled, source validation, extension build,
-and version-independent discovery and validation of the one generated AMS ZIP.
+and version-independent discovery and validation of the generated AMS ZIPs.
 Each runner builds and discards its own ZIP. The `macos-15` runner is Apple
 Silicon; macOS is not excluded from or allowed to ignore any shared validation
 step.
@@ -78,8 +78,9 @@ only to previously validated label boundaries. CNAME expansion is unsupported
 and therefore fails closed. Pass at most 16 distinct valid addresses to curl,
 which keeps `download.blender.org` as the validated TLS hostname. Curl has a
 30-second connection timeout, a fixed total limit, and two retries. Linux tar
-extraction uses Python's safe data filter and selects Blender from the exact
-archive root. Any malformed response, disagreement, or timeout fails closed.
+extraction uses Python's safe data filter and selects Blender from the
+exact archive root. Any malformed response, disagreement, or timeout fails
+closed.
 On macOS, the pinned archive is
 `blender-5.2.0-macos-arm64.dmg`, with committed SHA-256
 `ed4d8390166dec5ea0a2813a03db6221f206ce016442be7f59f41d760972568a`.
@@ -133,15 +134,23 @@ A package or attestation failure creates no draft. A failure after draft
 creation leaves an unpublished draft. No path publishes before successful
 attestation and stored-release ZIP digest verification.
 
-After downloading a published extension ZIP, discover exactly one AMS archive
-and verify that its digest and provenance are bound to this repository's
-release workflow:
+In summary, the read-only release-package job builds once from exact
+`GITHUB_SHA`. Attestation and protected publication independently download the
+same current-run workflow artifact and verify its producer-reported SHA-256.
+Publication uploads those exact bytes, re-downloads the stored ZIP, re-hashes
+it, and publishes only after attestation succeeds.
+
+After downloading a published extension ZIP, discover the AMS archives and
+verify that every discovered digest and provenance is bound to this
+repository's release workflow:
 
 ```powershell
 $Archives = @(Get-ChildItem -Filter 'alpha_material_separator-*.zip' -File)
-if ($Archives.Count -ne 1) { throw "Expected one AMS ZIP." }
-gh attestation verify $Archives[0].FullName `
-  --repo Alrauna/blender-alpha-material-separator
+if ($Archives.Count -lt 1) { throw "Expected at least one AMS ZIP." }
+foreach ($Archive in $Archives) {
+  gh attestation verify $Archive.FullName `
+    --repo Alrauna/blender-alpha-material-separator
+}
 ```
 
 An attestation identifies the source workflow and artifact digest; it does not
@@ -180,11 +189,10 @@ regression. Verification then proceeds through pure-Python tests, headless
 Blender state-transition and mutation tests, semantic preservation checks,
 installed-ZIP interaction, and instrumented performance measurements.
 
-Committed and CI tests are deterministic and independent of private machine
-state. The ignored `.local-references` validator is a separate, user-authorized
-local acceptance layer. If an automated regression is genuinely impractical,
-document why, retain the closest automated contract, and report the remaining
-manual interaction explicitly.
+The ignored `.local-references` validator is a separate, user-authorized local
+acceptance layer. If an automated regression is genuinely impractical, document
+why, retain the closest automated contract, and report the remaining manual
+interaction explicitly.
 
 Installed-ZIP UI acceptance requires human confirmation unless the current
 harness is capable of controlling Blender and the user explicitly authorizes

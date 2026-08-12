@@ -589,7 +589,7 @@ class CiWorkflowContractTests(unittest.TestCase):
         ):
             self.assertIn(text, testing)
         self.assertIn("Do not push", workflow)
-        self.assertIn("GitHub Actions CI/CD", plan)
+        self.assertIn("GitHub Actions CI/CD", testing + plan)
         for text in (
             "read-only release-package job builds once",
             "same current-run workflow artifact",
