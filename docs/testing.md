@@ -56,6 +56,17 @@ installers, containers, self-hosted runners, or third-party actions. The manual
 release path uses one short-lived workflow artifact and official GitHub actions
 pinned to reviewed full commit SHAs.
 
+All uses of `actions/checkout` remain confined to read-only jobs, pinned to a
+reviewed full commit SHA, and configured with `persist-credentials: false`.
+The read-only release-package job continues to use unauthenticated native Git
+for exact-`GITHUB_SHA` source retrieval instead of checkout credentials.
+Workflow permissions remain `contents: read` by default. Only the protected
+manual `release_publish` job may use `contents: write`; artifact consumers may
+add `actions: read`, and `GH_TOKEN` belongs only on individual `gh` command
+steps. Adding an action, dependency, cache, artifact transfer, trigger, runner
+type, permission, or network source requires design review and explicit user
+approval.
+
 The workflow downloads Blender only from its fixed Blender.org HTTPS URL. It
 retrieves Blender.org's checksum file through system DNS, Cloudflare DoH, and
 Quad9 DoT, requires byte-identical content, verifies the relevant value against
@@ -64,8 +75,8 @@ requires the executable to report Blender 5.2.0. The DoT response must be a
 complete standard A/IN response echoing the exact query. Each direct A answer
 owner must match that query case-insensitively, and compressed names may point
 only to previously validated label boundaries. CNAME expansion is unsupported
-and therefore fails closed. At most 16 distinct valid addresses are passed to
-curl, which keeps `download.blender.org` as the validated TLS hostname. Curl has a
+and therefore fails closed. Pass at most 16 distinct valid addresses to curl,
+which keeps `download.blender.org` as the validated TLS hostname. Curl has a
 30-second connection timeout, a fixed total limit, and two retries. Linux tar
 extraction uses Python's safe data filter and selects Blender from the exact
 archive root. Any malformed response, disagreement, or timeout fails closed.
@@ -98,7 +109,8 @@ once, writes `SHA256SUMS.txt`, and publishes both files as
 `actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a`
 (v7.0.1), configured with `retention-days: 1`, `compression-level: 0`, exact
 file paths, and failure when neither configured file exists. Both downstream
-consumers independently reject a partial or expanded file set.
+consumers independently download the same current-run workflow artifact, verify
+it, and reject a partial or expanded file set.
 
 `release_attestation` has exactly `actions: read`, `contents: read`,
 `id-token: write`, and `attestations: write`. Its one token-bearing native step
@@ -167,6 +179,17 @@ Every behavior defect first receives a generated or synthetic failing
 regression. Verification then proceeds through pure-Python tests, headless
 Blender state-transition and mutation tests, semantic preservation checks,
 installed-ZIP interaction, and instrumented performance measurements.
+
+Committed and CI tests are deterministic and independent of private machine
+state. The ignored `.local-references` validator is a separate, user-authorized
+local acceptance layer. If an automated regression is genuinely impractical,
+document why, retain the closest automated contract, and report the remaining
+manual interaction explicitly.
+
+Installed-ZIP UI acceptance requires human confirmation unless the current
+harness is capable of controlling Blender and the user explicitly authorizes
+it. Agent-run UI automation is supporting evidence and does not silently
+replace a required human acceptance result.
 
 Private before/after files are local structural references only. No identifying
 name, path, asset, raw graph dump, raw measurement, or screenshot enters a

@@ -542,7 +542,9 @@ class CiWorkflowContractTests(unittest.TestCase):
 
     def test_ci_security_and_rollout_are_documented(self) -> None:
         testing = (ROOT / "docs" / "testing.md").read_text(encoding="utf-8")
-        agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+        workflow_path = ROOT / "docs" / "development-workflow.md"
+        self.assertTrue(workflow_path.is_file())
+        workflow = workflow_path.read_text(encoding="utf-8")
         plan = (ROOT / "PLAN.md").read_text(encoding="utf-8")
         for text in (
             "CI / Windows — Blender 5.2",
@@ -584,16 +586,16 @@ class CiWorkflowContractTests(unittest.TestCase):
             "persist-credentials: false",
             "contents: read",
             "contents: write",
-            "Do not push",
         ):
-            self.assertIn(text, agents)
+            self.assertIn(text, testing)
+        self.assertIn("Do not push", workflow)
         self.assertIn("GitHub Actions CI/CD", plan)
         for text in (
             "read-only release-package job builds once",
             "same current-run workflow artifact",
             "re-downloads the stored ZIP",
         ):
-            self.assertIn(text, agents + plan)
+            self.assertIn(text, testing + plan)
         for text in (
             "unauthenticated native Git",
             "exact `GITHUB_SHA`",
@@ -606,7 +608,7 @@ class CiWorkflowContractTests(unittest.TestCase):
             "validated label boundaries",
             "at most 16",
         ):
-            self.assertIn(text, testing + agents + plan)
+            self.assertIn(text, testing + plan)
 
 
 if __name__ == "__main__":
