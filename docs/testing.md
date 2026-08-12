@@ -4,8 +4,9 @@
 
 ```powershell
 $Blender52 = 'C:\Program Files\Blender Foundation\Blender 5.2\blender.exe'
+$Python52 = 'C:\Program Files\Blender Foundation\Blender 5.2\5.2\python\bin\python.exe'
 
-python -m unittest discover -s tests/unit -t . -v
+& $Python52 -m unittest discover -s tests/unit -t . -v
 & $Blender52 --factory-startup --background --python-exit-code 1 --python tests/blender/run_all.py
 & $Blender52 --factory-startup --command extension validate addon
 Remove-Item .\.packaged-releases\*.zip -ErrorAction SilentlyContinue
@@ -24,6 +25,11 @@ New-Item -ItemType Directory -Force -Path $env:BLENDER_USER_DATAFILES | Out-Null
 & $Blender52 --command extension install-file -r user_default -e $Archive
 & $Blender52 --background --python-exit-code 1 --python tests/blender/verify_installed_zip.py
 ```
+
+The unit layer uses Blender's bundled interpreter because `addon/core` depends
+on numpy for image extraction and row prefixes. The core still imports without
+`bpy`; it is not importable on a bare Python that lacks numpy. CI matches this
+by running `tests/unit` on the prepared Blender Python.
 
 When all commands above pass, the checkpoint verifies ordinary-Python import
 without `bpy`, deterministic

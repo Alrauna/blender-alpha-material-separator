@@ -9,19 +9,33 @@ from array import array
 from dataclasses import dataclass, field
 from typing import Iterable
 
+import numpy
+
 from .model import AddressMode, Coverage
 
 #: Accumulated prefix-construction cost; read as deltas by the analysis engine.
 #: Counting cost is the classification total minus this.
 PHASE_SECONDS: dict[str, float] = {"prefix": 0.0}
 
+# ponytail: uint32 accumulator rather than the int64 default. A prefix entry
+# cannot exceed the row width because the mask holds one 0/1 byte per texel, so
+# overflow needs a row of 4.29 billion texels. int64 would double the retained
+# prefix cache against a tracked peak-working-set metric for no reachable gain.
+_PREFIX_DTYPE = numpy.dtype(f"u{array('I').itemsize}")
 
-def _prefix(values: Iterable[bool]) -> array:
-    result = array("I", [0])
-    total = 0
-    for value in values:
-        total += int(value)
-        result.append(total)
+
+def _prefix(values: bytes) -> array:
+    """Inclusive prefix sums of a 0/1 mask row, with a leading zero.
+
+    Returns `array("I")` rather than the numpy buffer so indexing still yields
+    plain Python ints; numpy scalars would otherwise reach report metrics and
+    the JSON benchmark output.
+    """
+    counts = numpy.cumsum(
+        numpy.frombuffer(values, dtype=numpy.uint8), dtype=_PREFIX_DTYPE
+    )
+    result = array("I", (0,))
+    result.frombytes(counts.tobytes())
     return result
 
 
@@ -97,7 +111,7 @@ class AlphaGrid:
         if prefix is None:
             started = time.perf_counter()
             values = self._row_values(row)
-            prefix = _prefix((*values, *reversed(values)))
+            prefix = _prefix(values + values[::-1])
             PHASE_SECONDS["prefix"] += time.perf_counter() - started
             self._mirror_prefixes[row] = prefix
         return prefix

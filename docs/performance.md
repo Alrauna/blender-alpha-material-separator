@@ -392,3 +392,92 @@ High tier, 14.612 s cold:
 
 Row-prefix construction is now the largest single addressable phase at
 22.7 percent, ahead of run counting at 10.0 percent.
+
+## Vectorized row prefixes
+
+Measured 2026-08-12 on the same machine, in one session, before and after
+replacing the per-value Python accumulation loop in `_prefix` with
+`numpy.cumsum`. The result is still converted to `array("I")` so callers keep
+receiving plain Python ints; numpy scalars would otherwise reach report metrics
+and JSON benchmark output. The MIRROR input builds its doubled row by slice
+concatenation rather than an unpacked generator.
+
+| Tier | Before | After | Change |
+| --- | ---: | ---: | ---: |
+| Small | 0.337 s | 0.314 s | -6.9% |
+| Typical | 4.010 s | 3.451 s | -14.0% |
+| High | 14.049 s | 11.342 s | -19.3% |
+| Large/tiled UV | 0.730 s | 0.730 s | 0.0% |
+
+Row-prefix construction fell from 3.317 s to 0.186 s, -94.4 percent, taking
+classification as a whole from 4.734 s to 1.619 s. Standalone prefix builds fell
+85.5 percent at 1K, 89.4 percent at 2K, 94.1 percent at 4K, and 94.0 percent at
+8K, where 2.022 s became 0.122 s. Prefix reuse was already sub-millisecond and
+is unchanged. The tiled tier is flat because its 1K image contributes almost no
+prefix work.
+
+High-tier `covered_texels`, `emitted_runs`, `union_runs`, and `scanlines` are
+unchanged, coverage reuse improved from 9.278 s to 6.311 s, and peak working set
+**fell** from 2.895 GiB to 2.874 GiB despite numpy temporaries, because the
+`array("I")` prefix replaces a Python loop's intermediate objects. Structural
+recheck (0.03578 s to 0.03604 s) and Apply preflight (0.03534 s to 0.03485 s)
+are unchanged and both acceptance targets still pass.
+
+The high tier improves 19.3 percent, marginally below the 20 percent keep
+threshold that rejected the 2026-07-29 rasterizer candidate. It is kept anyway,
+and the shortfall is recorded rather than rounded away. The reasoning differs
+from that rejection in every respect that made the threshold useful: the
+targeted phase fell 94.4 percent rather than 4.8, the change removes code
+instead of adding it, peak memory improved, coverage reuse improved 32 percent,
+and the 19.3 percent figure sits inside the run-to-run noise band visible in the
+untouched rasterization phase, which moved 5.2 percent between these two runs.
+
+### Accumulator width
+
+`numpy.cumsum` is given an explicit `uint32` accumulator rather than the int64
+default, matching the `array("I")` the row prefixes have always used. The bound
+is proven: the mask holds one 0/1 byte per texel, so a prefix entry cannot
+exceed its row width, and overflow would need a row of 4.29 billion texels. An
+int64 accumulator would double the retained prefix cache against a tracked peak
+working set metric with no reachable benefit.
+`tests/unit/test_alpha_classification.py` compares prefix values against an
+arbitrary-precision Python reference over empty, single-pixel, all-unaffected,
+all-affected, alternating, random, and 8K-wide rows, each also in its doubled
+MIRROR form, and separately checks that counts come back as `int`.
+
+### Coverage-cache reuse, re-confirmed
+
+High-tier reuse is now 6.311 s against 11.342 s cold, 1.8x faster than cold. The
+2026-07-22 "reuse slower than cold" observation has not reproduced in any of the
+six benchmark runs recorded on this machine since vectorization began. The
+planned coverage-cache investigation stays closed.
+
+### Next measured bottleneck
+
+High tier, 11.342 s cold:
+
+| Phase | Seconds | Share |
+| --- | ---: | ---: |
+| Rasterization | 5.597 | 49.3% |
+| Classification total | 1.619 | 14.3% |
+| — run counting | 1.433 | 12.6% |
+| — row-prefix construction | 0.186 | 1.6% |
+| UV traversal | 1.075 | 9.5% |
+| Image digest | 0.291 | 2.6% |
+| Coverage cache key | 0.250 | 2.2% |
+| Image read | 0.181 | 1.6% |
+| Image mask | 0.062 | 0.5% |
+| Coverage cache lookup | 0.054 | 0.5% |
+| Image channel select | 0.046 | 0.4% |
+| Coverage cache store | 0.025 | 0.2% |
+
+Rasterization is again the dominant cost at 49.3 percent, now as Python
+per-row interval arithmetic rather than clipping. Run counting is 12.6 percent
+and UV traversal 9.5 percent. About 2.1 s, 18.9 percent, remains outside the
+instrumented phases as input preparation, signature construction, polygon
+iteration, and the instrumentation itself.
+
+Cumulative effect of the four landed changes on this machine: the high tier went
+from 80.239 s to 11.342 s, and the typical tier from 10.333 s to 3.451 s. Those
+endpoints come from different sessions and are not a single controlled
+measurement; each stage's percentage above is same-session.
