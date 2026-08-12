@@ -586,13 +586,33 @@ measurement prices that crossing at roughly 0.05 s only after a host float32
 conversion that costs more than the transfer.
 
 Rasterization is the only phase large enough to clear a 20 percent
-whole-workflow gate on its own, and it is the one with the worst exactness
-story. The oracle is exact positive-area coverage of float64 UV triangles.
-f32 has a 24-bit mantissa and cannot survive the adversarial suite, which
-includes coordinates near 1e7 with sub-ulp spacing; GLSL exposes no 64-bit
-integers through Blender's shader interface, so an exact formulation means
-synthesizing 64-bit fixed point from paired 32-bit words with 128-bit
-intermediates for the cross products.
+whole-workflow gate on its own. The oracle is exact positive-area coverage of
+float64 UV triangles, and f32 has a 24-bit mantissa, so it cannot survive the
+adversarial suite, which includes coordinates near 1e7 with sub-ulp spacing.
+
+### Blender's shader interface does expose 64-bit types
+
+An earlier revision of this section asserted that it does not, and that an exact
+GPU rasterizer would therefore need 64-bit fixed point synthesized from paired
+32-bit words. That assertion was untested and is wrong. Compiled through
+`GPUShaderCreateInfo` and dispatched on the RTX 4080 / OpenGL configuration
+above, computing `(2^24 + 1) - 2^24`:
+
+| Shader type | Result | Verdict |
+| --- | ---: | --- |
+| `float` control | 0 | f32 loses the bit, as expected |
+| `double` | 1 | exact |
+| `double` with `GL_ARB_gpu_shader_fp64` | 1 | exact |
+| `int64_t` with `GL_ARB_gpu_shader_int64` | 1 | exact |
+| `uint64_t` | 1 | exact |
+| `umulExtended` 32x32 to 64 | 2 | exact |
+
+Exactness is therefore not the blocker it was recorded as. What remains is a
+portability question rather than a correctness one, and it belongs to the claim
+levels rather than to the ranking: Metal has no fp64, so a `double` shader is an
+OpenGL and Vulkan path that cannot reach *Backend-portable*. 64-bit integers are
+available in Metal Shading Language, so a fixed-point formulation may port where
+`double` cannot, but nothing here tests Blender's cross-compilation of either.
 
 ### The rasterizer's untaken numpy vectorization, priced honestly
 
@@ -649,8 +669,44 @@ of the whole workflow — but it changes `Coverage`, the coverage cache payload,
 and the classification path, so it is architectural work requiring its own
 design and approval rather than a continuation of this branch.
 
-The Stage 6 gate does not proceed to a dataflow prototype. Rasterization stays
-the dominant phase, no accelerator for it clears the keep threshold without
-that data-model change, and the GPU is the worse of the two ways to pursue it:
-it would need 64-bit fixed-point emulation to reach the same oracle, and the
-measurements above already price its transfer costs above the work it saves.
+### What the benchmark fixture does and does not represent
+
+Every measurement in this document comes from the generated grid at
+`tests/blender/run_benchmarks.py:96`, never from private assets. That fixture is
+a flat 388x388 planar grid: identical quads, axis-aligned UVs covering exactly
+[0,1] with no overlap or tiling outside the tiled tier, and images created by
+`bpy.data.images.new(..., alpha=True)`, which fills alpha uniformly at 1.0.
+
+For GPU ranking this cuts both ways and neither direction is negligible.
+Uniform triangles spanning 11 or 21 rows are the best case for SIMT, with almost
+no warp divergence, so the fixture flatters a GPU rasterizer relative to a real
+mesh of mixed triangle sizes. Against that, it understates arithmetic intensity:
+no UV tiling outside one tier, no overlapping shells, and no alpha structure.
+Any GPU verdict taken from this fixture alone is provisional.
+
+### Position of the Stage 6 gate
+
+The gate does not close, but it does not proceed on this profile either.
+
+Two of the three original rejections stand on their own measurements and are not
+sensitive to workload complexity. Row prefixes are 1.6 percent of the workflow,
+so Amdahl caps them regardless of how fast the GPU is, and the reduction spike
+measured the GPU slower than the numpy it would replace. Run counting needs 439
+MB across the bus to save 1.433 s.
+
+The fused rasterize-and-classify candidate is the one that survives. Its
+expensive input, the alpha mask, uploads once and is reused by every polygon
+mapping to that image, so its arithmetic intensity is high and rises with mesh
+complexity — the opposite of the bandwidth-bound reduction that was measured.
+An earlier revision of this section claimed the reduction measurements already
+priced this candidate's transfer costs above the work it saves. They do not; the
+two have different dataflows, and no prototype of the fused candidate exists.
+
+What blocks it is sequencing, not feasibility. The GPU candidate and the CPU
+flat-array change need the same prerequisite: coverage must stop crossing into
+classification as a mapping of Python tuples. That data-model change is worth
+about 47 percent on its own, and it moves the denominator every GPU number would
+be measured against — after it lands, rasterization plus run counting is roughly
+1.7 s of a roughly 6 s workflow, so a perfect GPU replacement for both would be
+worth about 27 percent rather than 62. Prototyping the GPU path first would
+measure it against a baseline that is about to change.
