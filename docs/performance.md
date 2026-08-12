@@ -887,3 +887,65 @@ Unattributed time is 30.7 percent of the realistic tier, up from 17.2 percent,
 because the phases around it shrank while it did not. It is the second largest
 line in the profile and has never been attributed; that is the next thing worth
 measuring, ahead of any accelerator.
+
+## Attributing the unattributed remainder
+
+Every earlier profile in this document timed the stepping loop and nothing else.
+Engine construction ran before `AnalysisEngine.metrics` existed, so the work it
+does — the structural and assignment signatures, then `_prepare` — was outside
+every `phase_*` accumulator. On the realistic tier that was most of the missing
+third.
+
+Split with plain timers, before adding any instrumentation:
+
+| Segment | Seconds | Share |
+| --- | ---: | ---: |
+| Construction | 1.428 | 22.6% |
+| Stepping | 4.900 | 77.4% |
+| Finish | 0.000 | 0.0% |
+| Instrumented at the time | 4.383 | 69.3% |
+| Unattributed at the time | 1.945 | 30.7% |
+
+Construction was 1.428 s of the 1.945 s. `_structural_signature` was 0.816 s
+`tottime` and 2.605 s cumulative under the profiler, calling `struct.pack`
+4,670,047 times and `blake2b.update` 4,821,261 times — one pack and two updates
+per vertex, edge, loop, polygon and UV.
+
+Two timers now cover construction. `phase_signature_seconds` covers both
+signatures; `phase_prepare_seconds` covers `_prepare` with the image phases it
+nests subtracted, because those are already reported as their own deltas.
+
+| Phase | Seconds | Share |
+| --- | ---: | ---: |
+| Rasterization | 2.403 | 37.2% |
+| **Signatures** | **0.996** | **15.4%** |
+| UV traversal | 0.975 | 15.1% |
+| Classification | 0.548 | 8.5% |
+| Cache key | 0.218 | 3.4% |
+| **Prepare** | **0.215** | **3.3%** |
+| Image digest | 0.112 | 1.7% |
+| Image read | 0.070 | 1.1% |
+| Row prefixes | 0.062 | 1.0% |
+| Cache lookup, store | 0.062 | 1.0% |
+| Image mask, select | 0.042 | 0.7% |
+| Unattributed | 0.751 | 11.6% |
+
+Unattributed fell from 30.7 percent to 11.6 percent. The two new phases total
+1.211 s against the 1.194 s that went missing, so the attribution closes within
+timer noise rather than merely shrinking.
+
+The 11.6 percent that remains is the stepping loop's own interpreter overhead:
+the parts of `_analyze_polygon` outside the timed regions, `_record_face`, and
+16,015,537 `list.append` calls at 1.137 s under the profiler. It is diffuse, not
+a phase, and no single change collects it.
+
+### The signature is now the second largest phase
+
+`_structural_signature` is 15.4 percent of the realistic tier, ahead of UV
+traversal. Vectorizing it — `foreach_get` into arrays and one `blake2b.update`
+per attribute instead of one per element — is the obvious shape.
+
+It is not taken here. The digest is a stale-detection fingerprint, so changing
+how it is computed changes its value, and whether that value is compared across
+sessions has to be established before the change is safe. Recorded as the next
+decision, not as work in flight.

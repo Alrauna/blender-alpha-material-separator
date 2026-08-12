@@ -874,8 +874,11 @@ class AnalysisEngine:
         self.config = config
         self.started = time.perf_counter()
         self._phase_baseline = _phase_totals()
+        signature_started = time.perf_counter()
         self.structural_signature = _structural_signature(self.objects, self.config)
         self.assignment_signature = _assignment_signature(self.objects)
+        prepare_started = time.perf_counter()
+        prepare_baseline = sum(_phase_totals().values())
         self.image_cache: ImageCache = {}
         self._deferred_images = defer_images
         self._image_builders: list[ImageSnapshotBuilder] = []
@@ -920,6 +923,7 @@ class AnalysisEngine:
                 self.prepared,
                 self.config,
             )
+        construction_finished = time.perf_counter()
         polygon_total = sum(len(item.object.data.polygons) for item in self.prepared)
         self.total = polygon_total + sum(
             builder.height for builder in self._image_builders
@@ -932,6 +936,15 @@ class AnalysisEngine:
         self.counts: Counter = Counter()
         self.skip_counts: Counter = Counter()
         self.metrics: Counter = Counter()
+        # Construction runs before `metrics` exists, so its two phases are
+        # recorded here rather than timed in place. Prepare subtracts the image
+        # phases it nests, which are reported separately as their own deltas.
+        self.metrics["phase_signature_seconds"] = prepare_started - signature_started
+        self.metrics["phase_prepare_seconds"] = (
+            construction_finished
+            - prepare_started
+            - (sum(_phase_totals().values()) - prepare_baseline)
+        )
         if not defer_images:
             self._initialize_groups()
 
