@@ -1490,3 +1490,99 @@ Of the unattributed 0.518 s, about 0.15 s is what remains of `_record_face` —
 contract requires — leaving roughly 0.37 s genuinely diffuse across the stepping
 loop. The statements named earlier in that loop total 0.134 s of it, and
 replacing the largest of them was measured at 0.9 percent of the tier.
+
+## Stage 6E, pricing the GPU dataflow before writing the rasterizer
+
+The plan gates GPU work on measurement, and the measurement it demands is the
+complete dataflow: preparation, upload, dispatch, execution, readback and
+cleanup, with command submission never counted as completion. Three spikes
+priced those pieces on the realistic tier before any rasterizer existed. Every
+number below is one process, one fixture, medians of five.
+
+### What a counts-returning kernel can actually replace
+
+Not `phase_classify_seconds`. That phase is three things, and only the middle
+one is GPU work:
+
+| Part of classification | Seconds |
+| --- | ---: |
+| Grouping the chunk by image and address mode | 0.015 |
+| `count_batch` prefix gather | 0.160 |
+| `classify_counted` per polygon | 0.152 |
+
+Grouping is Python bookkeeping over deferred faces and `classify_counted`
+applies the settings per polygon; a kernel that returns counts leaves both
+where they are. So the denominator is rasterization 0.482 s plus `count_batch`
+0.160 s, or **0.642 s** of the 2.258 s tier — 28.4%, not the 41.6% that
+rasterization plus the whole classification phase would suggest.
+
+That matters for the keep gate. Twenty percent of the tier is 0.452 s, so the
+GPU path has to finish the replaced work in **0.190 s or less**, inclusive of
+everything. The margin is real but it is not generous.
+
+### The transfer floor is 1.6%, because the mask packs 24 to a float
+
+`R32F` is the only exact upload channel and only below 2^24, which sounds like
+a severe constraint for an 87 MB boolean mask and turns out to be the opposite:
+`numpy.packbits` puts 24 mask texels in each float32 exactly, so the mask
+crosses as 3.6 MB. Doubles cross as three 22-bit chunks of the IEEE pattern,
+each below 2^24 and so exact, reassembled in the shader.
+
+| Step | Seconds |
+| --- | ---: |
+| Pack masks, 24 bits per float32 | 0.0029 |
+| Pack triangles, three 22-bit chunks | 0.0075 |
+| Upload masks | 0.0015 |
+| Upload triangles | 0.0033 |
+| Read 524,288 uint32 counts | 0.0001 |
+| **Floor, excluding all compute** | **0.0153** |
+
+One float32 per mask texel instead of packing costs 0.0102 s and 87 MB, so the
+packing is worth its 3 ms. `gpu.init()` costs 0.364 s but once per process, not
+per analysis.
+
+### GLSL fp64 is exact only with `precise`
+
+The plan says an f32 rasterizer that merely agrees on ordinary assets fails, so
+the spike compared bit patterns, not values, on the tier's 301,088 real
+triangles. It computed the long slope and one cross-section — `low_x + (y -
+low_y) * slope`, the expression the whole rasterizer is built on — in fp64 and
+returned both IEEE halves through `R32UI`.
+
+| Shader | Slope | Cross-section |
+| --- | ---: | ---: |
+| Unqualified | 0 of 297,460 differ | **14 differ**, worst 1.137e-13 |
+| `precise` | 0 differ | 0 differ |
+
+The failure is multiply-add contraction: the compiler fuses the multiply and
+the add, which is more accurate and therefore wrong here, because the CPU does
+not. Fourteen triangles in 297,460 is exactly the shape of bug that survives
+casual testing and produces a handful of misclassified faces on a real asset.
+`precise` on every declaration that feeds a comparison is mandatory, not
+advisory.
+
+### Modal round trips cost 2.9 ms, not seconds
+
+`step()` hands out 4,096 polygons at a time, so a GPU path dispatches per chunk
+and must read counts back before it can classify — 37 chunks on this tier, each
+dispatching once per image and address mode pair. Every readback is a pipeline
+stall and stalls do not shrink with the work, so this was the structural risk.
+
+| Shape | Seconds |
+| --- | ---: |
+| 185 dispatches, no readback | 0.0000 |
+| 37 × (1 dispatch + readback) | 0.0022 |
+| 37 × (5 dispatches + readback) | 0.0029 |
+
+The first row is submission only and is reported as such; it is the number the
+plan forbids calling acceleration. The readback rows were checked rather than
+trusted: 8,022 of 8,022 values in the last chunk match the CPU bit for bit, so
+`GPUTexture.read()` does synchronize and those timings include completion. A
+readback stall is about 0.06 ms.
+
+### Position after the spikes
+
+The candidate is alive. Of the 0.190 s the gate allows, the transfer floor takes
+0.015 s and the modal round trips 0.003 s, leaving **0.172 s for the rasterizer
+itself** to do what the CPU does in 0.642 s. Nothing measured so far kills it,
+and nothing measured so far is a speed claim: no rasterizer has been written.
