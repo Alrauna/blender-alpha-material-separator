@@ -807,3 +807,83 @@ tier has 11.2 M rows and a 49.1 percent hit rate, so neither number transfers
 and neither has been re-measured. What does transfer is the ordering: the two
 phases the change targets are 66.6 percent of the realistic tier, more than the
 61.9 percent they were on the grid.
+
+## Flat-array coverage and batched counting
+
+The prerequisite landed. Coverage no longer crosses into classification as a
+mapping of Python tuples; it is one `(3, run_count)` int64 array of virtual row,
+start, and half-open stop. `AlphaGrid` keeps row prefixes in a lazily-filled 2D
+buffer a whole batch can gather from, and `AnalysisEngine.step` defers counting
+to the end of its polygon chunk, counting each `(image, address mode)` group in
+one pass.
+
+Same-session, all five tiers. Every triangle, scanline, emitted-run, union-run,
+covered-texel, degenerate-triangle and cache counter is identical before and
+after:
+
+| Tier | Before | After | Change |
+| --- | ---: | ---: | ---: |
+| Small | 0.311 s | 0.198 s | -36.2% |
+| Typical | 3.327 s | 2.124 s | -36.2% |
+| High complexity | 10.983 s | 6.963 s | -36.6% |
+| Large tiled UV | 0.690 s | 0.347 s | -49.8% |
+| Realistic | 11.604 s | 6.444 s | **-44.5%** |
+
+Realistic tier phases, and the two secondary metrics:
+
+| Phase | Before | After |
+| --- | ---: | ---: |
+| Rasterization | 4.744 s | 2.371 s |
+| Classification | 3.036 s | 0.410 s |
+| UV traversal | 1.298 s | 1.139 s |
+| Row prefixes | 0.075 s | 0.053 s |
+| Coverage reuse (whole run) | 7.075 s | 3.906 s |
+| Peak working set | 2949.8 MiB | 2080.4 MiB |
+
+### Why rasterization improved as well
+
+The change was justified on classification alone, but rasterization halved too,
+and that is a property of the container rather than a surprise. Measured over
+150,544 constructions at 37 runs each, plus the chunk assembly a batched counter
+needs:
+
+| Per-polygon container | Build | Assemble | Total |
+| --- | ---: | ---: | ---: |
+| Dict of per-row tuples | 1.585 s | 0.637 s | 2.222 s |
+| **One 2D int64 array** | **0.355 s** | **0.031 s** | **0.386 s** |
+| Three 1D int64 arrays | 0.428 s | 0.076 s | 0.504 s |
+| Three `array("q")` | 0.334 s | 0.178 s | 0.511 s |
+| One interleaved `array("q")` | 0.595 s | 0.026 s | 0.620 s |
+
+The replacement is cheaper to build than the representation it removes, so the
+rasterizer stopped paying for a dict, a tuple per run, and two integer objects
+per run. That also accounts for most of the 869.4 MiB drop in peak working set.
+
+### What the estimates got right and wrong
+
+The projection before implementation was 23 percent, from a scratchpad prototype
+of batched counting alone against the realistic tier's real run distribution:
+557 ns per run scalar against 59 ns batched, a 9.5x ratio on 5,599,082 runs.
+That ratio held — classification landed at 0.410 s against a predicted 0.41 s.
+
+The 23 percent was low because it priced only the counting phase. It did not
+predict that the container replacing the dict would also be cheaper to build.
+
+Two earlier figures in this document are now settled. The 47 percent attributed
+to this change was measured at high-tier scale and did not transfer; the actual
+result is 44.5 percent on the realistic tier and 36.6 percent on the high tier.
+The 1.282 s scatter that made drop-in batched rasterization only 1.4x is gone,
+because there is no longer a per-polygon dict to scatter into.
+
+### Position of the Stage 6 gate, again
+
+The gate stays open and the sequencing argument is discharged. Rasterization is
+now 36.8 percent of a 6.444 s realistic tier and classification is 6.4 percent,
+so the fused rasterize-and-classify candidate is worth at most 43.2 percent
+rather than the 66.6 percent it was worth against the old baseline, and any
+GPU prototype now has a stable denominator to measure against.
+
+Unattributed time is 30.7 percent of the realistic tier, up from 17.2 percent,
+because the phases around it shrank while it did not. It is the second largest
+line in the profile and has never been attributed; that is the next thing worth
+measuring, ahead of any accelerator.

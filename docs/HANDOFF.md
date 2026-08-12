@@ -12,10 +12,9 @@ fresh profile, and a successful outcome does not require shipping GPU code.
 
 Stages 1 through 5 are complete. Stage 6A and 6B are complete, 6B twice: once
 against the grid fixture and then again against a realistic tier that ranks the
-candidates differently. The gate is open but not proceeding to 6E yet: the fused
-rasterize-and-classify candidate is the only survivor, and it shares a
-prerequisite with the CPU alternative, so prototyping it now would measure it
-against a baseline that is about to change.
+candidates differently. The shared prerequisite both remaining paths needed --
+flat-array coverage -- has landed, so the gate is open with a stable baseline.
+No GPU prototype has been built and none is authorized.
 
 ## Decisions
 
@@ -54,12 +53,21 @@ against a baseline that is about to change.
 - Classification was rejected at 14.3 percent on the grid and is 25.8 percent on
   the realistic tier, which clears the keep threshold. **The Stage 6B ranking
   changed as a result and the earlier grid-based ranking is superseded.**
-- Stage 3's own name — vectorize the rasterizer — is still unfulfilled. Both
-  drop-in scopes were measured and both are rejected: numpy inside the
-  per-polygon call is 2.7x slower, and batching every triangle is 1.4x, about
-  13 percent of the whole workflow. **The remaining ~47 percent needs coverage
-  to stay in flat arrays through classification, which is architectural and has
-  not been proposed to the user.**
+- Flat-array coverage was approved and implemented after a scratchpad prototype
+  measured batched counting at 9.5x on the realistic tier's real run
+  distribution, exact against the shipped counter. Scope was deliberately cut to
+  counting plus the representation; batched rasterization is a separate,
+  unapproved decision.
+- `Coverage` uses one `(3, n)` int64 array rather than three arrays or a dict.
+  Chosen on measurement, not taste: it is cheaper to build than the dict it
+  replaces, which is why rasterization improved as well.
+- `Coverage` sets `eq=False`. A generated `__eq__` would compare span arrays
+  with `==` and return an array rather than a bool.
+- Stage 3's own name — vectorize the rasterizer — is still unfulfilled. numpy
+  inside the per-polygon call was measured 2.7x slower and stays rejected.
+  Batching every triangle measured 1.4x, but that measurement was dominated by a
+  1.282 s scatter into per-polygon dicts which no longer exists, **so batching
+  the rasterizer needs re-measuring before it can be judged again.**
 
 ## Commits
 
@@ -71,7 +79,8 @@ against a baseline that is about to change.
 - `3a8b636` — corrected numpy rasterizer projection;
 - `34629bf` — corrected the exactness blocker and the fixture's representativeness;
 - `405c9f3` — Stage 6 handoff correction;
-- `d7e7ae3` — realistic benchmark tier and the re-ranked Stage 6 gate.
+- `d7e7ae3` — realistic benchmark tier and the re-ranked Stage 6 gate;
+- `7b25abd` — flat-array coverage and batched alpha counting.
 
 ## GPU findings worth not rediscovering
 
@@ -94,7 +103,7 @@ agent the most time:
 
 Fresh local results on this branch:
 
-- unit suite on Blender's bundled Python 3.13.13: 132 passed;
+- unit suite on Blender's bundled Python 3.13.13: 135 passed;
 - headless Blender suite: exit 0, all 18 modules OK, including the new
   `ALPHA_MATERIAL_SEPARATOR_IMAGE_DATA_OK`;
 - `git diff --check`: clean before each commit;
@@ -109,9 +118,13 @@ same-session:
 | Image extraction | 80.239 s | 23.101 s | -71.2% |
 | Rasterization | 22.825 s | 14.612 s | -36.0% |
 | Row prefixes | 14.049 s | 11.342 s | -19.3% |
+| Flat-array coverage | 10.983 s | 6.963 s | -36.6% |
 
-Peak working set never regressed; it fell slightly at Stages 1 and 4 and was
-flat at Stage 3. Coverage totals, run counts, and scanline counts are identical
+The realistic tier, which is the one that ranks candidates, went 11.604 s to
+6.444 s on that last change, a 44.5 percent improvement.
+
+Peak working set never regressed; it fell slightly at Stages 1 and 4, was flat
+at Stage 3, and fell 2949.8 MiB to 2080.4 MiB with flat-array coverage. Coverage totals, run counts, and scanline counts are identical
 before and after every stage on the benchmark fixtures.
 
 ## Limitations
@@ -133,29 +146,31 @@ before and after every stage on the benchmark fixtures.
   entered the repository.
 - No packaging, installed-ZIP, export, Unity, or human interaction gate has been
   run, none of which this branch's changes have yet required.
-- Rasterization is the dominant cost at 40.8 percent of the 11.554 s realistic
-  tier, followed by classification at 25.8 percent and UV traversal at 11.3
-  percent. About 17.2 percent remains outside the instrumented phases.
-- The 47 percent attributed to the flat-array change and the 27 percent left for
-  a GPU afterwards were measured at high-tier scale and do not transfer to the
-  realistic tier. Neither has been re-measured.
+- Rasterization is the dominant cost at 36.8 percent of the 6.444 s realistic
+  tier, followed by UV traversal at 17.7 percent and classification at 6.4
+  percent. **Unattributed time is now 30.7 percent and has never been
+  instrumented; it is the second largest line in the profile.**
+- The 47 percent attributed to the flat-array change did not transfer from
+  high-tier scale. The measured result is 44.5 percent on the realistic tier and
+  36.6 percent on the high tier.
 
 ## Next action
 
-Decide on the flat-array coverage representation, which is the prerequisite for
-both remaining paths. It changes `Coverage`, the coverage cache payload, and
-`AlphaGrid.count_coverage`, so it needs a written design and explicit approval
-before any code. It is worth roughly 47 percent on its own, and until it lands
-no GPU prototype can be measured against a stable baseline.
+Attribute the 30.7 percent of the realistic tier that sits outside every
+instrumented phase. It is now second only to rasterization, it has never been
+measured, and ranking any further optimization against a profile with a third of
+it unexplained is guesswork.
 
-One secondary item is open and is not authorized: a 6E prototype of the fused
-rasterize-and-classify GPU dataflow. Ranking it now requires the flat-array
-change first, because that change moves the baseline it would be measured
-against.
+Two items are open and neither is authorized:
 
-If both remaining paths are declined, the branch is complete as a measurement
-result: the high tier went from 80.239 s to 11.342 s across four landed changes.
+- batched rasterization, the second half of the original flat-array design. The
+  1.282 s scatter that capped drop-in batching at 1.4x no longer exists, so the
+  measurement that rejected it needs redoing before the option is judged;
+- a 6E prototype of the fused rasterize-and-classify GPU dataflow, now worth at
+  most 43.2 percent of the realistic tier rather than 66.6 percent.
 
-No production code changed in this session. The commits are documentation plus
-the benchmark fixture, which is test-only. Push and pull-request creation
-require separate authorization and have not been requested.
+If both are declined, the branch is complete as a measurement result: the high
+tier went from 80.239 s to 6.963 s and the realistic tier stands at 6.444 s.
+
+Push and pull-request creation require separate authorization and have not been
+requested.
