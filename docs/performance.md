@@ -594,34 +594,63 @@ integers through Blender's shader interface, so an exact formulation means
 synthesizing 64-bit fixed point from paired 32-bit words with 128-bit
 intermediates for the cross products.
 
-### The rasterizer has an untaken numpy vectorization worth more than any GPU path
+### The rasterizer's untaken numpy vectorization, priced honestly
 
-Before that work could be justified, the plan's own rule — take or explicitly
+Before GPU work could be justified, the plan's own rule — take or explicitly
 reject every remaining CPU improvement first — required pricing the obvious one.
 Stage 3 rewrote `rasterize_polygon` in pure Python and deliberately did not
-vectorize it. Computing the same height-sorted cross-sections for every triangle
-at once, with `numpy.repeat` to expand triangles into their scanline rows,
-measures as follows on 301,088 triangles shaped like the high tier's, 8.5 rows
-each:
+vectorize it, so the vectorization the stage is named for is still owed.
+
+Computing the same height-sorted cross-sections for every triangle at once, with
+`numpy.repeat` expanding triangles into their scanline rows, is **exact**: on
+2,000 triangles at 4K scale producing 4,053,250 runs, and on 2,000 small
+triangles producing 65,283 runs, the sorted run triples are identical to the
+shipped rasterizer, not merely equivalent. It is the same float64 arithmetic in
+the same order, so this is expected rather than lucky, but it is measured.
+
+The speed, however, depends entirely on where the batch boundary is drawn.
+`rasterize_polygon` is called once per polygon with two triangles, and the
+analysis loop at `addon/adapters/analysis.py:1083` interleaves it with
+per-polygon UV extraction, cache keying, cache lookup, and classification.
+Measured on 150,544 polygons of 2 triangles each, 2,558,205 rows:
 
 | Path | Seconds |
 | --- | ---: |
-| Shipped Python, projected from a 20,000-triangle sample | 4.588 |
-| numpy, whole batch | 0.278 |
+| Shipped per-polygon Python | 2.955 |
+| numpy inside the existing per-polygon call | 7.938 |
+| Batched: cross-sections for all 301,088 triangles at once | 0.268 |
+| Batched: vectorized union of overlapping runs | 0.628 |
+| Batched: scatter back into 150,544 per-polygon `Coverage` rows | 1.282 |
+| **Batched total** | **2.178** |
 
-That is 16.5x, and the runs are **identical**, not merely equivalent: on 2,000
-triangles at 4K scale producing 4,053,250 runs, and on 2,000 small triangles
-producing 65,283 runs, the sorted run triples match the shipped rasterizer
-exactly. The formulation is the same float64 arithmetic in the same order, so
-this is expected rather than lucky, but it is measured rather than assumed.
+Vectorizing inside the per-polygon call is **2.7x slower** than the shipped
+Python: array setup costs more than the ~17 rows it processes. That option is
+rejected on measurement.
 
-Scaled to the benchmark's 4,469,760 rows that predicts about 0.49 s for a phase
-now costing 5.597 s, a saving near 5.1 s, or roughly 45 percent of the whole
-workflow — against a GPU rasterizer that would need 64-bit fixed-point emulation
-to reach the same oracle and whose measured transfer costs are already the
-dominant term.
+Batching every triangle is 11x on the cross-section arithmetic alone, but the
+current architecture then charges 1.910 s to union the runs and rebuild the
+150,544 `Coverage` objects the analysis loop consumes. Drop-in batching is
+therefore **1.4x**, which turns the 5.597 s rasterization phase into roughly
+4.1 s and improves the whole workflow about 13 percent — below the 20 percent
+keep threshold, and rejected by Stage 3's own instruction to reject a change
+whose complexity is not justified by measured whole-workflow improvement.
 
-The Stage 6 gate therefore does not proceed to a dataflow prototype on this
-profile. The ranking is recomputed after the CPU vectorization lands, because
-every share in the table above is a share of a workflow that is about to get
-much smaller.
+An earlier note in this document projected 45 percent from the 0.278 s figure.
+That was wrong: it priced the cross-section arithmetic in isolation and ignored
+both the union step and the per-polygon `Coverage` construction that the current
+data model requires.
+
+The 1.282 s scatter exists only because coverage crosses into classification as
+a mapping of Python tuples. `AlphaGrid.count_coverage` then walks the same
+2.03 M runs one Python method call at a time for another 1.433 s. Keeping
+coverage in flat arrays through classification would remove both, taking
+rasterization plus run counting from 7.03 s to roughly 1.7 s — about 47 percent
+of the whole workflow — but it changes `Coverage`, the coverage cache payload,
+and the classification path, so it is architectural work requiring its own
+design and approval rather than a continuation of this branch.
+
+The Stage 6 gate does not proceed to a dataflow prototype. Rasterization stays
+the dominant phase, no accelerator for it clears the keep threshold without
+that data-model change, and the GPU is the worse of the two ways to pursue it:
+it would need 64-bit fixed-point emulation to reach the same oracle, and the
+measurements above already price its transfer costs above the work it saves.
