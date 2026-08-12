@@ -202,12 +202,18 @@ benchmark fixtures.
   entered the repository.
 - No packaging, installed-ZIP, export, Unity, or human interaction gate has been
   run, none of which this branch's changes have yet required.
-- Unattributed time is now the largest single item at 31.1 percent of the
-  2.412 s realistic tier, ahead of rasterization at 19.7 percent,
-  classification at 16.0 and UV traversal at 10.2. It is 0.751 s against
-  0.681 s before, inside the run-to-run spread, so it is flat in absolute terms
-  rather than growing. It is diffuse stepping-loop overhead: `_analyze_polygon`
-  is still one Python call per polygon.
+- `_record_face` is 11.9 percent of the tier and no phase timer has ever seen
+  it. It runs once per polygon at the tail of `_flush_pending`, outside every
+  accumulator, and it is the third-largest cost after rasterization and
+  classification. Half of it is one `metrics.update` of six raster counters
+  through a fresh dict literal, per face, which can be accumulated per chunk
+  instead for about 5.2 percent of the tier. **Measured but not implemented.**
+- The rest of the unattributed time is 19.4 percent, split about 0.21 s inside
+  engine construction — which the prepare and signature timers cover only
+  0.165 s of — and about 0.25 s genuinely spread across the stepping loop. The
+  earlier claim that the whole 31.1 percent was diffuse overhead needing the
+  per-polygon loop replaced is corrected in `docs/performance.md`; replacing the
+  loop's RNA reads was measured at 0.9 percent of the tier and is not worth it.
 - The signature vectorization improved the whole workflow 13.2 percent, below
   the repository's 20 percent keep threshold. Recorded rather than rounded; it
   is kept because the diff is smaller than what it replaces, which is not true
@@ -229,16 +235,23 @@ benchmark fixtures.
 
 ## Next action
 
-Decide whether the CPU path is exhausted. No phase has an untaken CPU idea
-behind it any more: the three largest — rasterization at 19.7 percent,
-classification at 16.0 and UV traversal at 10.2 — are all vectorized and all
-batched. The largest single item is 31.1 percent of unattributed stepping-loop
-overhead, which is one Python call per polygon across 150,544 polygons and would
-need the per-polygon loop itself replaced, not a phase optimized. That is a
-larger change than anything this branch has taken and has not been designed.
+Decide whether to take the `_record_face` aggregation. Accumulating the six
+raster counters into local integers and adding them to `metrics` once per chunk,
+instead of one `metrics.update({6 keys})` per face, measures 0.13 s — 5.2 percent
+of the tier — for a change of a few lines in `_flush_pending` and `_record_face`.
+It is well under the 20 percent keep threshold, and the argument for it is that
+the diff is smaller than what it replaces, the same argument that kept the
+signature vectorization at 13.2 percent.
+
+Engine construction is the remaining unknown: 0.379 s with only 0.165 s
+attributed. Nobody has looked at what the other 0.21 s is.
+
+Beyond those two the CPU path is exhausted. Rasterization at 19.4 percent and
+classification at 15.8 are both already vectorized and batched, and neither has
+an untaken idea behind it.
 
 The GPU prototype is deferred by the user until the CPU path is exhausted. A 6E
-prototype of the fused rasterize-and-classify dataflow is now worth at most 35.7
+prototype of the fused rasterize-and-classify dataflow is now worth at most 35.2
 percent of the realistic tier — rasterization plus classification — down from
 52.8, because the CPU work took most of what it was competing for.
 

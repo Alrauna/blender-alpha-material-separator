@@ -1335,3 +1335,86 @@ tier figure is a median of five — so it is best read as flat in absolute terms
 while everything around it shrank, not as growth. It remains diffuse interpreter
 overhead in the stepping loop: `_analyze_polygon` is still one Python call per
 polygon, and 150,544 of them cost what they cost.
+
+## Attributing the residual, and one wrong claim
+
+The previous section called the 31.1 percent residual "diffuse interpreter
+overhead in the stepping loop" that "would need the per-polygon loop itself
+replaced, not a phase optimized." Measurement contradicts that. Eleven of those
+points are a single named function.
+
+### The hypothesis that failed first
+
+The residual works out to 4.99 microseconds per polygon, and the visible
+suspects in the stepping loop are RNA reads: `step()` builds a `MeshPolygon`
+proxy per iteration and `_analyze_polygon` reads `.material_index` and `.index`
+off it, then reads `material_slots[i].material`. Each line item was timed as its
+own loop over the same 150,544 polygons, so the timer cost is paid once per loop
+rather than once per statement:
+
+| Statement | Seconds | Share of residual |
+| --- | ---: | ---: |
+| `_DeferredFace` construction | 0.0476 | 6.3% |
+| `polygons[i]` proxy + `.material_index` + `.index` | 0.0350 | 4.7% |
+| `material_slots[i].material` | 0.0269 | 3.6% |
+| `material.as_pointer()` | 0.0148 | 2.0% |
+| `resolutions.get` + `snapshots.get` | 0.0048 | 0.6% |
+| one bound method call | 0.0038 | 0.5% |
+
+Everything named sums to 0.134 s, 17.9 percent of the residual. Replacing the
+RNA reads with `foreach_get` and a `tolist()` index saves 0.021 s — 2.8 percent
+of the residual, 0.9 percent of the tier. The hypothesis was wrong and the
+change is not worth making.
+
+### Where it actually is
+
+`_run_analysis` times engine construction, every `step()` call and `finish()`
+together, so anything outside a phase accumulator in any of the three lands in
+the residual. Timing the three separately, and adding one per-chunk timer around
+the `_record_face` loop in `_flush_pending`:
+
+| | Seconds | Share of a 2.480 s cold run |
+| --- | ---: | ---: |
+| Engine construction | 0.379 | 15.3% |
+| Stepping | 2.083 | 84.0% |
+| `finish()` | 0.011 | 0.4% |
+| **`_record_face` loop** | **0.296** | **11.9%** |
+| Residual after that timer | 0.480 | 19.4% |
+
+`_record_face` runs once per polygon at the tail of `_flush_pending`, outside
+`phase_classify_seconds` and outside everything else. It is the third-largest
+cost in the analysis, behind rasterization and classification and ahead of UV
+traversal, and no instrumentation on this branch has ever seen it.
+
+Its statements, timed the same way:
+
+| Statement | Seconds | Share of `_record_face` |
+| --- | ---: | ---: |
+| `metrics.update({6 keys})` | 0.1457 | 49.3% |
+| `FaceAnalysis` construction and dict store | 0.0475 | 16.1% |
+| `face_indices` append and `counts` increment | 0.0165 | 5.6% |
+| `classified` attribute reads | 0.0079 | 2.7% |
+
+Half of it is one statement, and that statement is pure aggregation: six raster
+counters summed into a `Counter` through a freshly built dict literal, once per
+face. Six plain `metrics[key] += value` increments instead measure 0.0730 s, and
+accumulating into local integers and adding once per chunk removes essentially
+all of it. That is roughly 0.13 s, 5.2 percent of the tier, for a change of a
+few lines.
+
+This run measured 2.480 s against the 2.412 s recorded for the same code in the
+previous section. The two are separate sessions and the instrumented copy
+carries an extra per-chunk timer, so the shares above are fractions of their own
+run and the absolute figures are not comparable across the two.
+
+### What is left
+
+The residual after the `_record_face` timer is 0.480 s, and it splits roughly
+0.21 s inside engine construction — which `phase_prepare_seconds` and
+`phase_signature_seconds` cover only 0.165 s of, despite an earlier claim on
+this branch that two timers now cover it — and about 0.25 s spread across the
+stepping loop, which is where the failed hypothesis above says the money is not.
+
+So the per-polygon loop removal has a much weaker case than the 31.1 percent
+figure suggested. The genuinely diffuse part of the stepping loop is about 10
+percent of the tier, not 31, and the named statements inside it total under 6.
