@@ -943,9 +943,81 @@ a phase, and no single change collects it.
 
 `_structural_signature` is 15.4 percent of the realistic tier, ahead of UV
 traversal. Vectorizing it — `foreach_get` into arrays and one `blake2b.update`
-per attribute instead of one per element — is the obvious shape.
+per attribute instead of one per element — is the obvious shape. It was taken
+in the next change, after establishing that the digest never leaves the process.
 
-It is not taken here. The digest is a stale-detection fingerprint, so changing
-how it is computed changes its value, and whether that value is compared across
-sessions has to be established before the change is safe. Recorded as the next
-decision, not as work in flight.
+## Vectorized structural signature
+
+### The digest is same-process only, which is what makes this safe
+
+Changing how the signature is computed changes its value, so the question that
+had to be answered first is whether any stored value is ever compared against a
+freshly computed one.
+
+It is not. `_structural_signature` is only compared to a same-process recompute,
+in `validate_report_for_publication` and in the staleness check. It reaches
+`analysis_id` through `_input_signature`, and `analysis_id` reaches
+`report_json` and `expected_review_signature` — but `runtime.register_handlers`
+attaches a `@persistent` clear to `load_post`, `undo_post` and `redo_post` that
+blanks both. The digests that *are* written into the `.blend` —
+`alpha_material_separator.source_fingerprint` and
+`derived_fingerprint_at_creation` — come from `fingerprints.material_fingerprint`,
+which the structural signature does not feed.
+
+The version tag moved to `ALPHA_MATERIAL_SEPARATOR_STRUCTURAL_V2` to record that
+the encoding changed even though nothing compares across versions.
+
+### What changed
+
+Five per-element loops became six whole-attribute reads: `foreach_get` into a
+numpy array of explicit little-endian width, then one length-prefixed
+`add_bytes` per attribute. `loop_start`, `loop_total` and `material_index` are
+read separately rather than packed as interleaved triples; `loop_total` is
+read-only in Blender 5.2 but still readable, and it derives from consecutive
+`loop_start` offsets.
+
+Framing is unchanged or better. Each block carries its own length prefix, so an
+attribute's element count is now explicit in the digest where before it was
+implied by a run of equally sized chunks.
+
+### Result
+
+Same-session, realistic tier, one discarded warm-up and the median of five
+measured runs:
+
+| | Before | After | Change |
+| --- | ---: | ---: | ---: |
+| Signature phase | 1.188 s | 0.120 s | -89.9% |
+| Whole tier | 7.482 s | 6.491 s | -13.2% |
+| Peak working set | 931.0 MiB | 916.4 MiB | -1.6% |
+
+An independent pair run first, without the memory counter, measured 1.209 s to
+0.118 s and 7.642 s to 6.518 s, so the phase ratio reproduces at about 10x and
+the whole-tier figure at about 14 percent.
+
+The signature falls from 15.4 percent of the tier to 1.8 percent. The 4,670,047
+`struct.pack` calls and 4,821,261 `blake2b.update` calls the profile attributed
+to it become six array reads and six updates per mesh.
+
+### Below the keep threshold, and kept
+
+13.2 percent is under the repository's 20 percent whole-workflow threshold, the
+same situation as the row-prefix change at 19.3 percent. It is kept for a reason
+that does not apply to most sub-threshold wins: the diff is smaller than what it
+replaces. Fifteen lines of per-element packing became six lines of attribute
+reads, and the threshold exists to stop complexity being added for small gains.
+Here complexity went down.
+
+### Regression added
+
+`_structural_signature_sensitivity_test` in `tests/blender/test_analysis_preview.py`
+mutates each hashed mesh array in turn — vertex `co`, edge `vertices`, loop
+`vertex_index`, polygon `material_index`, polygon `loop_start`, a new UV layer,
+and a UV coordinate — and requires each to produce a digest not seen before. The
+revalidation matrix already covered vertex and UV edits; edges, loops and the
+polygon fields had no coverage and are exactly what a whole-array read can
+silently stop reading.
+
+The test was confirmed non-vacuous before the change by deleting the edge loop
+from the old implementation, which failed it with `edge_vertices did not change
+the structural signature`.

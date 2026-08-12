@@ -67,9 +67,12 @@ No GPU prototype has been built and none is authorized.
   `metrics` existed and so sat outside every phase accumulator. Two timers now
   cover it and unattributed fell 30.7 percent to 11.6 percent. What remains is
   diffuse interpreter overhead in the stepping loop, not a phase.
-- `_structural_signature` is 15.4 percent of the realistic tier and was left
-  alone deliberately. Vectorizing it changes the digest value, which is a
-  stale-detection fingerprint, so it needs its own approval.
+- `_structural_signature` was vectorized after establishing that its digest
+  never leaves the process: every comparison is against a same-process
+  recompute, and the `@persistent` handlers on `load_post`, `undo_post` and
+  `redo_post` blank `report_json` and `analysis_id`. The digests written into
+  the `.blend` come from `material_fingerprint`, which it does not feed. The
+  version tag moved to `STRUCTURAL_V2` to record the encoding change.
 - Stage 3's own name — vectorize the rasterizer — is still unfulfilled. numpy
   inside the per-polygon call was measured 2.7x slower and stays rejected.
   Batching every triangle measured 1.4x, but that measurement was dominated by a
@@ -88,7 +91,8 @@ No GPU prototype has been built and none is authorized.
 - `405c9f3` — Stage 6 handoff correction;
 - `d7e7ae3` — realistic benchmark tier and the re-ranked Stage 6 gate;
 - `7b25abd` — flat-array coverage and batched alpha counting;
-- `e1f2cbc` — the flat-array coverage result.
+- `e1f2cbc` — the flat-array coverage result;
+- `ca2b4fe` — engine construction instrumentation.
 
 ## GPU findings worth not rediscovering
 
@@ -128,6 +132,10 @@ same-session:
 | Row prefixes | 14.049 s | 11.342 s | -19.3% |
 | Flat-array coverage | 10.983 s | 6.963 s | -36.6% |
 
+The signature vectorization was measured on the realistic tier only, since that
+is the tier that ranks candidates: 7.482 s to 6.491 s, -13.2 percent, with the
+signature phase itself going 1.188 s to 0.120 s.
+
 The realistic tier, which is the one that ranks candidates, went 11.604 s to
 6.444 s on that last change, a 44.5 percent improvement.
 
@@ -154,35 +162,34 @@ before and after every stage on the benchmark fixtures.
   entered the repository.
 - No packaging, installed-ZIP, export, Unity, or human interaction gate has been
   run, none of which this branch's changes have yet required.
-- Rasterization is the dominant cost at 37.2 percent of the realistic tier,
-  followed by the structural signature at 15.4 percent, UV traversal at 15.1
-  percent, and classification at 8.5 percent. Unattributed time is 11.6 percent
-  and is diffuse stepping-loop overhead rather than a single target.
+- Rasterization is the dominant cost at 44.7 percent of the 6.491 s realistic
+  tier, followed by UV traversal at 18.7 percent and classification at 8.1
+  percent. The signature is now 1.8 percent. Unattributed time is diffuse
+  stepping-loop overhead rather than a single target.
+- The signature vectorization improved the whole workflow 13.2 percent, below
+  the repository's 20 percent keep threshold. Recorded rather than rounded; it
+  is kept because the diff is smaller than what it replaces, which is not true
+  of most sub-threshold wins.
 - The 47 percent attributed to the flat-array change did not transfer from
   high-tier scale. The measured result is 44.5 percent on the realistic tier and
   36.6 percent on the high tier.
 
 ## Next action
 
-Decide whether to vectorize `_structural_signature`. It is 15.4 percent of the
-realistic tier, second only to rasterization, and it hashes one `struct.pack`
-plus two `blake2b.update` calls per vertex, edge, loop, polygon and UV.
-Replacing that with `foreach_get` into arrays and one update per attribute is
-straightforward, but it changes the digest value. The digest is a
-stale-detection fingerprint, so whether it is ever compared across sessions has
-to be established first. This needs explicit approval; it is not folded into the
-instrumentation change.
+Re-measure batched rasterization, which the user selected as the follow-on to
+the signature work. It is the second half of the original flat-array design and
+is now 44.7 percent of the realistic tier, by far the largest remaining phase.
+The 1.4x measurement that rejected drop-in batching was dominated by a 1.282 s
+scatter into per-polygon dicts that no longer exists, so the measurement needs
+redoing before the option can be judged again.
 
-Three items are open and none is authorized:
+The GPU prototype is deferred by the user until the CPU path is exhausted. A 6E
+prototype of the fused rasterize-and-classify dataflow is worth at most 52.8
+percent of the realistic tier, rasterization plus classification.
 
-- batched rasterization, the second half of the original flat-array design. The
-  1.282 s scatter that capped drop-in batching at 1.4x no longer exists, so the
-  measurement that rejected it needs redoing before the option is judged;
-- a 6E prototype of the fused rasterize-and-classify GPU dataflow, now worth at
-  most 43.2 percent of the realistic tier rather than 66.6 percent.
-
-If both are declined, the branch is complete as a measurement result: the high
-tier went from 80.239 s to 6.963 s and the realistic tier stands at 6.444 s.
+If batched rasterization is also declined, the branch is complete as a
+measurement result: the high tier went from 80.239 s to 6.963 s and the
+realistic tier stands at 6.491 s.
 
 Push and pull-request creation require separate authorization and have not been
 requested.

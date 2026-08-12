@@ -12,6 +12,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Iterable
 
 import bpy
+import numpy
 
 from .. import runtime
 from ..core import (
@@ -325,14 +326,29 @@ class _Signature:
         return self._digest.hexdigest()
 
 
-def _uv_values(layer) -> Iterable[tuple[float, float]]:
+# Explicit little-endian widths so the packed blocks keep the byte layout the
+# per-element `struct.pack` calls they replaced used.
+_F8 = numpy.dtype("<f8")
+_I4 = numpy.dtype("<i4")
+
+
+def _packed(collection, attribute: str, per_element: int, dtype) -> bytes:
+    """One mesh attribute as a single contiguous block.
+
+    `foreach_get` fills the whole array in C, so hashing a mesh costs one update
+    per attribute rather than a `struct.pack` and two updates per element.
+    """
+    values = numpy.empty(len(collection) * per_element, dtype=dtype)
+    collection.foreach_get(attribute, values)
+    return values.tobytes()
+
+
+def _uv_bytes(layer) -> bytes:
+    """Every coordinate in one UV layer, as one block of little-endian doubles."""
     modern = getattr(layer, "uv", None)
     if modern is not None:
-        for item in modern:
-            yield (float(item.vector[0]), float(item.vector[1]))
-        return
-    for item in layer.data:
-        yield (float(item.uv[0]), float(item.uv[1]))
+        return _packed(modern, "vector", 2, _F8)
+    return _packed(layer.data, "uv", 2, _F8)
 
 
 def _mesh_is_safe(object_: bpy.types.Object) -> str:
@@ -378,7 +394,10 @@ def _structural_signature(
     """
 
     signature = _Signature()
-    signature.add("ALPHA_MATERIAL_SEPARATOR_STRUCTURAL_V1")
+    # V2: mesh arrays are hashed one length-prefixed block per attribute rather
+    # than one framed chunk per element. Same inputs, different encoding, and
+    # the digest is only ever compared to another one from this same process.
+    signature.add("ALPHA_MATERIAL_SEPARATOR_STRUCTURAL_V2")
     signature.add(config.payload())
     explicit_image = _explicit_image(config)
     override_by_material = {
@@ -410,21 +429,12 @@ def _structural_signature(
                 "skip": unsafe,
             }
         )
-        for vertex in mesh.vertices:
-            signature.add_bytes(struct.pack("<3d", *vertex.co))
-        for edge in mesh.edges:
-            signature.add_bytes(struct.pack("<2I", *edge.vertices))
-        for loop in mesh.loops:
-            signature.add_bytes(struct.pack("<I", loop.vertex_index))
-        for polygon in mesh.polygons:
-            signature.add_bytes(
-                struct.pack(
-                    "<3I",
-                    polygon.loop_start,
-                    polygon.loop_total,
-                    polygon.material_index,
-                )
-            )
+        signature.add_bytes(_packed(mesh.vertices, "co", 3, _F8))
+        signature.add_bytes(_packed(mesh.edges, "vertices", 2, _I4))
+        signature.add_bytes(_packed(mesh.loops, "vertex_index", 1, _I4))
+        signature.add_bytes(_packed(mesh.polygons, "loop_start", 1, _I4))
+        signature.add_bytes(_packed(mesh.polygons, "loop_total", 1, _I4))
+        signature.add_bytes(_packed(mesh.polygons, "material_index", 1, _I4))
         active_uv = mesh.uv_layers.active
         signature.add(
             {
@@ -439,8 +449,7 @@ def _structural_signature(
             }
         )
         for layer in mesh.uv_layers:
-            for uv in _uv_values(layer):
-                signature.add_bytes(struct.pack("<2d", *uv))
+            signature.add_bytes(_uv_bytes(layer))
         signature.add({"slot_count": len(object_.material_slots)})
         for slot_index, slot in enumerate(object_.material_slots):
             material = slot.material

@@ -470,20 +470,20 @@ def _single_preparation_pass_test(*objects) -> None:
     calls = 0
     uv_passes = 0
     original_prepare = analysis_module._prepare
-    original_uv_values = analysis_module._uv_values
+    original_uv_bytes = analysis_module._uv_bytes
 
     def counted_prepare(*args, **kwargs):
         nonlocal calls
         calls += 1
         return original_prepare(*args, **kwargs)
 
-    def counted_uv_values(layer):
+    def counted_uv_bytes(layer):
         nonlocal uv_passes
         uv_passes += 1
-        yield from original_uv_values(layer)
+        return original_uv_bytes(layer)
 
     analysis_module._prepare = counted_prepare
-    analysis_module._uv_values = counted_uv_values
+    analysis_module._uv_bytes = counted_uv_bytes
     try:
         engine = AnalysisEngine(objects, AnalysisConfig(), defer_images=True)
         while not engine.step(32):
@@ -491,7 +491,7 @@ def _single_preparation_pass_test(*objects) -> None:
         engine.finish()
     finally:
         analysis_module._prepare = original_prepare
-        analysis_module._uv_values = original_uv_values
+        analysis_module._uv_bytes = original_uv_bytes
     assert calls == 1, f"modal analysis prepared the same inputs {calls} times"
     expected_uv_passes = sum(len(object_.data.uv_layers) for object_ in objects)
     assert uv_passes == expected_uv_passes, (
@@ -513,6 +513,60 @@ def _single_preparation_pass_test(*objects) -> None:
     finally:
         analysis_module.material_fingerprint = original_fingerprint
     assert max(fingerprint_calls.values(), default=0) == 1, fingerprint_calls
+
+
+def _structural_signature_sensitivity_test() -> None:
+    """Every mesh array the signature hashes must move the digest.
+
+    The revalidation matrix already covers vertex and UV edits. Edges, loops and
+    the polygon fields have no coverage, and they are exactly what a signature
+    that reads whole arrays at once could silently stop reading.
+    """
+    config = AnalysisConfig()
+    object_ = _polygon_strip("AMS_SIGNATURE_STRIP", 4)
+    object_.data.materials.append(bpy.data.materials.new("AMS_SIGNATURE_SLOT_A"))
+    object_.data.materials.append(bpy.data.materials.new("AMS_SIGNATURE_SLOT_B"))
+    mesh = object_.data
+    objects = (object_,)
+
+    baseline = analysis_module._structural_signature(objects, config)
+    assert analysis_module._structural_signature(objects, config) == baseline, (
+        "structural signature is not stable across two reads of one mesh"
+    )
+
+    # `loop_total` is read-only and derives from consecutive `loop_start`
+    # offsets, so moving one start is what exercises both polygon fields.
+    mutations = (
+        ("vertex_co", lambda: setattr(mesh.vertices[1], "co", (9.0, 8.0, 7.0))),
+        ("edge_vertices", lambda: setattr(mesh.edges[0], "vertices", (0, 5))),
+        ("loop_vertex_index", lambda: setattr(mesh.loops[2], "vertex_index", 4)),
+        ("material_index", lambda: setattr(mesh.polygons[0], "material_index", 1)),
+        ("loop_start", lambda: setattr(mesh.polygons[1], "loop_start", 4)),
+    )
+    seen = {baseline}
+    previous = baseline
+    for name, mutate in mutations:
+        mutate()
+        current = analysis_module._structural_signature(objects, config)
+        assert current != previous, (
+            f"{name} did not change the structural signature"
+        )
+        assert current not in seen, f"{name} reproduced an earlier signature"
+        seen.add(current)
+        previous = current
+
+    uv_layer = mesh.uv_layers.new(name="UVMap", do_init=False)
+    with_uv = analysis_module._structural_signature(objects, config)
+    assert with_uv not in seen, "adding a UV layer did not change the signature"
+    modern = getattr(uv_layer, "uv", None)
+    if modern is not None:
+        modern[0].vector = (0.25, 0.75)
+    else:
+        uv_layer.data[0].uv = (0.25, 0.75)
+    seen.add(with_uv)
+    assert analysis_module._structural_signature(objects, config) not in seen, (
+        "a UV coordinate edit did not change the structural signature"
+    )
 
 
 def _analysis_cadence_tests() -> None:
@@ -755,6 +809,8 @@ def run() -> None:
     _bulk_image_reader_tests()
     _out_of_range_uv_test()
     _preview_component_selection_test()
+    _clear_scene()
+    _structural_signature_sensitivity_test()
     _clear_scene()
     _analysis_cadence_tests()
     _clear_scene()
