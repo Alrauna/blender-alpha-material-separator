@@ -10,9 +10,10 @@ that GPU acceleration is a candidate gated on measurement, not a specification:
 the CPU implementation stays authoritative, every later target is chosen from a
 fresh profile, and a successful outcome does not require shipping GPU code.
 
-Stages 1 through 5 are complete. Stage 6A and 6B are complete and the gate does
-not proceed to 6E: no GPU candidate clears the 20 percent keep threshold on the
-current profile. Stages 7 through 9 are therefore not reachable from here.
+Stages 1 through 5 are complete. Stage 6A and 6B are complete. The gate is open
+but not proceeding to 6E yet: the fused rasterize-and-classify candidate is the
+only survivor, and it shares a prerequisite with the CPU alternative, so
+prototyping it now would measure it against a baseline that is about to change.
 
 ## Decisions
 
@@ -36,10 +37,16 @@ current profile. Stages 7 through 9 are therefore not reachable from here.
   The bound is proven and the justification is recorded in
   `docs/performance.md`.
 
-- Stage 6 stopped at the ranking rather than prototyping a dataflow. The only
-  phase large enough to clear the keep threshold is rasterization, it is the one
-  with the worst GPU exactness story, and its CPU alternative measures better.
-  Recorded in `docs/performance.md` per the plan's failure clause.
+- Stage 6 stopped at the ranking rather than prototyping a dataflow, because the
+  surviving GPU candidate and the CPU alternative share a prerequisite that
+  moves the baseline. Recorded in `docs/performance.md`.
+- Two claims in the first version of that ranking were wrong and are corrected
+  in place: Blender's shader interface *does* expose exact `double` and
+  `int64_t`, and the bandwidth-bound reduction measurements do *not* price the
+  fused rasterize-and-classify candidate, which has a different dataflow.
+- All timing in this branch comes from the generated grid fixture, which has
+  uniform triangles, no UV tiling outside one tier, and uniform alpha. No
+  measurement has been taken against a realistic asset.
 - Stage 3's own name — vectorize the rasterizer — is still unfulfilled. Both
   drop-in scopes were measured and both are rejected: numpy inside the
   per-polygon call is 2.7x slower, and batching every triangle is 1.4x, about
@@ -54,7 +61,8 @@ current profile. Stages 7 through 9 are therefore not reachable from here.
 - `f01a016` — cross-section scanline rasterization (Stage 3);
 - `8b1b812` — `numpy.cumsum` row prefixes (Stage 4);
 - `f749202` — Stage 6A spike and Stage 6B ranking;
-- `3a8b636` — corrected numpy rasterizer projection.
+- `3a8b636` — corrected numpy rasterizer projection;
+- `34629bf` — corrected the exactness blocker and the fixture's representativeness.
 
 ## GPU findings worth not rediscovering
 
@@ -69,6 +77,9 @@ agent the most time:
 - `gpu.compute.dispatch()` leaves the shader bound, and releasing the shader
   while it is bound hard-crashes Blender on the next bind. `gpu.shader.unbind()`
   is mandatory, not hygiene.
+- `double`, `int64_t` and `uint64_t` compile and compute exactly through
+  `GPUShaderCreateInfo` on OpenGL/NVIDIA. Metal has no fp64, so `double` cannot
+  reach the *Backend-portable* claim level even though it works here.
 
 ## Verification evidence
 
@@ -116,14 +127,22 @@ before and after every stage on the benchmark fixtures.
 
 ## Next action
 
-Decide whether to pursue the flat-array coverage representation. It is the only
-remaining change measured above the 20 percent keep threshold, at roughly 47
-percent, and it needs a written design and explicit approval before any code:
-it changes `Coverage`, the coverage cache payload, and `AlphaGrid.count_coverage`.
+Decide on the flat-array coverage representation, which is the prerequisite for
+both remaining paths. It changes `Coverage`, the coverage cache payload, and
+`AlphaGrid.count_coverage`, so it needs a written design and explicit approval
+before any code. It is worth roughly 47 percent on its own, and until it lands
+no GPU prototype can be measured against a stable baseline.
 
-If that is declined, this branch is complete as a measurement result: the high
-tier went from 80.239 s to 11.342 s across four landed changes, and the GPU gate
-is documented as closed with the evidence a future agent would need to reopen it.
+Two secondary items are open and neither is authorized:
+
+- benchmarking against `.local-references/default-example`, which would replace
+  the grid fixture's uniform triangles and uniform alpha with a realistic
+  workload;
+- a 6E prototype of the fused rasterize-and-classify GPU dataflow, worth about
+  27 percent once the flat-array change lands.
+
+If both remaining paths are declined, the branch is complete as a measurement
+result: the high tier went from 80.239 s to 11.342 s across four landed changes.
 
 No production code changed in this session; the three commits above are
 documentation. Push and pull-request creation require separate authorization and
