@@ -10,8 +10,9 @@ that GPU acceleration is a candidate gated on measurement, not a specification:
 the CPU implementation stays authoritative, every later target is chosen from a
 fresh profile, and a successful outcome does not require shipping GPU code.
 
-Stages 1 through 5 are complete. Stage 6, the GPU feasibility gate, has not
-started.
+Stages 1 through 5 are complete. Stage 6A and 6B are complete and the gate does
+not proceed to 6E: no GPU candidate clears the 20 percent keep threshold on the
+current profile. Stages 7 through 9 are therefore not reachable from here.
 
 ## Decisions
 
@@ -35,12 +36,39 @@ started.
   The bound is proven and the justification is recorded in
   `docs/performance.md`.
 
+- Stage 6 stopped at the ranking rather than prototyping a dataflow. The only
+  phase large enough to clear the keep threshold is rasterization, it is the one
+  with the worst GPU exactness story, and its CPU alternative measures better.
+  Recorded in `docs/performance.md` per the plan's failure clause.
+- Stage 3's own name — vectorize the rasterizer — is still unfulfilled. Both
+  drop-in scopes were measured and both are rejected: numpy inside the
+  per-polygon call is 2.7x slower, and batching every triangle is 1.4x, about
+  13 percent of the whole workflow. **The remaining ~47 percent needs coverage
+  to stay in flat arrays through classification, which is architectural and has
+  not been proposed to the user.**
+
 ## Commits
 
 - `af5de91` — vectorized image extraction and per-phase instrumentation
   (Stages 1 and 2);
 - `f01a016` — cross-section scanline rasterization (Stage 3);
-- `8b1b812` — `numpy.cumsum` row prefixes (Stage 4).
+- `8b1b812` — `numpy.cumsum` row prefixes (Stage 4);
+- `f749202` — Stage 6A spike and Stage 6B ranking;
+- `3a8b636` — corrected numpy rasterizer projection.
+
+## GPU findings worth not rediscovering
+
+Full detail is in `docs/performance.md`; the three that would cost a future
+agent the most time:
+
+- `GPUTexture` has no write method and its constructor accepts only a `FLOAT`
+  buffer, so `R32F` is the only exact CPU-to-GPU channel and it is exact only
+  below 2^24. `R32UI` output readback is exact.
+- `gpu.texture.from_image()` returns `SRGB8_A8` for byte images and `RGBA16F`
+  for float images, so it cannot carry float image data losslessly.
+- `gpu.compute.dispatch()` leaves the shader bound, and releasing the shader
+  while it is bound hard-crashes Blender on the next bind. `gpu.shader.unbind()`
+  is mandatory, not hygiene.
 
 ## Verification evidence
 
@@ -88,11 +116,15 @@ before and after every stage on the benchmark fixtures.
 
 ## Next action
 
-Begin Stage 6A, the discardable GPU capability spike on scale rather than
-existence. Every Stage 6 comparison must be against the current optimized CPU
-implementation at 11.342 s, never the original baseline and never the pre-numpy
-implementation. No production GPU backend may land until Stage 6J's keep/abort
-gate passes at 20 percent whole-workflow improvement.
+Decide whether to pursue the flat-array coverage representation. It is the only
+remaining change measured above the 20 percent keep threshold, at roughly 47
+percent, and it needs a written design and explicit approval before any code:
+it changes `Coverage`, the coverage cache payload, and `AlphaGrid.count_coverage`.
 
-Push and pull-request creation require separate authorization and have not been
-requested.
+If that is declined, this branch is complete as a measurement result: the high
+tier went from 80.239 s to 11.342 s across four landed changes, and the GPU gate
+is documented as closed with the evidence a future agent would need to reopen it.
+
+No production code changed in this session; the three commits above are
+documentation. Push and pull-request creation require separate authorization and
+have not been requested.
