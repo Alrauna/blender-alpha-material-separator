@@ -12,9 +12,10 @@ fresh profile, and a successful outcome does not require shipping GPU code.
 
 Stages 1 through 5 are complete. Stage 6A and 6B are complete, 6B twice: once
 against the grid fixture and then again against a realistic tier that ranks the
-candidates differently. Both CPU candidates the re-ranking surfaced have landed:
-flat-array coverage and batched rasterization. The gate is open with a stable
-baseline. No GPU prototype has been built and none is authorized.
+candidates differently. Every CPU candidate the re-ranking surfaced has landed:
+flat-array coverage, batched rasterization, and vectorized UV traversal. The
+gate is open with a stable baseline. No GPU prototype has been built and none is
+authorized.
 
 ## Decisions
 
@@ -88,6 +89,18 @@ baseline. No GPU prototype has been built and none is authorized.
   duplicate coverage key miss the cache. `_rasterize_pending` rasterizes each
   key once and moves the duplicate back to the hit counter, so all eight
   benchmark counters are identical before and after.
+- A polygon's loop triangles are a slice of one array rather than a dict entry.
+  Blender emits them grouped by polygon and ascending, but `_triangle_layout`
+  stable-sorts when they are not, because depending on the ordering buys nothing
+  over a sort of an already-sorted array. `_loop_triangle_order_test` pins it.
+- Texel grids are cached per `(UV map, width, height)`, not per material slot.
+  Sixteen realistic-tier slots share four image sizes, so that is four scaled
+  arrays. It is the first change on this branch to raise peak memory, by 0.4
+  percent; scaling per polygon instead costs more than the phase saves.
+- A non-finite UV still aborts the entire analysis rather than becoming a
+  per-face `INVALID_UV`. The vectorized path reproduces the abort deliberately
+  and `_non_finite_uv_test` pins it. **Turning it into a per-face reason is a
+  behavior change and has not been proposed to the user.**
 
 ## Commits
 
@@ -105,7 +118,8 @@ baseline. No GPU prototype has been built and none is authorized.
 - `ca2b4fe` — engine construction instrumentation;
 - `0ad3852` — vectorized structural signature;
 - `756f03c` — the re-measured batched rasterization result;
-- `907246f` — batched rasterization.
+- `907246f` — batched rasterization;
+- `d20952f` — vectorized UV traversal, cache keys, and triangle layout.
 
 ## GPU findings worth not rediscovering
 
@@ -153,18 +167,21 @@ tier that ranks candidates:
 | --- | ---: | ---: | ---: |
 | Signature vectorization | 7.482 s | 6.491 s | -13.2% |
 | Batched rasterization | 6.017 s | 3.962 s | -34.2% |
+| Vectorized UV traversal | 3.742 s | 2.412 s | -35.5% |
 
-The signature phase itself went 1.188 s to 0.120 s, and the rasterization phase
-2.625 s to 0.672 s. The two before-figures are not comparable to each other:
-each pair is its own same-session measurement, and the batched pair's baseline
-was re-measured rather than carried over.
+The signature phase itself went 1.188 s to 0.120 s, the rasterization phase
+2.625 s to 0.672 s, and the UV phase 1.220 s to 0.247 s. The before-figures are
+not comparable to each other: each pair is its own same-session measurement, and
+every baseline was re-measured rather than carried over.
 
 The realistic tier went 11.604 s to 6.444 s on the flat-array change, a 44.5
 percent improvement.
 
-Peak working set never regressed; it fell slightly at Stages 1 and 4, was flat
-at Stage 3, and fell 2949.8 MiB to 2080.4 MiB with flat-array coverage. Coverage totals, run counts, and scanline counts are identical
-before and after every stage on the benchmark fixtures.
+Peak working set fell slightly at Stages 1 and 4, was flat at Stage 3, and fell
+2949.8 MiB to 2080.4 MiB with flat-array coverage. It rose once, 995.9 MiB to
+999.7 MiB on the realistic tier, with the UV texel grids. Coverage totals, run
+counts, and scanline counts are identical before and after every stage on the
+benchmark fixtures.
 
 ## Limitations
 
@@ -185,11 +202,12 @@ before and after every stage on the benchmark fixtures.
   entered the repository.
 - No packaging, installed-ZIP, export, Unity, or human interaction gate has been
   run, none of which this branch's changes have yet required.
-- UV traversal is now the dominant cost at 32.5 percent of the 3.962 s realistic
-  tier, ahead of rasterization at 16.9 percent and classification at 10.8
-  percent. Unattributed time is 16.9 percent but did not grow in absolute terms
-  — 0.669 s against 0.657 s — so it remains diffuse stepping-loop overhead
-  rather than a single target.
+- Unattributed time is now the largest single item at 31.1 percent of the
+  2.412 s realistic tier, ahead of rasterization at 19.7 percent,
+  classification at 16.0 and UV traversal at 10.2. It is 0.751 s against
+  0.681 s before, inside the run-to-run spread, so it is flat in absolute terms
+  rather than growing. It is diffuse stepping-loop overhead: `_analyze_polygon`
+  is still one Python call per polygon.
 - The signature vectorization improved the whole workflow 13.2 percent, below
   the repository's 20 percent keep threshold. Recorded rather than rounded; it
   is kept because the diff is smaller than what it replaces, which is not true
@@ -201,30 +219,32 @@ before and after every stage on the benchmark fixtures.
   The gap is the tuple-to-array flattening and the coverage-key deduplication
   pass, neither of which the prototype paid for. It clears the keep threshold at
   34.2 percent regardless.
-- Batched rasterization was measured on the realistic tier only. The high tier
-  has not been re-measured since flat-array coverage.
+- Batched rasterization and the UV vectorization were measured on the realistic
+  tier only. The high tier has not been re-measured since flat-array coverage.
+- The UV texel grids are the first change on this branch to raise peak memory.
+  It is 0.4 percent on the realistic tier, and the resident cost is
+  `loops * 16 * (1 + distinct image sizes)` bytes per UV map per object, so a
+  mesh with many more loops or many more distinct image sizes would pay more.
+  Only the realistic tier has been measured.
 
 ## Next action
 
-Decide whether to take UV traversal, which the batched-rasterization profile
-promoted to the largest phase at 32.5 percent of the 3.962 s realistic tier.
-It is a per-loop Python read of `uv_layer.uv[i].vector` followed by a per-point
-`uv_to_texel_edge` call, and it is a `foreach_get` away from being one array
-operation per mesh — the same change the structural signature already took, on
-a phase that is now 18 times larger than the signature was. Nothing about it has
-been measured yet, so the first step is a scratchpad prototype, not a plan.
-
-Rasterization at 16.9 percent and classification at 10.8 percent are the next
-two, and both are already vectorized; neither has an untaken CPU idea behind it.
+Decide whether the CPU path is exhausted. No phase has an untaken CPU idea
+behind it any more: the three largest — rasterization at 19.7 percent,
+classification at 16.0 and UV traversal at 10.2 — are all vectorized and all
+batched. The largest single item is 31.1 percent of unattributed stepping-loop
+overhead, which is one Python call per polygon across 150,544 polygons and would
+need the per-polygon loop itself replaced, not a phase optimized. That is a
+larger change than anything this branch has taken and has not been designed.
 
 The GPU prototype is deferred by the user until the CPU path is exhausted. A 6E
-prototype of the fused rasterize-and-classify dataflow is now worth at most 27.7
-percent of the realistic tier, down from 52.8, because batched rasterization
-took most of what it was competing for.
+prototype of the fused rasterize-and-classify dataflow is now worth at most 35.7
+percent of the realistic tier — rasterization plus classification — down from
+52.8, because the CPU work took most of what it was competing for.
 
 If no further work is taken, the branch is complete as a measurement result: the
 high tier went from 80.239 s to 6.963 s and the realistic tier stands at
-3.962 s.
+2.412 s, from 6.017 s when the tier was introduced.
 
 Push and pull-request creation require separate authorization and have not been
 requested.

@@ -1225,3 +1225,113 @@ Unattributed time is 16.9 percent, but it did not grow: it is 0.669 s against
 0.657 s before, essentially unchanged in absolute terms while the phase around
 it shrank. That reinforces the earlier conclusion that it is diffuse interpreter
 overhead in the stepping loop rather than an unmeasured phase.
+
+## Vectorized UV traversal, implemented
+
+The three phases the batched-rasterization profile left at the top — UV
+traversal, cache-key construction and prepare — were all the same shape: a
+Python loop over mesh elements, one attribute read at a time. Together they were
+1.629 s of the 3.742 s realistic tier.
+
+### What changed
+
+`_prepare` no longer builds a dict of per-polygon triangle tuples. `_triangle_layout`
+reads `loops` and `polygon_index` off `mesh.loop_triangles` with two
+`foreach_get` calls, and a polygon's triangles become the `triangle_counts` rows
+starting at `triangle_starts`. That slice replaces the dict lookup, so the
+prepare phase stops paying for one tuple and one dict entry per triangle.
+
+The slice is only valid because Blender emits loop triangles grouped by polygon
+and ascending. Measurement says it does, on every mesh tried, but the layout
+sorts when it does not: a stable `argsort` on an already-sorted array is cheap
+enough that depending on the ordering would buy nothing.
+`_loop_triangle_order_test` pins the assumption so a future Blender that breaks
+it fails loudly rather than silently mis-slicing.
+
+`_texel_grid` reads a UV map with one `foreach_get` and scales the whole array
+to texel edges once per image size. It is keyed by `(map, width, height)`, not
+by material slot: the realistic tier's sixteen slots share four distinct image
+sizes, so that is four scaled arrays rather than sixteen. Both dictionaries fill
+lazily, because a UV map no resolved material names is never read at all.
+`_analyze_polygon` then indexes the grid with the polygon's loop slice, which
+produces the `(triangles, 3, 2)` array `rasterize_batch` already wanted.
+
+The cache key follows from that array. `AMS_COVERAGE_V2` hashes it with one
+`tobytes()` instead of a `struct.pack("<2d", ...)` per point. The encoding is
+native `float64` rather than an explicit `<f8`, because `foreach_get` writes
+native C doubles and the coverage cache is a process-local dict — no stored key
+is ever compared against one produced by another build.
+
+### Non-finite UVs
+
+`uv_to_texel_edge` validated finiteness per point and nothing in the stepping
+loop catches what it raises, so today a single NaN UV aborts the whole analysis
+with `ANALYSIS_FAILED`. Vectorizing removes that per-point call, so the abort is
+reproduced deliberately: `_texel_grid` tests the whole array with
+`numpy.isfinite` once and keeps a mask of the offending loops, and
+`_analyze_polygon` raises the same `InvalidRasterInput` when a polygon touches
+one. Converting it to a per-face `INVALID_UV` may well be an improvement, but it
+is a behavior change and a separate decision. `_non_finite_uv_test` pins the
+current behavior either way.
+
+### Result
+
+Same-session, realistic tier, one discarded warm-up and the median of five
+measured runs:
+
+| | Before | After | Change |
+| --- | ---: | ---: | ---: |
+| UV traversal phase | 1.220 s | 0.247 s | -79.7% |
+| Cache-key phase | 0.211 s | 0.103 s | -51.2% |
+| Prepare phase | 0.198 s | 0.051 s | -74.4% |
+| Rasterization phase | 0.619 s | 0.474 s | -23.4% |
+| Whole tier | 3.742 s | 2.412 s | -35.5% |
+| Coverage reuse run | 2.971 s | 1.890 s | -36.4% |
+| Peak working set | 995.9 MiB | 999.7 MiB | +0.4% |
+
+All eight counters are identical before and after, and identical to the batched
+rasterization measurement: 301,088 triangles, 3,628 degenerate triangles,
+11,198,164 scanlines, 11,198,164 emitted runs, 5,599,082 union runs, 305,101,168
+covered texels, 73,897 coverage-cache hits and 76,647 misses.
+
+The three targeted phases went 1.629 s to 0.401 s, 4.07x, against the scratchpad
+prototype's projected 4.44x. Rasterization improved as well without being
+touched: `numpy.concatenate` replaced the comprehension that flattened Python
+tuples into the batch array, which is exactly the cost the previous section
+named as the gap between batched rasterization's projected 5.8x and its shipped
+3.91x. It recovers 0.145 s of it.
+
+Peak working set rose, which none of the earlier stages did. The scaled grids
+are the reason: the resident cost per object is `loops * 16 * (1 + sizes)` bytes
+per UV map, one raw array plus one scaled array per distinct image size. Four
+megabytes here. Scaling at slice time instead would avoid it and was rejected on
+measurement — a multiply per polygon costs more than the phase saves.
+
+### Regressions added
+
+Three tests in `tests/blender/test_analysis_preview.py`, all characterization
+rather than RED, because a refactor that changes any value is a failure:
+
+- `_loop_triangle_order_test` builds a triangle, a quad and a hexagon and
+  requires `mesh.loop_triangles` to be ascending by `polygon_index` with one,
+  two and four entries;
+- `_uv_traversal_values_test` captures what actually reaches `rasterize_batch`
+  through a wrapper and compares it to an oracle read loop by loop with
+  `uv_to_texel_edge`, on a 40-polygon fixture with its duplicate coverage keys
+  removed so every polygon appears in the batch exactly once;
+- `_non_finite_uv_test` sets one loop's UV to NaN and requires
+  `InvalidRasterInput` to propagate out of `step`.
+
+### Next measured bottleneck
+
+Rasterization is the largest phase again at 19.7 percent of the 2.412 s tier,
+then classification at 16.0 and UV traversal at 10.2. Both of the top two are
+already vectorized and neither has an untaken CPU idea behind it.
+
+Unattributed time is now the largest single item at 31.1 percent, 0.751 s
+against 0.681 s before. That is inside the run-to-run spread — the five cold
+runs span 2.376 s to 2.484 s, and the phase totals come from one run while the
+tier figure is a median of five — so it is best read as flat in absolute terms
+while everything around it shrank, not as growth. It remains diffuse interpreter
+overhead in the stepping loop: `_analyze_polygon` is still one Python call per
+polygon, and 150,544 of them cost what they cost.
