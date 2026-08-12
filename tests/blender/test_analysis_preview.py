@@ -22,7 +22,12 @@ from addon.adapters.analysis import (
 from addon.adapters.assignment import build_assignment_plan
 from addon.adapters.image_data import ImageReadError, read_image_snapshot
 from addon.adapters.material_resolver import resolve_material
-from addon.core import FaceClass, rasterize_polygon, uv_to_texel_edge
+from addon.core import (
+    FaceClass,
+    InvalidRasterInput,
+    rasterize_polygon,
+    uv_to_texel_edge,
+)
 from addon.operators import analyze as analyze_operator
 
 
@@ -517,12 +522,13 @@ def _single_preparation_pass_test(*objects) -> None:
     assert max(fingerprint_calls.values(), default=0) == 1, fingerprint_calls
 
 
-def _batched_raster_object(name: str, count: int):
+def _batched_raster_object(name: str, count: int, *, duplicates: bool = True):
     """Scattered UV triangles, deliberately crossing the batch's seams.
 
     Rasterization batches 256 polygons at a time and deduplicates by coverage
     key, so an equivalence fixture has to cross that boundary and repeat some
-    triangles rather than being a handful of distinct quads.
+    triangles rather than being a handful of distinct quads. `duplicates=False`
+    drops the repeats, for a test that needs one batch entry per polygon.
     """
     image = _image(f"{name}_IMAGE")
     material, _tree, _principled, _texture = _material(f"{name}_MATERIAL", image)
@@ -535,7 +541,7 @@ def _batched_raster_object(name: str, count: int):
         x = float(index)
         vertices.extend(((x, 0.0, 0.0), (x + 0.5, 0.0, 0.0), (x, 0.5, 0.0)))
         faces.append((offset, offset + 1, offset + 2))
-        if index and index % 7 == 0:
+        if duplicates and index and index % 7 == 0:
             # Two polygons with one coverage key, which the cache used to
             # collapse and the batch has to collapse for itself.
             uvs.extend(uvs[-3:])
@@ -559,6 +565,126 @@ def _batched_raster_object(name: str, count: int):
     bpy.context.collection.objects.link(object_)
     object_.select_set(True)
     return object_, image
+
+
+def _loop_triangle_order_test() -> None:
+    """`mesh.loop_triangles` is grouped by polygon and ascending.
+
+    The prepared triangle layout is a slice per polygon rather than a dict of
+    lists, which makes Blender's ordering load-bearing instead of incidental.
+    A mesh of a triangle, a quad and a hexagon produces one, two and four loop
+    triangles, so a grouping that broke would show as an out-of-order index.
+    """
+    _clear_scene()
+    mesh = bpy.data.meshes.new("AMS_TRIANGLE_ORDER_MESH")
+    mesh.from_pydata(
+        (
+            (0.0, 0.0, 0.0),
+            (1.0, 0.0, 0.0),
+            (0.0, 1.0, 0.0),
+            (2.0, 0.0, 0.0),
+            (3.0, 0.0, 0.0),
+            (3.0, 1.0, 0.0),
+            (2.0, 1.0, 0.0),
+            (4.0, 0.0, 0.0),
+            (5.0, 0.0, 0.0),
+            (5.5, 1.0, 0.0),
+            (5.0, 2.0, 0.0),
+            (4.0, 2.0, 0.0),
+            (3.5, 1.0, 0.0),
+        ),
+        (),
+        ((0, 1, 2), (3, 4, 5, 6), (7, 8, 9, 10, 11, 12)),
+    )
+    mesh.calc_loop_triangles()
+    order = [triangle.polygon_index for triangle in mesh.loop_triangles]
+    assert order == sorted(order), order
+    assert Counter(order) == {0: 1, 1: 2, 2: 4}, Counter(order)
+    bpy.data.meshes.remove(mesh)
+
+
+def _uv_traversal_values_test() -> None:
+    """The texel-edge triangles reaching the rasterizer, pinned to the mesh.
+
+    UV traversal reads one loop at a time today and is being replaced by whole
+    array reads. No value it produces may change, so this captures what actually
+    arrives at `rasterize_batch` and compares it to an oracle read loop by loop
+    with `uv_to_texel_edge`. The fixture drops its duplicate coverage keys so
+    that every polygon appears in the batch exactly once, in polygon order.
+    """
+    _clear_scene()
+    object_, image = _batched_raster_object("ams_uv_values", 40, duplicates=False)
+    mesh = object_.data
+    uv_layer = mesh.uv_layers[0]
+    modern = getattr(uv_layer, "uv", None)
+    expected = [
+        [
+            list(
+                uv_to_texel_edge(
+                    modern[loop].vector if modern is not None else uv_layer.data[loop].uv,
+                    image.size[0],
+                    image.size[1],
+                )
+            )
+            for loop in polygon.loop_indices
+        ]
+        for polygon in mesh.polygons
+    ]
+
+    seen = []
+    original = analysis_module.rasterize_batch
+
+    def capturing(triangles, counts, **settings):
+        offset = 0
+        for count in counts:
+            seen.append(triangles[offset : offset + int(count)])
+            offset += int(count)
+        return original(triangles, counts, **settings)
+
+    analysis_module.rasterize_batch = capturing
+    try:
+        runtime.clear_coverage_cache()
+        engine = AnalysisEngine([object_], AnalysisConfig())
+        while not engine.step(4_096):
+            pass
+        engine.finish()
+    finally:
+        analysis_module.rasterize_batch = original
+
+    assert len(seen) == len(expected) == 40, (len(seen), len(expected))
+    for index, (produced, triangle) in enumerate(zip(seen, expected)):
+        assert produced.shape == (1, 3, 2), (index, produced.shape)
+        assert produced[0].tolist() == triangle, (index, produced[0].tolist(), triangle)
+    _clear_scene()
+
+
+def _non_finite_uv_test() -> None:
+    """A non-finite UV aborts the whole analysis, and must keep doing so.
+
+    `uv_to_texel_edge` validates finiteness per point, and nothing in the
+    stepping loop catches what it raises. Vectorizing the traversal removes that
+    per-point call, so the abort has to be reproduced deliberately rather than
+    quietly becoming a per-face `INVALID_UV`. Changing it to per-face may well
+    be an improvement, but it is a separate decision.
+    """
+    _clear_scene()
+    object_, _image = _batched_raster_object("ams_uv_nan", 4, duplicates=False)
+    uv_layer = object_.data.uv_layers[0]
+    modern = getattr(uv_layer, "uv", None)
+    if modern is not None:
+        modern[5].vector = (float("nan"), 0.5)
+    else:
+        uv_layer.data[5].uv = (float("nan"), 0.5)
+    runtime.clear_coverage_cache()
+    engine = AnalysisEngine([object_], AnalysisConfig())
+    try:
+        while not engine.step(4_096):
+            pass
+    except InvalidRasterInput:
+        pass
+    else:
+        raise AssertionError("a non-finite UV no longer aborts the analysis")
+    _clear_scene()
 
 
 _RASTER_COUNTERS = (
@@ -932,6 +1058,9 @@ def run() -> None:
     _out_of_range_uv_test()
     _preview_component_selection_test()
     _clear_scene()
+    _loop_triangle_order_test()
+    _uv_traversal_values_test()
+    _non_finite_uv_test()
     _batched_rasterization_equivalence_test()
     _structural_signature_sensitivity_test()
     _clear_scene()

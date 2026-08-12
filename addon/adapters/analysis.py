@@ -20,9 +20,9 @@ from ..core import (
     AnalysisSettings,
     ClassificationResult,
     FaceClass,
+    InvalidRasterInput,
     classify_counted,
     rasterize_batch,
-    uv_to_texel_edge,
 )
 from ..core import alpha as alpha_core
 from ..overrides import MaterialOverride, OverrideConfigError
@@ -281,11 +281,31 @@ class AnalysisReport:
 
 @dataclass(slots=True)
 class _PreparedObject:
+    """One selected object's resolved materials and loop-triangle layout.
+
+    The triangles are three arrays rather than a dict of lists: `triangle_loops`
+    is every loop triangle's three loop indices, and a polygon's triangles are
+    the `triangle_counts` rows starting at `triangle_starts`. The UV arrays are
+    filled lazily, because a UV map that no resolved material names is never
+    read.
+    """
+
     object: bpy.types.Object
     result: ObjectAnalysis
     resolutions: dict[int, MaterialResolution]
     snapshots: dict[int, ImageSnapshot]
-    triangle_loops: dict[int, list[tuple[int, int, int]]]
+    triangle_loops: numpy.ndarray
+    triangle_starts: numpy.ndarray
+    triangle_counts: numpy.ndarray
+    # UV map name -> (coordinates, mask of non-finite loops, or None if none).
+    uv_arrays: dict[str, tuple[numpy.ndarray, numpy.ndarray | None]] = field(
+        default_factory=dict
+    )
+    # (UV map name, width, height) -> texel-edge coordinates, or None if the
+    # object has no such UV map.
+    texel_grids: dict[tuple[str, int, int], numpy.ndarray | None] = field(
+        default_factory=dict
+    )
 
 
 @dataclass(slots=True)
@@ -710,9 +730,7 @@ def _prepare(
                         snapshots[slot_index] = snapshot
 
         mesh.calc_loop_triangles()
-        triangle_loops: dict[int, list[tuple[int, int, int]]] = defaultdict(list)
-        for triangle in mesh.loop_triangles:
-            triangle_loops[triangle.polygon_index].append(tuple(triangle.loops))
+        triangle_loops, starts, counts = _triangle_layout(mesh)
         prepared.append(
             _PreparedObject(
                 object=object_,
@@ -720,6 +738,8 @@ def _prepare(
                 resolutions=resolutions,
                 snapshots=snapshots,
                 triangle_loops=triangle_loops,
+                triangle_starts=starts,
+                triangle_counts=counts,
             )
         )
     unused_overrides = sorted(set(override_by_material) - encountered_materials)
@@ -730,6 +750,34 @@ def _prepare(
             + ", ".join(unused_overrides),
         )
     return prepared, image_cache
+
+
+def _triangle_layout(
+    mesh: bpy.types.Mesh,
+) -> tuple[numpy.ndarray, numpy.ndarray, numpy.ndarray]:
+    """Every loop triangle's loops, plus each polygon's slice of them.
+
+    Call `calc_loop_triangles` first. Two whole-attribute reads replace a Python
+    loop that built one tuple and one dict entry per triangle.
+    """
+    count = len(mesh.loop_triangles)
+    loops = numpy.empty(count * 3, dtype=numpy.int32)
+    mesh.loop_triangles.foreach_get("loops", loops)
+    loops = loops.reshape(-1, 3)
+    polygon = numpy.empty(count, dtype=numpy.int32)
+    mesh.loop_triangles.foreach_get("polygon_index", polygon)
+    # Blender emits loop triangles grouped by polygon, which is what lets a
+    # polygon be a slice rather than a dict entry. Sorting when it is not is
+    # cheaper than depending on it; stable keeps the within-polygon order the
+    # dict preserved.
+    if count and (numpy.diff(polygon) < 0).any():
+        order = numpy.argsort(polygon, kind="stable")
+        loops, polygon = loops[order], polygon[order]
+    counts = numpy.bincount(polygon, minlength=len(mesh.polygons)).astype(numpy.int64)
+    starts = numpy.concatenate(
+        (numpy.zeros(1, dtype=numpy.int64), numpy.cumsum(counts))
+    )[:-1]
+    return loops, starts, counts
 
 
 def _input_signature(
@@ -1062,6 +1110,39 @@ class AnalysisEngine:
                 prepared.result.groups[pointer] = group
             group.face_indices[FaceClass.UNSUPPORTED].append(polygon.index)
 
+    def _texel_grid(
+        self, prepared: _PreparedObject, uv_map_name: str, snapshot: ImageSnapshot
+    ) -> numpy.ndarray | None:
+        """Every loop's UV scaled to `snapshot`'s texel edges, or None.
+
+        None means the object has no such UV map. Cached per image size rather
+        than per material slot, because slots sharing a size share the scaling.
+        """
+        key = (uv_map_name, snapshot.width, snapshot.height)
+        grid = prepared.texel_grids.get(key, False)
+        if grid is not False:
+            return grid
+        stored = prepared.uv_arrays.get(uv_map_name)
+        if stored is None:
+            mesh = prepared.object.data
+            layer = mesh.uv_layers.get(uv_map_name)
+            if layer is None:
+                prepared.texel_grids[key] = None
+                return None
+            coordinates = numpy.empty(len(mesh.loops) * 2, dtype=numpy.float64)
+            layer.uv.foreach_get("vector", coordinates)
+            coordinates = coordinates.reshape(-1, 2)
+            finite = numpy.isfinite(coordinates).all(axis=1)
+            stored = (coordinates, None if finite.all() else ~finite)
+            prepared.uv_arrays[uv_map_name] = stored
+        if snapshot.width <= 0 or snapshot.height <= 0:
+            raise InvalidRasterInput("image dimensions must be positive")
+        grid = stored[0] * numpy.array(
+            (snapshot.width, snapshot.height), dtype=numpy.float64
+        )
+        prepared.texel_grids[key] = grid
+        return grid
+
     def _analyze_polygon(self, prepared: _PreparedObject, polygon) -> None:
         object_ = prepared.object
         if prepared.result.skipped_reason:
@@ -1085,27 +1166,32 @@ class AnalysisEngine:
         if snapshot is None:
             self._record_unsupported(prepared, polygon, "IMAGE_SNAPSHOT_MISSING", material)
             return
-        uv_layer = object_.data.uv_layers.get(resolution.uv_map_name)
-        loop_triangles = prepared.triangle_loops.get(polygon.index, ())
-        if uv_layer is None or not loop_triangles:
+        uv_started = time.perf_counter()
+        triangle_count = int(prepared.triangle_counts[polygon.index])
+        texel = (
+            self._texel_grid(prepared, resolution.uv_map_name, snapshot)
+            if triangle_count
+            else None
+        )
+        if texel is None:
+            self.metrics["phase_uv_seconds"] += time.perf_counter() - uv_started
             self._record_unsupported(prepared, polygon, "UV_TRIANGLES_UNAVAILABLE", material)
             return
-
-        uv_started = time.perf_counter()
-        uv_data = getattr(uv_layer, "uv", None)
-        triangles = []
-        for loops in loop_triangles:
-            points = []
-            for loop_index in loops:
-                if uv_data is not None:
-                    uv = uv_data[loop_index].vector
-                else:
-                    uv = uv_layer.data[loop_index].uv
-                points.append(uv_to_texel_edge(uv, snapshot.width, snapshot.height))
-            triangles.append(tuple(points))
+        start = int(prepared.triangle_starts[polygon.index])
+        loops = prepared.triangle_loops[start : start + triangle_count]
+        non_finite = prepared.uv_arrays[resolution.uv_map_name][1]
+        if non_finite is not None and non_finite[loops].any():
+            # What `uv_to_texel_edge` raised when this was read point by point.
+            # Reproduced deliberately: the abort is existing behaviour, and
+            # turning it into a per-face reason is a separate decision.
+            raise InvalidRasterInput("UV coordinates must be two finite values")
+        triangles = texel[loops]
         key_started = time.perf_counter()
         cache_digest = hashlib.blake2b(digest_size=24)
-        cache_digest.update(b"AMS_COVERAGE_V1")
+        # V2: the triangles are hashed as one contiguous block rather than two
+        # doubles at a time. The coverage cache is a process-local dict, so no
+        # stored key is ever compared against one from another encoding.
+        cache_digest.update(b"AMS_COVERAGE_V2")
         cache_digest.update(
             struct.pack(
                 "<5Q",
@@ -1116,9 +1202,7 @@ class AnalysisEngine:
                 self.config.settings.max_run_emissions,
             )
         )
-        for triangle in triangles:
-            for point in triangle:
-                cache_digest.update(struct.pack("<2d", *point))
+        cache_digest.update(triangles.tobytes())
         coverage_key = cache_digest.hexdigest()
         lookup_started = time.perf_counter()
         coverage = runtime.coverage_get(coverage_key)
@@ -1212,10 +1296,7 @@ class AnalysisEngine:
             started = time.perf_counter()
             batches = [misses[key][0].triangles for key in window]
             results = rasterize_batch(
-                numpy.array(
-                    [point for batch in batches for triangle in batch for point in triangle],
-                    dtype=numpy.float64,
-                ).reshape(-1, 3, 2),
+                numpy.concatenate(batches),
                 numpy.fromiter(
                     (len(batch) for batch in batches),
                     dtype=numpy.int64,
