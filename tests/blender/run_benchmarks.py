@@ -8,6 +8,7 @@ import ctypes
 from ctypes import wintypes
 import gc
 import json
+import os
 import platform
 import random
 import statistics
@@ -30,6 +31,7 @@ from addon.adapters.analysis import (  # noqa: E402
     AnalysisEngine,
     validate_report,
 )
+from addon.adapters import gpu_raster  # noqa: E402
 from addon.adapters import image_data  # noqa: E402
 from addon.adapters.image_data import ImageSnapshotBuilder  # noqa: E402
 from addon.adapters.assignment import build_assignment_plan  # noqa: E402
@@ -542,6 +544,13 @@ def main(argv=None) -> int:
         help="Run the complete release baseline or only the mode/revalidation tier",
     )
     args = parser.parse_args(argv)
+    # A benchmark exists to time the real path, so it opts this background
+    # Blender back into the probe that `gpu_raster` keeps off by default. Here
+    # rather than at module scope: `test_benchmark_contract` imports this module
+    # inside the headless suite, which must stay off.
+    os.environ.setdefault(gpu_raster._BACKGROUND_OPT_IN, "1")
+    device = "GPU" if gpu_raster.available() else f"CPU: {gpu_raster.reason()}"
+    print(f"DEVICE {device}", flush=True)
     tiers = (
         {"name": "small", "segments": 70, "image_sizes": [1024], "material_count": 1},
         {
@@ -584,6 +593,9 @@ def main(argv=None) -> int:
     )
     result = {
         "blender_version": bpy.app.version_string,
+        # Which path these numbers came from, so a run that fell back to the CPU
+        # cannot be read as a GPU measurement afterwards.
+        "device": device,
         "machine": {
             "platform": platform.platform(),
             "processor": platform.processor(),

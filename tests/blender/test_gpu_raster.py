@@ -13,6 +13,7 @@ without one they report a skip instead of passing quietly.
 from __future__ import annotations
 
 import contextlib
+import os
 
 import bpy
 import numpy
@@ -97,6 +98,31 @@ def assert_probe_is_total() -> None:
     first = gpu_raster.available()
     assert isinstance(first, bool), type(first)
     assert gpu_raster.available() is first, "probe is not stable across calls"
+
+
+def assert_background_needs_an_opt_in() -> None:
+    """A background Blender stays on the CPU unless the machine opts in.
+
+    Asking for a context where there is no display server is not a recoverable
+    failure: the Linux runner exits on a missing `libEGL.so.1` and the Windows
+    one takes an access violation, and neither reaches an `except` clause. The
+    opt-in is what still lets a machine with a working headless GPU — this one —
+    run everything below.
+    """
+    assert bpy.app.background, "these tests only run in a background Blender"
+
+    shader, why = gpu_raster._shader, gpu_raster._reason
+    opted_in = os.environ.pop(gpu_raster._BACKGROUND_OPT_IN, None)
+    gpu_raster._shader = None
+    try:
+        assert gpu_raster.available() is False, "background probed the GPU uninvited"
+        assert gpu_raster.reason().startswith(
+            "UNAVAILABLE: background"
+        ), gpu_raster.reason()
+    finally:
+        if opted_in is not None:
+            os.environ[gpu_raster._BACKGROUND_OPT_IN] = opted_in
+        gpu_raster._shader, gpu_raster._reason = shader, why
 
 
 def assert_the_probe_measures_fp64() -> None:
@@ -531,6 +557,10 @@ def assert_work_in_flight_is_never_lost() -> None:
 
 def run() -> None:
     assert_probe_is_total()
+    # Outside the skip below on purpose: this is the guard that keeps a machine
+    # without a display server out of the GPU entirely, so it has to be proven
+    # exactly where the kernel cannot run.
+    assert_background_needs_an_opt_in()
     if not gpu_raster.available():
         why = gpu_raster.reason()
         # A machine with no usable GPU skips. A machine whose GPU answers wrongly

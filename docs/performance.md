@@ -25,6 +25,20 @@ triangle-row intersections, emitted/merged runs, median time, Python allocation,
 and process RSS where available. Use one discarded warm-up and five measured
 runs.
 
+`run_benchmarks.py` runs in a background Blender, which does not probe the GPU
+unless `ALPHA_MATERIAL_SEPARATOR_GPU_IN_BACKGROUND` is set. The script sets it
+itself, prints `DEVICE`, and writes the same string into its JSON, so a run that
+fell back to the CPU cannot be read afterwards as a GPU measurement. Check that
+field before comparing two runs.
+
+On the GPU path the process then exits 11 with an access violation *after*
+`BENCHMARK_OUTPUT` is printed and the JSON is written. The results are complete
+and unaffected; the fault is in teardown. It predates the background gate — the
+same path ran before it — and is not reproduced by the headless test suite,
+which exits 0 with the same opt-in set. Clearing the retained mask textures
+before returning does not prevent it. Unexplained, and recorded rather than
+fixed here.
+
 Measure full alpha digest, proven digest reuse, threshold-prefix rebuild,
 coverage reuse with changed images, and total cold analysis separately at 1K,
 2K, 4K, and 8K.

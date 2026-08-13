@@ -44,6 +44,25 @@ The `Remove-Item` above keeps the archive glob resolving to one file. Selecting
 the expected filename explicitly does the same thing without discarding a
 previously built release, and is preferable when an earlier ZIP is still wanted.
 
+A background Blender does not probe the GPU unless
+`ALPHA_MATERIAL_SEPARATOR_GPU_IN_BACKGROUND` is set, so the headless command
+above skips the GPU kernel tests and reports
+`ALPHA_MATERIAL_SEPARATOR_GPU_RASTER_TESTS_SKIPPED`. Asking for a context where
+there is no display server is not a recoverable failure — a Linux runner without
+`libEGL.so.1` exits and a Windows one on a software GL takes an access violation
+— so CI and any headless machine stay on the CPU by default. On a machine with a
+working headless GPU, run the suite again with the opt-in to cover the kernel:
+
+```powershell
+$env:ALPHA_MATERIAL_SEPARATOR_GPU_IN_BACKGROUND = '1'
+& $Blender52 --factory-startup --background --python-exit-code 1 --python tests/blender/run_all.py
+Remove-Item env:ALPHA_MATERIAL_SEPARATOR_GPU_IN_BACKGROUND
+```
+
+Both runs are required on a GPU machine before branch completion: the default
+one proves the fallback, the opted-in one proves the kernel. `run_benchmarks.py`
+sets the opt-in itself and records the device it measured in its JSON.
+
 The unit layer uses Blender's bundled interpreter because `addon/core` depends
 on numpy for image extraction and row prefixes. The core still imports without
 `bpy`; it is not importable on a bare Python that lacks numpy. CI matches this

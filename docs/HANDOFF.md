@@ -342,11 +342,21 @@ benchmark fixtures.
   on purpose, so it neither resets with the analysis settings nor makes a
   completed report stale.
 - The GPU tests skip on a machine without a usable GPU, so CI proves the
-  fallback rather than the kernel. Only this machine has run them.
+  fallback rather than the kernel. Only this machine has run them, and only with
+  `ALPHA_MATERIAL_SEPARATOR_GPU_IN_BACKGROUND` set: a background Blender does not
+  probe the GPU without it, because a machine with no display server cannot
+  survive `gpu.init()` in a way Python can catch. Branch completion therefore
+  needs the headless suite twice, once each way.
 - The 29 human-interaction checkboxes in `docs/testing.md` were last confirmed
   on 2026-08-01, before any of the GPU work. The new Expert checkbox has since
   been exercised by hand on Windows and macOS, but the Analyze, progress, and
   cancellation rows have not been re-run against the GPU path.
+- `run_benchmarks.py` on the GPU path exits 11 with an access violation after
+  its results are written. Pre-existing, not caused by the background gate, not
+  reproduced by the headless suite with the same opt-in, and not fixed by
+  clearing the mask textures. Recorded in `docs/performance.md`. Whether an
+  interactive Blender has the same teardown fault on quit after an analysis is
+  unknown and worth one deliberate check.
 - The manual toggle does not survive a file load, on either `load_ui` setting.
   Neither does `max_scanlines`, so this is the settings group's ordinary
   session lifetime rather than anything specific to the toggle. Measured, not

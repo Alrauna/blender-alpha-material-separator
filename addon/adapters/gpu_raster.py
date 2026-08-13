@@ -12,6 +12,7 @@ suite runs without Blender, while `gpu` is a Blender module.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 
 import numpy
@@ -307,6 +308,10 @@ _reason = "not probed"
 #: `id(grid)` to `(grid, mask texture, row-sum texture, words per row)`. The grid
 #: is held so its id cannot be reused by another object while the entry lives.
 _masks: dict[int, tuple] = {}
+
+#: Set this to anything non-empty to let a background Blender probe the GPU.
+#: Off by default: see `available()`.
+_BACKGROUND_OPT_IN = "ALPHA_MATERIAL_SEPARATOR_GPU_IN_BACKGROUND"
 
 
 def _texture(values: numpy.ndarray, fmt: str = "R32F"):
@@ -662,7 +667,18 @@ def available() -> bool:
         import gpu
 
         if bpy.app.background:
-            # A background Blender has no window to borrow a context from.
+            # A background Blender has no window to borrow a context from, and
+            # asking for one where there is no display server is not a failure
+            # Python can catch: a Linux runner without `libEGL.so.1` exits, and
+            # a Windows one on a software GL takes an access violation. Batch
+            # and CI runs therefore stay on the CPU, which costs speed on a
+            # headless machine that does have a GPU and costs nothing at all on
+            # one that does not. Such a machine opts back in by environment.
+            if not os.environ.get(_BACKGROUND_OPT_IN):
+                _reason = (
+                    f"UNAVAILABLE: background Blender without {_BACKGROUND_OPT_IN}"
+                )
+                return False
             gpu.init()
         if not _has_fp64():
             _reason = "NO_FP64: this GPU does not compute in double precision"

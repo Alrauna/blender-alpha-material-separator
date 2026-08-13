@@ -50,10 +50,26 @@ data file, so packaging is unaffected.
 `gpu_raster.available()`, evaluated once per process and cached, returning False
 on any failure without letting an exception escape:
 
+0. This is not a background Blender, or one that set
+   `ALPHA_MATERIAL_SEPARATOR_GPU_IN_BACKGROUND`.
 1. `gpu` imports and `_has_fp64()` proves the backend computes in double
    precision.
 2. The shader compiles.
 3. A fixed self-test batch reproduces its expected results exactly.
+
+Step 0 exists because the step after it is the only one that can take the
+process down with it. A background Blender has no window to borrow a context
+from, so it must call `gpu.init()`, and where there is no display server that is
+not a failure Python can catch: the Linux CI runner exits on a missing
+`libEGL.so.1` and the Windows one, on its software GL, takes an access
+violation. Neither reaches the `except` clause that makes every other failure
+here harmless. Batch and CI runs therefore stay on the CPU, which costs
+acceleration on a headless machine that does have a GPU and costs nothing at all
+on one that does not. That machine opts back in by environment;
+`tests/blender/run_benchmarks.py` does exactly that, and the kernel's own tests
+are covered by a second headless run with the variable set, per
+`docs/testing.md`. An interactive Blender is unaffected: it has a context
+already and never reaches this step.
 
 Step 1 is measured, not looked up. It compiles a one-thread shader that takes
 the halves of `1.0 + 2**-52` through push constants — so nothing can be folded on
