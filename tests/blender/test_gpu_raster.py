@@ -20,6 +20,20 @@ from addon.core import AddressMode, AlphaGrid, AnalysisSettings, rasterize_batch
 _DEFAULTS = AnalysisSettings()
 
 
+#: Every field of `RasterStats`, plus the affected count. Comparing all of them
+#: is the point: a kernel that gets the texels right by luck still has to report
+#: the same number of emitted runs and unions to have got there the same way.
+_COUNTERS = (
+    "affected",
+    "triangles",
+    "degenerate_triangles",
+    "scanlines",
+    "emitted_runs",
+    "union_runs",
+    "covered_texels",
+)
+
+
 def _oracle(triangles, counts, grid, mode, settings=_DEFAULTS):
     """The whole answer computed on the CPU alone, in the same shape as GpuCounts."""
     coverages = rasterize_batch(
@@ -29,19 +43,23 @@ def _oracle(triangles, counts, grid, mode, settings=_DEFAULTS):
         max_scanlines=settings.max_scanlines,
         max_run_emissions=settings.max_run_emissions,
     )
-    covered = numpy.zeros(counts.shape[0], dtype=numpy.int64)
-    affected = numpy.zeros(counts.shape[0], dtype=numpy.int64)
+    want = {
+        name: numpy.zeros(counts.shape[0], dtype=numpy.int64) for name in _COUNTERS
+    }
     reasons = {}
     resolved = iter(
         grid.count_batch([one for one in coverages if not isinstance(one, str)], mode)
     )
     for index, coverage in enumerate(coverages):
+        # A rejected polygon has no `RasterStats` at all, so every counter stays
+        # zero rather than carrying a partial figure.
         if isinstance(coverage, str):
             reasons[index] = coverage
             continue
-        covered[index] = coverage.stats.covered_texels
-        affected[index] = next(resolved)
-    return covered, affected, reasons
+        want["affected"][index] = next(resolved)
+        for name in _COUNTERS[1:]:
+            want[name][index] = getattr(coverage.stats, name)
+    return want, reasons
 
 
 def _assert_matches_cpu(triangles, counts, grid, mode, settings=_DEFAULTS, label=""):
@@ -49,20 +67,16 @@ def _assert_matches_cpu(triangles, counts, grid, mode, settings=_DEFAULTS, label
         triangles, counts, grid, mode, settings=settings
     )
     assert produced is not None, f"{label}{mode} batch was refused"
-    want_covered, want_affected, want_reasons = _oracle(
-        triangles, counts, grid, mode, settings
-    )
+    want, want_reasons = _oracle(triangles, counts, grid, mode, settings)
     assert produced.reasons == want_reasons, (
         label, mode, produced.reasons, want_reasons
     )
-    for name, got, want in (
-        ("covered", produced.covered, want_covered),
-        ("affected", produced.affected, want_affected),
-    ):
-        differing = int((got != want).sum())
+    for name in _COUNTERS:
+        got = getattr(produced, name)
+        differing = int((got != want[name]).sum())
         assert not differing, (
             f"{label}{mode}: {differing} of {counts.shape[0]} {name} counts "
-            f"differ, first at {numpy.flatnonzero(got != want)[:3]}"
+            f"differ, first at {numpy.flatnonzero(got != want[name])[:3]}"
         )
     return produced
 
@@ -254,7 +268,7 @@ def assert_unhandled_inputs_fall_back() -> None:
         AddressMode.REPEAT,
         settings=_DEFAULTS,
     )
-    assert empty is not None and empty.covered.size == 0, empty
+    assert empty is not None and empty.covered_texels.size == 0, empty
 
 
 def run() -> None:

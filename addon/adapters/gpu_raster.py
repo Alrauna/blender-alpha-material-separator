@@ -33,14 +33,31 @@ _ROW_WIDTH = 8192
 class GpuCounts:
     """Per-polygon results, aligned with the input order.
 
+    Every field but `reasons` is an int64 array with one entry per polygon. The
+    six counters are the fields of `RasterStats`, kept as arrays rather than as
+    objects because building one object per polygon is the cost the batch path
+    exists to avoid; the caller constructs them only for the faces it reports.
+
     `reasons` holds the unsupported reason for any polygon the CPU path rejected,
     keyed by index and usually empty. Those polygons keep zeros in the arrays,
     exactly as `rasterize_batch` leaves them.
     """
 
-    covered: numpy.ndarray
     affected: numpy.ndarray
+    triangles: numpy.ndarray
+    degenerate_triangles: numpy.ndarray
+    scanlines: numpy.ndarray
+    emitted_runs: numpy.ndarray
+    union_runs: numpy.ndarray
+    covered_texels: numpy.ndarray
     reasons: dict[int, str]
+
+
+#: The array fields of `GpuCounts`, in order. Everything after the first is a
+#: field of `RasterStats` under the same name.
+_COUNTERS = tuple(
+    field for field in GpuCounts.__slots__ if field != "reasons"
+)
 
 
 #: Address modes as the kernel numbers them. GLSL has no enums worth the ceremony.
@@ -159,6 +176,8 @@ void main() {
   if (span == 0) {
     imageStore(covered, at(p), uvec4(0u));
     imageStore(affected, at(p), uvec4(0u));
+    imageStore(emitted, at(p), uvec4(0u));
+    imageStore(unions, at(p), uvec4(0u));
     return;
   }
 
@@ -174,6 +193,7 @@ void main() {
   }
 
   uint total_covered = 0u, total_affected = 0u;
+  uint total_emitted = 0u, total_unions = 0u;
   int lo[%(cap)d], hi[%(cap)d];
   for (double row = first_row; row < stop_row; row += 1.0lf) {
     int found = 0;
@@ -254,6 +274,7 @@ void main() {
     /* `_merge_spans` over one row: sorted by start, absorb while they touch. */
     bool outside;
     int resolved = resolve_row(int(row), outside);
+    total_emitted += uint(found);
     int index = 0;
     while (index < found) {
       int start = lo[index], stop = hi[index];
@@ -262,12 +283,15 @@ void main() {
         stop = max(stop, hi[index]);
         ++index;
       }
+      ++total_unions;
       total_covered += uint(stop - start);
       total_affected += counted(resolved, outside, start, stop);
     }
   }
   imageStore(covered, at(p), uvec4(total_covered, 0u, 0u, 0u));
   imageStore(affected, at(p), uvec4(total_affected, 0u, 0u, 0u));
+  imageStore(emitted, at(p), uvec4(total_emitted, 0u, 0u, 0u));
+  imageStore(unions, at(p), uvec4(total_unions, 0u, 0u, 0u));
 }
 """
 
@@ -431,6 +455,8 @@ def _build():
     info.image(3, "R32F", "FLOAT_2D", "layout_", qualifiers={"READ"})
     info.image(4, "R32UI", "UINT_2D", "covered", qualifiers={"WRITE"})
     info.image(5, "R32UI", "UINT_2D", "affected", qualifiers={"WRITE"})
+    info.image(6, "R32UI", "UINT_2D", "emitted", qualifiers={"WRITE"})
+    info.image(7, "R32UI", "UINT_2D", "unions", qualifiers={"WRITE"})
     for name in (
         "row_width", "polygon_count", "width", "height", "words_per_row",
         "mode", "period",
@@ -455,16 +481,18 @@ def _dispatch(shader, triangles, counts, grid, mode):
     # dispatch takes its storage with it.
     tris = _texture(chunks)
     layout_texture = _texture(layout)
-    covered = _result_texture(polygons)
-    affected = _result_texture(polygons)
+    outputs = {
+        name: _result_texture(polygons)
+        for name in ("covered", "affected", "emitted", "unions")
+    }
 
     shader.bind()
     shader.image("tris", tris)
     shader.image("mask", mask)
     shader.image("rowsum", rowsum)
     shader.image("layout_", layout_texture)
-    shader.image("covered", covered)
-    shader.image("affected", affected)
+    for name, texture in outputs.items():
+        shader.image(name, texture)
     shader.uniform_int("row_width", _ROW_WIDTH)
     shader.uniform_int("polygon_count", polygons)
     shader.uniform_int("width", grid.width)
@@ -475,10 +503,12 @@ def _dispatch(shader, triangles, counts, grid, mode):
     gpu.compute.dispatch(shader, -(-polygons // 64), 1, 1)
     # Releasing a still-bound shader hard-crashes Blender on the next bind.
     gpu.shader.unbind()
-    return (
-        numpy.asarray(covered.read()).reshape(-1)[:polygons].astype(numpy.int64),
-        numpy.asarray(affected.read()).reshape(-1)[:polygons].astype(numpy.int64),
-    )
+    return {
+        name: numpy.asarray(texture.read())
+        .reshape(-1)[:polygons]
+        .astype(numpy.int64)
+        for name, texture in outputs.items()
+    }
 
 
 def _self_test(shader) -> bool:
@@ -527,18 +557,24 @@ def _self_test(shader) -> bool:
     oracle = rasterize_batch(quads, counts)
     if any(isinstance(one, str) for one in oracle):
         return False
-    expected_covered = numpy.array([one.stats.covered_texels for one in oracle])
+    expected = {
+        "covered": numpy.array([one.stats.covered_texels for one in oracle]),
+        "emitted": numpy.array([one.stats.emitted_runs for one in oracle]),
+        "unions": numpy.array([one.stats.union_runs for one in oracle]),
+    }
 
     try:
         for mode in _MODE_CODE:
             produced = _dispatch(shader, quads, counts, grid, mode)
             if produced is None:
                 return False
-            covered, affected = produced
-            if not numpy.array_equal(covered, expected_covered):
+            if any(
+                not numpy.array_equal(produced[name], want)
+                for name, want in expected.items()
+            ):
                 return False
             if not numpy.array_equal(
-                affected, numpy.array(grid.count_batch(oracle, mode))
+                produced["affected"], numpy.array(grid.count_batch(oracle, mode))
             ):
                 return False
     finally:
@@ -598,9 +634,10 @@ def counted_batch(
     if mode not in _MODE_CODE or settings.margin_texels or not available():
         return None
     polygons = int(counts.shape[0])
+    counts = counts.astype(numpy.int64, copy=False)
     if polygons == 0:
         empty = numpy.zeros(0, dtype=numpy.int64)
-        return GpuCounts(empty, empty, {})
+        return GpuCounts(*([empty] * 7), {})
 
     live_counts, scanlines, invalid = _survey(triangles, counts)
     # `_within_segment` makes the CPU's budget a running total within a polygon,
@@ -611,26 +648,43 @@ def counted_batch(
     # CPU that would not have tripped still gets the right answer.
     budget = min(settings.max_scanlines, settings.max_run_emissions)
     slow = invalid | (live_counts > SPAN_CAP) | (scanlines > budget)
-    if not slow.any():
-        produced = _dispatch(_shader, triangles, counts, grid, mode)
-        if produced is None:
-            return None
-        return GpuCounts(produced[0], produced[1], {})
 
-    # One awkward polygon must not disable the GPU for the whole mesh, so the
-    # awkward ones go to the CPU and the results merge back by index.
-    by_triangle = numpy.repeat(slow, counts)
-    covered = numpy.zeros(polygons, dtype=numpy.int64)
-    affected = numpy.zeros(polygons, dtype=numpy.int64)
+    # `triangles` and `scanlines` need no rasterization, and a degenerate is
+    # simply one the survey did not keep.
+    result = GpuCounts(
+        affected=numpy.zeros(polygons, dtype=numpy.int64),
+        # A copy, because a rejected polygon has its counters cleared below and
+        # the caller's array must not be written through.
+        triangles=numpy.array(counts, dtype=numpy.int64),
+        degenerate_triangles=counts - live_counts,
+        scanlines=scanlines,
+        emitted_runs=numpy.zeros(polygons, dtype=numpy.int64),
+        union_runs=numpy.zeros(polygons, dtype=numpy.int64),
+        covered_texels=numpy.zeros(polygons, dtype=numpy.int64),
+        reasons={},
+    )
+
     fast = ~slow
+    by_triangle = numpy.repeat(slow, counts)
     if fast.any():
         produced = _dispatch(
-            _shader, triangles[~by_triangle], counts[fast], grid, mode
+            _shader,
+            triangles if not slow.any() else triangles[~by_triangle],
+            counts[fast],
+            grid,
+            mode,
         )
         if produced is None:
             return None
-        covered[fast], affected[fast] = produced
+        result.affected[fast] = produced["affected"]
+        result.covered_texels[fast] = produced["covered"]
+        result.emitted_runs[fast] = produced["emitted"]
+        result.union_runs[fast] = produced["unions"]
+    if not slow.any():
+        return result
 
+    # One awkward polygon must not disable the GPU for the whole mesh, so the
+    # awkward ones go to the CPU and the results merge back by index.
     coverages = rasterize_batch(
         triangles[by_triangle],
         counts[slow],
@@ -644,11 +698,19 @@ def counted_batch(
             [one for one in coverages if not isinstance(one, str)], mode
         )
     )
-    reasons: dict[int, str] = {}
     for coverage, index in zip(coverages, numpy.flatnonzero(slow)):
         if isinstance(coverage, str):
-            reasons[int(index)] = coverage
+            result.reasons[int(index)] = coverage
             continue
-        covered[index] = coverage.stats.covered_texels
-        affected[index] = next(resolved)
-    return GpuCounts(covered, affected, reasons)
+        result.affected[index] = next(resolved)
+        for name in _COUNTERS[1:]:
+            getattr(result, name)[index] = getattr(coverage.stats, name)
+    if result.reasons:
+        # `rasterize_batch` gives a rejected polygon a reason and no
+        # `RasterStats` at all, so no counter may carry a partial figure.
+        rejected = numpy.fromiter(
+            result.reasons, dtype=numpy.int64, count=len(result.reasons)
+        )
+        for name in _COUNTERS:
+            getattr(result, name)[rejected] = 0
+    return result

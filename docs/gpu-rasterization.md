@@ -180,6 +180,14 @@ out rather than buried.
 The first three need no rasterization, only the sorted heights the host already
 computes to feed the kernel.
 
+`GpuCounts` keeps all six as int64 arrays rather than one `RasterStats` per
+polygon. Building 150,544 frozen dataclasses is the cost the batch path exists to
+avoid; the caller constructs them only for the faces it actually reports.
+
+A polygon the CPU path rejected has every counter zero, because
+`rasterize_batch` gives it a reason string and no `RasterStats` at all. No
+counter may carry a partial figure for a face that produced no coverage.
+
 ## Test strategy
 
 The CPU path is the oracle throughout. Every GPU test compares against it on the
