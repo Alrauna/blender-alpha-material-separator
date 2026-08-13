@@ -16,15 +16,33 @@ $Archive = (Get-ChildItem .\.packaged-releases\alpha_material_separator-*.zip | 
 & $Blender52 --factory-startup --command extension validate $Archive
 
 $IsolatedRoot = Join-Path (Resolve-Path .\.test-output).Path "isolated-install-$PID"
+$env:BLENDER_USER_RESOURCES = $IsolatedRoot
 $env:BLENDER_USER_CONFIG = Join-Path $IsolatedRoot 'config'
 $env:BLENDER_USER_SCRIPTS = Join-Path $IsolatedRoot 'scripts'
+$env:BLENDER_USER_EXTENSIONS = Join-Path $IsolatedRoot 'extensions'
 $env:BLENDER_USER_DATAFILES = Join-Path $IsolatedRoot 'datafiles'
-New-Item -ItemType Directory -Force -Path $env:BLENDER_USER_CONFIG | Out-Null
-New-Item -ItemType Directory -Force -Path $env:BLENDER_USER_SCRIPTS | Out-Null
-New-Item -ItemType Directory -Force -Path $env:BLENDER_USER_DATAFILES | Out-Null
+foreach ($Path in @(
+    $env:BLENDER_USER_CONFIG, $env:BLENDER_USER_SCRIPTS,
+    $env:BLENDER_USER_EXTENSIONS, $env:BLENDER_USER_DATAFILES)) {
+    New-Item -ItemType Directory -Force -Path $Path | Out-Null
+}
 & $Blender52 --command extension install-file -r user_default -e $Archive
+$Installed = Join-Path $env:BLENDER_USER_EXTENSIONS 'user_default\alpha_material_separator\blender_manifest.toml'
+if (-not (Test-Path $Installed)) { throw "the install escaped the isolated root" }
 & $Blender52 --background --python-exit-code 1 --python tests/blender/verify_installed_zip.py
 ```
+
+`BLENDER_USER_EXTENSIONS` is not optional and is not covered by
+`BLENDER_USER_SCRIPTS`. Blender resolves extensions through their own user path,
+so a sequence that isolates config, scripts and datafiles alone still installs
+into the operator's real profile and silently upgrades whatever AMS build they
+had. `install-file` reports `Reinstalled` rather than `Installed` when that
+happens, which is the symptom to watch for. The `Test-Path` guard above is the
+check: it fails the gate rather than letting an unisolated run report success.
+
+The `Remove-Item` above keeps the archive glob resolving to one file. Selecting
+the expected filename explicitly does the same thing without discarding a
+previously built release, and is preferable when an earlier ZIP is still wanted.
 
 The unit layer uses Blender's bundled interpreter because `addon/core` depends
 on numpy for image extraction and row prefixes. The core still imports without
