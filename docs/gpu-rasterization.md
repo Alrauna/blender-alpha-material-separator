@@ -548,3 +548,28 @@ than as the tooltip, because a Blender tooltip is fixed at registration and this
 text is decided per machine. `NO_FP64` gets the instruction-set sentence;
 `MISMATCH`, `UNAVAILABLE`, and anything else get the unknown-reason sentence,
 which is honest — none of them is something the reader can act on.
+
+## Future work: measure what fp32 would actually cost
+
+fp64 is not here for geometric accuracy. It is here because the CPU rasterizer
+is authoritative, computes in float64, and the kernel's contract is bit-equality
+with it — the kernel reassembles the CPU's own float64 bit patterns and runs the
+same expressions. An fp32 kernel would disagree at boundaries, fail the
+self-test, and disable itself, so it would not be a faster path but an absent
+one.
+
+What has never been measured is how often fp32 would actually disagree. The
+error is not harmless in principle — a span endpoint that lands on the wrong
+side of an integer texel boundary changes an alpha count by one, and one texel
+can move a face between opaque, mixed, and below-significance; UVs are scaled by
+image dimensions and tile far outside the unit square, where an f32 ulp is a
+whole texel; and the slope is a quotient of differences. But on ordinary assets
+the disagreeing set could be empty.
+
+The experiment: build an fp32 variant of the kernel and count disagreeing
+polygons across the 150,544-face tier, reusing the existing exactness oracle. If
+it is zero on realistic content, an fp32 fast path with fp64 as the fallback is
+arguable, and Apple Silicon would gain acceleration. It does not remove the
+probe; it replaces "does this GPU have fp64" with "does this GPU's fp32 match
+our CPU", which is a harder question. Not a blocker for this branch, and it
+would need its own design approval, since it touches the exactness contract.
