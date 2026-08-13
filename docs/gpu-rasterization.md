@@ -50,9 +50,19 @@ data file, so packaging is unaffected.
 `gpu_raster.available()`, evaluated once per process and cached, returning False
 on any failure without letting an exception escape:
 
-1. `gpu` imports and `gpu.platform.backend_type_get()` is not `METAL`.
+1. `gpu` imports and `_has_fp64()` proves the backend computes in double
+   precision.
 2. The shader compiles.
 3. A fixed self-test batch reproduces its expected results exactly.
+
+Step 1 is measured, not looked up. It compiles a one-thread shader that takes
+the halves of `1.0 + 2**-52` through push constants — so nothing can be folded on
+the host — subtracts one, and requires the halves of `2**-52` back. A backend
+without fp64 either rejects the source, which is caught, or computes it as
+`float` and returns zero, which is also caught. Both answer `NO_FP64`. Naming a
+backend instead would be wrong twice over: the list goes stale whenever a driver
+gains or loses the capability, and silent demotion would slip past it into the
+self-test and be reported as a defect rather than as a missing capability.
 
 Step 3 is the one that matters, because compilation proves very little. The
 self-test runs the real kernel on a small fixed fixture and compares its counts
@@ -246,10 +256,14 @@ cannot, so it is the gate for the integration commit rather than an extra.
 
 ## Risks
 
-- **macOS cannot run this.** Metal has no fp64. The CPU rasterizer is a
-  permanent fallback, and two implementations of the most correctness-critical
-  code in the addon are maintained under one set of bit-exactness tests. This is
-  the real price and it is not measured in seconds.
+- **Some machines cannot run this.** The kernel needs fp64, which Metal does not
+  have. That is measured rather than assumed: `_has_fp64()` compiles and runs one
+  `double` before anything else and reports `NO_FP64` when the backend either
+  refuses the source or computes it in single precision. No backend is named
+  anywhere, so a driver that gains or loses the capability needs no code change.
+  The CPU rasterizer is a permanent fallback, and two implementations of the most
+  correctness-critical code in the addon are maintained under one set of
+  bit-exactness tests. This is the real price and it is not measured in seconds.
 - **One machine, one driver.** Every measurement and the exactness result come
   from a single OpenGL NVIDIA machine. Another driver could round, fold or
   miscompile differently; the runtime self-test is what makes that disable the
@@ -503,3 +517,31 @@ with the hold is 171 ms, below the CPU path's own 208 ms.
 The threshold is a measured constant for this machine and tier, like
 `_RASTER_BATCH_POLYGONS`, and the tests that depend on pipeline depth shrink it
 through `_submitting_every` rather than building a 16,384-polygon fixture.
+
+## The manual fallback
+
+**Disable GPU acceleration**, at the bottom of Expert Analysis Settings, is a
+`BoolProperty` on the session settings group. Off by default; checked and locked
+where the probe failed.
+
+The lock lives in the property's `get=`, not in the panel row, because the engine
+and any script read the property rather than the row. Its `set=` only stores: a
+property with a `get=` and no `set=` is read-only, and the checkbox would never
+toggle. A machine whose probe failed therefore reads `True` from every caller.
+
+Three things it deliberately is not:
+
+- Not in `ANALYSIS_SETTING_NAMES`, so it is not an `analyze()` keyword and
+  **Reset to Default Values** does not move the reader back onto the GPU.
+- Not in `AnalysisConfig.payload()`, so it is not in the input signature.
+  Both paths reproduce each other exactly, so switching device must not make a
+  completed report stale.
+- Not carried on the analyze operator. Which device runs is not an analysis
+  parameter, so `_config` reads it from the settings group and the published
+  operator surface is unchanged.
+
+The two failure sentences are drawn as label copy under the disabled row rather
+than as the tooltip, because a Blender tooltip is fixed at registration and this
+text is decided per machine. `NO_FP64` gets the instruction-set sentence;
+`MISMATCH`, `UNAVAILABLE`, and anything else get the unknown-reason sentence,
+which is honest — none of them is something the reader can act on.

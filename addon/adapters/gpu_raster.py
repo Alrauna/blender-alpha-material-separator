@@ -467,6 +467,62 @@ def _build():
     return gpu.shader.create_from_info(info)
 
 
+#: `1.0 + 2**-52` as its two halves, and the halves of the `2**-52` that
+#: subtracting one from it must leave. Single precision cannot hold either: it
+#: rounds the input to `1.0` and the difference to `0.0`.
+_FP64_INPUT = (0x00000001, 0x3FF00000)
+_FP64_EXPECTED = (0x00000000, 0x3CB00000)
+
+_FP64_SOURCE = """
+void main() {
+  double value = packDouble2x32(uvec2(uint(low), uint(high))) - 1.0lf;
+  uvec2 halves = unpackDouble2x32(value);
+  imageStore(probe, ivec2(0, 0), uvec4(halves.x, 0u, 0u, 0u));
+  imageStore(probe, ivec2(1, 0), uvec4(halves.y, 0u, 0u, 0u));
+}
+"""
+
+
+def _has_fp64() -> bool:
+    """Whether this backend really computes in double precision.
+
+    The kernel's exactness rests entirely on fp64, and a backend can lack it in
+    two ways that look nothing alike. One refuses to compile `double`, which
+    raises here. The other compiles it as `float` and quietly returns wrong
+    counts, which would otherwise surface as a self-test mismatch — reported as a
+    defect rather than as the missing capability it is.
+
+    The bits arrive through push constants so the compiler cannot fold the
+    answer at compile time on the host, which would hide the second case.
+    """
+    import gpu
+
+    info = gpu.types.GPUShaderCreateInfo()
+    info.image(0, "R32UI", "UINT_2D", "probe", qualifiers={"WRITE"})
+    info.push_constant("INT", "low")
+    info.push_constant("INT", "high")
+    info.local_group_size(1, 1, 1)
+    info.compute_source(_FP64_SOURCE)
+    try:
+        shader = gpu.shader.create_from_info(info)
+    except Exception:
+        # A backend without double precision rejects the source. That is the
+        # capability answer, not an unexpected failure.
+        return False
+
+    texture = _result_texture(2)
+    shader.bind()
+    shader.image("probe", texture)
+    shader.uniform_int("low", _FP64_INPUT[0])
+    shader.uniform_int("high", _FP64_INPUT[1])
+    gpu.compute.dispatch(shader, 1, 1, 1)
+    # Releasing a still-bound shader hard-crashes Blender on the next bind.
+    gpu.shader.unbind()
+    produced = numpy.asarray(texture.read()).reshape(-1)[:2]
+    expected = numpy.array(_FP64_EXPECTED, dtype=produced.dtype)
+    return numpy.array_equal(produced, expected)
+
+
 def _submit(shader, triangles, counts, grid, mode):
     """Queue the kernel and return a handle to read later, or `None` to fall back.
 
@@ -608,8 +664,8 @@ def available() -> bool:
         if bpy.app.background:
             # A background Blender has no window to borrow a context from.
             gpu.init()
-        if gpu.platform.backend_type_get() == "METAL":
-            _reason = "NO_FP64: Metal has no double precision"
+        if not _has_fp64():
+            _reason = "NO_FP64: this GPU does not compute in double precision"
             return False
         shader = _build()
         if _self_test(shader):

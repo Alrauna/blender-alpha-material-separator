@@ -99,6 +99,33 @@ def assert_probe_is_total() -> None:
     assert gpu_raster.available() is first, "probe is not stable across calls"
 
 
+def assert_the_probe_measures_fp64() -> None:
+    """The kernel's fp64 requirement is measured here, not denied by backend name.
+
+    A deny list goes stale the moment a driver gains or loses the capability, and
+    it cannot see the harder case at all: a backend that accepts `double` and
+    quietly computes it in single precision compiles fine, fails the self-test,
+    and is then reported as a defect rather than as a missing capability.
+    """
+    assert gpu_raster._has_fp64() is True, gpu_raster.reason()
+
+    # The fixture only discriminates because single precision cannot hold it. A
+    # value float32 could reproduce would make the probe answer yes on a
+    # demoting backend, which is the case it exists to catch.
+    single = numpy.float32(1.0) + numpy.float32(2.0) ** numpy.float32(-52)
+    assert single == numpy.float32(1.0), single
+
+    probe, shader, why = gpu_raster._has_fp64, gpu_raster._shader, gpu_raster._reason
+    gpu_raster._has_fp64 = lambda: False
+    gpu_raster._shader = None
+    try:
+        assert gpu_raster.available() is False, "a backend without fp64 was accepted"
+        assert gpu_raster.reason().startswith("NO_FP64"), gpu_raster.reason()
+    finally:
+        gpu_raster._has_fp64 = probe
+        gpu_raster._shader, gpu_raster._reason = shader, why
+
+
 def assert_modes_cross_edges() -> None:
     """Runs that leave the image on both sides, and rows that leave it too.
 
@@ -498,6 +525,7 @@ def run() -> None:
         print(f"SKIP: the GPU kernel tests did not run: {why}")
         print("ALPHA_MATERIAL_SEPARATOR_GPU_RASTER_TESTS_SKIPPED")
         return
+    assert_the_probe_measures_fp64()
     assert_modes_cross_edges()
     assert_exact_at_scale()
     assert_awkward_polygons_are_partitioned()
