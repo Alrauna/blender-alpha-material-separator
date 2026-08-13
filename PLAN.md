@@ -1,365 +1,402 @@
-# Blender Alpha Material Separator 1.0 release plan
+# Analysis performance plan
 
-Status: milestones 0-4A are implemented and verified locally on
-`feat/alpha-material-separator-0.1`. The workflow-friction hardening prompted
-by real-file testing is complete in commits `a09593b`, `4c26dfd`, and
-`1e61993`: safe groups apply independently, exact-plan preview survives
-harmless selection/mode changes, and the installed-ZIP Analyze → Preview →
-Tab → Apply workflow no longer requires redundant analysis. The listed
-Milestone 5 checks are complete: the compact count-only confirmation,
-optional-preview flows, partial apply, 150% UI scale, Unity material/submesh
-handoff, final Apply-preflight measurement, and installed-ZIP progress and
-Escape cancellation have passed. A minor cursor/sidebar percentage
-desynchronization remains a follow-up UX issue. VRChat validation remains
-optional stack-specific evidence. The approved repository-simplification pass
-is complete in commits `4138236` through `f330192`; public API 1.2 and tested
-workflow behavior are unchanged.
+Make Analyze materially faster without changing what it classifies. GPU
+acceleration is a candidate optimization gated on measurement, not the
+specification. The CPU implementation stays authoritative, and a successful
+outcome does not require shipping GPU code — if the optimized CPU path makes
+GPU acceleration uneconomical, that is a result worth documenting.
 
-## Product outcome
+## Why this shape
 
-Version 1.0 analyzes selected original/base mesh polygons, reports and previews
-opaque, alpha-affected, mixed, suppressed, and unsupported faces, and assigns
-reviewed alpha-affected/mixed faces to a derived material slot. It never changes
-topology or physically separates objects.
+`docs/performance.md` (2026-08-01, "Analyze responsiveness") is current
+authority:
 
-The original material remains the opaque/source candidate. A local
-`<source>__AMS_ALPHA` copy represents faces that need alpha. The copy remains
-visually identical in Blender; Unity or VRChat shader modes are configured
-manually after export.
+| Metric | Value |
+| --- | ---: |
+| High tier cold | 71.556 s |
+| 8K full digest | 45.163 s |
+| 4K full digest | 1.202 s |
+| Peak working set | 2.92 GiB |
 
-## Milestone 0: documentation and scaffold
+Image extraction is **47.6 s of 71.6 s**; the 8K image alone is 63%. An
+accelerator that runs after extraction is capped at **1.50x** even if it makes
+everything else free. The repository already hit this wall from the CPU side: a
+four-worker multiprocessing prototype reached 2.14x isolated, projected 1.29x
+whole-workflow, and was rejected under the 20% keep threshold.
 
-- Preserve the cloned repository, canonical license, remote, and initial commit.
-- Extend existing documentation and ignore rules.
-- Create an extension-native Blender 5.2 package with reversible registration.
-- Declare `GPL-3.0-or-later`, manifest ID `alpha_material_separator`, version
-  `1.0.0`, and maintainer `Alrauna`.
-- Validate registration, unregistration, re-registration, and the manifest.
+So: fix the measured bottleneck, re-profile, and choose the next target from the
+new profile — never from a historical one that a landed optimization may have
+invalidated.
 
-## Milestone 1: bounded material characterization
+## Verified environment findings
 
-Inspect only lawful references already present in `.local-references/`. Do not
-wait or download inputs. If representative graphs are unavailable, publish a
-matrix that records the limitation and proceed with only the guaranteed direct
-alpha resolver and explicit image/UV overrides.
+Measured 2026-08-12 by direct probe of the installed Blender, not from
+documentation. An earlier draft of this plan inferred from `gpu.types` and
+`GPUShader` that compute dispatch was unavailable. That inference was wrong.
 
-Consider direct alpha, alpha-bearing color images, separate masks, UV Map,
-Texture Coordinate, Mapping, reroutes, simple groups, combined masks, and
-ambiguous multi-image graphs. Commit only anonymized aggregates and synthetic
-reproductions.
-
-**Mandatory checkpoint:** stop after `docs/material-support.md` and
-`docs/material-characterization.md`; obtain approval before freezing or adding
-automatic resolver patterns.
-
-Checkpoint result: approved. The direct-alpha, simple-reroute, unique Base
-Color image, direct UV Map, and Texture Coordinate UV patterns are frozen for
-0.1. Explicit image/UV/channel overrides and baked masks provide the manual
-escape hatch for other alpha sources.
-
-## Milestone 2: pure coverage and classification core
-
-- Use positive-area UV-triangle/texel-cell coverage and deterministic row spans.
-- Union spans by original polygon; never sample only vertices or centroids.
-- Support Repeat, Extend, Clip, and Mirror after rasterization.
-- Default threshold `0.999`, margin `0`, minimum affected count `1`, and minimum
-  fraction `0`; all enabled minima must pass.
-- Use alpha row prefixes and deterministic limits of 1,000,000 scanlines and
-  2,000,000 emitted runs per polygon.
-- Report `OPAQUE`, `ALPHA_AFFECTED`, `MIXED`, `SUPPRESSED`, or `UNSUPPORTED`.
-- Compare the optimized algorithm with a slow fixed-seed clipping oracle.
-
-## Milestone 3: Blender analysis, preview, cache, and UI
-
-- Resolve survey-approved material paths plus explicit overrides.
-- Hash every classification input with versioned BLAKE2b signatures: base mesh
-  geometry/topology, slots, UVs, settings, resolved node path, image identity,
-  dimensions, state, and participating pixel channels.
-- Treat Blender notifications as revalidation hints. Track `CLEAN`,
-  `RECHECK_PENDING`, and confirmed `STALE` separately; a hint alone must not
-  clear the report, review token, or content-addressed coverage cache.
-- Store component fingerprints for mesh identity/safety, geometry/topology,
-  material indices and slots, UVs, material/resolver graphs, image state and
-  participating pixels, and configuration. Recheck only relevant hinted
-  components where correctness can be proven.
-- Preserve the analysis ID and reviewed preview across selection and
-  Object/Edit Mode changes whose fingerprints remain equal. Final Preview and
-  Apply preflight still synchronously drain pending validation.
-- Benchmark full alpha hashing separately from proven digest reuse, threshold
-  prefix reuse, and UV-coverage reuse. Recompute when invalidation reliability
-  is uncertain.
-- Use chunked modal work with visible progress and Escape cancellation before
-  mutation. Headless execution uses the same engine synchronously.
-- Complete the interactive panel/progress/cancel/preview/multi-object Edit
-  Mode/assignment/undo smoke checklist in `docs/testing.md`.
-
-## Milestone 4: safe material assignment
-
-- Require the reviewed analysis ID and revalidate before mutation.
-- Route alpha-affected and mixed faces to the derived material.
-- Apply independently safe material groups even when another group remains
-  unchanged or is skipped; one group must not veto unrelated useful work.
-- Keep `UNSUPPORTED` as a public face classification while reporting whether it
-  is face-local, material-source-wide, or data-safety related.
-- In Simple mode, route face-local uncertainty inside an otherwise resolved
-  material to alpha after preview and warning confirmation. Leave a
-  material-wide unresolved source unchanged and offer a manual alpha-source
-  override. Keep suppressed evidence and unsafe/ambiguous data conservative.
-- Store namespaced metadata and a source-material pointer only on the local
-  derived material; never tag the source merely for identity.
-- Refuse multi-user, linked, read-only, or override-restricted mesh mutation.
-- Never overwrite, delete, rename, localize, or make user data single-user.
-
-Required identity behavior:
-
-| Change | Behavior |
+| Question | Measured answer |
 | --- | --- |
-| Source rename | Reanalyze; follow the persistent source pointer and reuse the variant. |
-| Source shader edit | Reanalyze when the resolved Alpha/Base Color authority changes. An assignment-only edit elsewhere retains classification but clears review; existing variants then report `SOURCE_CHANGED` and default to no mutation unless explicitly reused or replaced with a fresh variant. |
-| Ordinary source duplicate | Treat as a distinct source with its own variant. |
-| Derived duplicate | Detect copied UUID/metadata and report `DUPLICATED_DERIVED`; never choose silently. |
-| Slot reorder | Resolve by datablock identity, not slot number, and reuse matching variants. |
-| Slot reassignment | Invalidate and resolve the new source; never apply an old variant automatically. |
-| Derived slot removed | Reappend the exact valid datablock after reviewed preflight. |
-| Derived datablock deleted | Preflight creation of a new variant. |
-| Derived manually edited | Preserve it and require an explicit reuse/new choice. |
-| Source deleted | Mark the variant orphaned; never chain another variant from it. |
-| Save/reopen | Restore the source pointer and verify fingerprints before reuse. |
+| Blender | 5.2.0 LTS (`fbe6228777e7`) |
+| numpy | 2.3.4, bundled |
+| `pixels.foreach_get(numpy.float32)` | accepted |
+| Compute dispatch | `gpu.compute.dispatch(shader, x, y, z)` exists and executes |
+| Headless GPU | `gpu.init()` succeeds in `--background` |
+| Backend / device | OPENGL, NVIDIA RTX 4080 |
+| Exact integer readback | **`R32UI` returned exact values; `R32F` exact for small integers** |
+| `R32I` readback | **broken** — `GPUTexture.read()` returns a `FLOAT` Buffer, so signed values decode as garbage |
+| Storage buffers (SSBO) | absent; data moves via `GPUTexture` images and `GPUUniformBuf` |
+| Image slots | `max_images_get() == 8` |
+| Capability queries | `compute_shader_support_get` and `shader_image_load_store_support_get` are **deprecated** in 5.2 — "all platforms have support" |
+| Memory barrier | no `gpu.state.memory_barrier`; `read()` synchronized correctly without one in this probe |
+| Work-group limits | `max_work_group_count_get`/`_size_get` take an axis index argument |
 
-## Milestone 4A: workflow-friction hardening
+So the existence question is answered: an exact, integer, CPU-visible GPU result
+is achievable through Blender's own API with no third-party runtime. What is
+**not** answered is whether it is fast enough to matter at 8K scale, and that is
+the only question Stage 6 needs to ask.
 
-- Add synthetic regressions for a resolved material with face-local UV
-  uncertainty alongside an unrelated unresolved material, and for Analyze →
-  Preview → Tab to Object Mode → Apply.
-- Replace global assignment vetoes with per-material dispositions: split,
-  leave unchanged, or blocked for safety. Preview the exact planned move set.
-- Route resolved face-local uncertainty to alpha by the Simple default; Expert
-  policy may keep it on the source or skip that material group.
-- Replace generic dependency-graph dirtiness with relevant, coalesced recheck
-  scopes. Do not rehash participating image pixels or rerasterize geometry for
-  selection/mode-only transitions.
-- Use the lawful private before/after pair as a required ignored multi-object
-  smoke layer when available. Exercise partial unsupported results, out-of-range
-  UV addressing, exact-plan Preview and Apply, aggregate partition comparison,
-  and preservation. Treat the hand-made after example as a workflow reference,
-  not a per-face classification oracle. Keep all assets, helpers, paths, and
-  raw output uncommitted.
-- Update panel messages, confirmation/completion summaries, README, integration
-  API, test guide, and contributor rules to describe the implemented behavior.
+Limits of this probe, stated plainly: one machine, one vendor, OpenGL backend,
+a 4x4 texture and a trivial kernel. It proves capability, not throughput, not
+portability, and not synchronization correctness under load. Because the
+capability queries are deprecated as universally true, do not build capability
+detection ceremony around them — detect failure, not support.
 
-Gate: unit and headless Blender tests cover harmless versus real input changes,
-preview/plan equivalence, partial success, undo/redo, idempotence, save/reopen,
-and registration cleanup. Installed-ZIP Blender 5.2 acceptance must complete
-the reported workflow without redundant analysis.
+## Ground rules
 
-Gate result: the generated and installed-ZIP layers completed locally on
-2026-07-25. A later full multi-object private before/after smoke confirmed
-out-of-range UV analysis. The user confirmed that extra conservative `MIXED`
-faces are correct and that the remaining `OPAQUE` differences come from broad,
-hand-made alpha sections in the early-development after example.
+- Preserve exact positive-area coverage and classification semantics. No
+  approximation, sampling, relaxed epsilon, conservative mip result, or altered
+  boundary behavior to make a faster implementation agree.
+- Byte-identical `blake2b` digests are the correctness gate wherever the
+  canonical pixel representation changes.
+- Vectorization is not automatically exact. Control dtype, operation order,
+  comparison, rounding, degenerates, and boundaries explicitly. If an optimized
+  form cannot reproduce the oracle exactly, reject the optimization rather than
+  weaken correctness. This binds numpy exactly as hard as it binds GPU code.
+- RED/GREEN per stage, smallest relevant regression first.
+- Same-session benchmarks only, wall time **and** peak working set every time,
+  whole-workflow rather than isolated kernels.
+- Re-profile after every landed optimization, before choosing the next.
+- One `codex/` topic branch per reviewable change, from freshly fetched
+  `origin/main`. No stacking production PRs on unmerged branches. Experimental
+  GPU branches may be discarded rather than merged.
+- Negative results go in `docs/performance.md`. They are results.
 
-The authoritative hardening matrix includes:
+## Correctness architecture
 
-- Real dependency-graph events for repeated mode/selection/active-face/
-  active-object/multi-object transitions plus unrelated datablock updates.
-- Paired topology, vertex, UV, material-index, slot order/content, mesh
-  replacement/deletion, shader link/setting, image pixel/reload/pack/replace,
-  analysis-setting, undo, redo, and file-load changes.
-- Apply-before-deferred-recheck and mutation-during-modal-analysis races with
-  zero assignment/publication on mismatch.
-- Exact plan-review and confirmation fingerprints, including off-slot derived
-  edit/duplicate/delete and create-versus-reuse transitions.
-- A generated combined fixture with opaque, alpha-affected, mixed, collapsed
-  UV, unresolved, suppressed, unsafe, and metadata-conflict states; test
-  partial application, cancellation, rollback, undo/redo, idempotence, and
-  save/reopen semantically.
-- Clean installed-ZIP Analyze → Preview → Tab → Apply acceptance and separate
-  cold-analysis, structural-recheck, Apply-preflight, and full-image-digest
-  measurements with recorded instrumentation counters.
+A simple CPU reference defines semantics; the optimized numpy path and any GPU
+path are both validated against it by differential test. The reference need not
+remain the production execution path, and duplicate production implementations
+are not retained for theoretical portability — but keep a small reference form
+in tests wherever that is cheap and materially improves differential coverage.
 
-## Milestone 4B: main Base Color alpha fallback
+## Preflight
 
-- [x] Establish a generated failing regression for an alpha-bearing Base Color
-  image alongside connected normal, roughness, emission, and disconnected
-  ancillary image nodes.
-- [x] Resolve one direct or simply rerouted Base Color Image Texture authority
-  when Principled Alpha is genuinely unlinked. Preserve explicit override and
-  supported Principled Alpha precedence.
-- [x] Distinguish unlinked Alpha from connected invalid/reroute-cycle paths.
-  Keep connected unsupported processing explicit and recoverable through a
-  manual per-material source.
-- [x] Keep classification authority separate from assignment-only material
-  state. Ancillary image pixels are not digested; unrelated source-graph edits
-  retain analysis but clear exact-plan review.
-- [x] Bind review/confirmation to a deterministic fingerprint containing exact
-  object/face mutations, current source fingerprints, and derived decisions.
-- [x] Characterize Blender 5.2 decoded stored A behavior for generated
-  RGB-style/RGBA images, fully opaque A, missing images, and the `STRAIGHT`,
-  `PREMUL`, `CHANNEL_PACKED`, and `NONE` alpha modes without changing decoding
-  semantics.
-- [x] Update README, UI remedies, material support, integration API, testing,
-  and performance documentation.
-- [x] Pass generated unit/Blender tests, source/archive validation, isolated ZIP
-  lifecycle validation, and the provisional 25 percent same-machine
-  performance gate.
-- [x] Pass the private resolver, exact-plan workflow, out-of-range UV,
-  derived-role, immutable-reference, and preservation gates.
-- [x] Retire the private semantic lower-bound discrepancy as a release blocker.
-  The user confirmed that the 1,176 `OPAQUE` differences reflect broad,
-  hand-made material separation in the early-development after example rather
-  than an extension classification defect.
+Done — numpy 2.3.4 and `foreach_get` acceptance are confirmed above. The
+extension bundles no numpy of its own.
 
-## Milestone 4C: Analyze throughput
+---
 
-- [x] Establish generated failing regressions for eligible native bulk image
-  reads, bounded/failure fallback, digest/classification parity, one modal
-  preparation pass, one UV traversal, and shared-material fingerprint reuse.
-- [x] Use Blender's native pixel transfer only when the complete temporary
-  working estimate is at most 384 MiB; retain complete-row chunking otherwise.
-- [x] Remove the duplicate post-image preparation/signature pass without
-  weakening publication-time structural and participating-pixel validation.
-- [x] Measure an exact raster allocation candidate against the clipping oracle
-  and discard it because its 4.8 percent polygon-phase gain did not meet the
-  approved 20 percent keep threshold.
-- [x] Re-profile multiprocessing and defer it because the measured 2.14x
-  isolated-core gain does not justify Blender serialization, memory,
-  cancellation, and process-lifecycle complexity for the projected complete
-  workflow.
-- [x] Pass the final source/archive validation gate. Unit, headless Blender,
-  generated benchmark, and private multi-object/preservation smoke are
-  complete. The private aggregate retains 1,176 `OPAQUE` differences from the
-  hand-made reference partition; these are diagnostic only.
+## Stage 1 — Vectorize image extraction
 
-## Milestone 4D: Analyze responsiveness
+Branch `codex/vectorize-image-read`.
 
-- [x] Measure modal initialization, native-image post-processing, polygon
-  callbacks, timer scheduling, and publication validation on the generated and
-  lawful private stress cases.
-- [x] Approve the balanced design: resumable native-image post-processing, a
-  1 ms modal timer, a 12 ms between-polygon target, a 4,096-polygon cap, and
-  truthful progress stages.
-- [x] Add failing generated regressions for image chunking, buffer cleanup,
-  deadline scheduling, progress stages, and prior-report preservation.
-- [x] Implement the approved image, engine, operator, and private progress-state
-  changes without altering public API `1.2` or analysis semantics.
-- [x] Pass unit, headless Blender, private workflow/preservation, source/archive,
-  generated performance, and installed-ZIP lifecycle gates.
-- [x] Record five-run callback, digest, memory, and instrumented modal-cadence
-  medians, and block any unexplained established same-machine regression above
-  25 percent.
-- [x] Complete the installed-ZIP visual stage, progress, and Escape-cancellation
-  interaction. The user confirmed Escape cancellation works. The cursor and
-  sidebar percentages can briefly disagree and remain a follow-up UX issue.
+**Problem.** `MAX_BULK_WORKING_BYTES` is 384 MiB. An 8K RGBA float32 source is
+1.00 GiB for the raw buffer alone (`8192 x 8192 x 4 x 4`), and the working
+estimate at `addon/adapters/image_data.py:62` is larger still because the
+pipeline needs further arrays. So 8K always takes the lower-memory path, which
+slices `image.pixels`, materializes a Python list per chunk, converts to
+`array("f")`, extracts a channel, and then runs a per-value Python loop
+(`image_data.py:144-148`). That is the 45.163 s. The bulk path carries the same
+loop at `image_data.py:123-128`.
 
-## Milestone 5: release validation
+**Bulk fast path.** `foreach_get` into a contiguous `numpy.float32` RGBA buffer,
+then vectorized channel extraction, `numpy.isfinite(...).all()` validation, and
+`values < threshold` for the mask.
 
-- [x] Record small, typical-avatar, high-complexity, repeated-UV, and pathological
-  benchmark tiers. Establish the first baseline before release and block an
-  unexplained same-machine time or memory regression over 25%.
-- [x] Validate/build/install the extension ZIP in an isolated Blender
-  environment.
-- [x] Test enable/disable, analysis immutability, preview/undo, assignment/undo,
-  idempotence, save/reopen metadata, and FBX material partitioning.
-- [x] Benchmark cold analysis, full image validation, coverage/prefix reuse,
-  and mode-exit component recheck. Mode-only rechecks rasterize zero polygons
-  and digest zero image rows. The recorded same-machine structural median is
-  0.0345 seconds, 4.13 percent of cold analysis.
-- [x] Record a distinct final Apply-preflight timing row. The 2026-08-01
-  generated median is 0.0353 seconds, 4.89 percent of cold analysis, with zero
-  image-digest rows, zero rasterized polygons, and no mutation.
-- [x] Complete installed-ZIP Analyze → Preview → Tab → Apply at default UI
-  scale without a second analysis.
-- [x] Complete the generated two-material interactive partial-apply case in
-  `docs/testing.md`.
-- [x] Pass the required ignored multi-object before/after smoke for workflow,
-  out-of-range UV addressing, exact-plan assignment, and preservation. The
-  hand-made after partition is retained as an aggregate diagnostic only.
-- [x] Complete the 150 percent UI-scale visual pass.
-- [x] Complete required ordinary Unity material/submesh validation.
-- Optional: record VRChat SDK/shader validation only as a reference for the
-  exact tested versions.
+**Low-memory path.** `foreach_get` is all-or-nothing, not a chunked operation —
+do not describe it as one. The fallback keeps bounded `image.pixels[a:b]`
+acquisition and converts each bounded chunk into numpy for vectorized channel,
+validity, and threshold work. The two paths need not share a data-acquisition
+mechanism; they must produce identical canonical results.
 
-## Milestone 6 — GitHub Actions CI/CD
+**Memory.** Raise `MAX_BULK_WORKING_BYTES` so 8K attempts the fast path, keeping
+the existing `except MemoryError -> use_bulk_read = False` handler at
+`image_data.py:98-107`. Do not call this a guaranteed adaptive policy: an OS may
+page, compress, overcommit, satisfy the allocation with severe latency, or fail
+later somewhere else. Mark it with a `ponytail:` comment naming that ceiling.
+Benchmark peak working set, total latency, and behavior under ordinary memory
+pressure; if pathological paging appears, replace allocation-by-failure with an
+explicit policy in a later reviewable change. Do not add `psutil` for this.
 
-- [x] Fix Blender 5.2.0 Windows and Linux download identities and hashes.
-- [x] Add generated helper and workflow security contracts.
-- [x] Add read-only Windows and Linux validation.
-- [x] Add protected manual draft-first publication.
-- [x] Run the complete local product gate.
-- [x] Bound Blender downloads with a 30-second connection timeout, fixed total
-  limit, two retries, and partial-file cleanup.
-- [x] Use safe Linux tar extraction and version-independent validation ZIP
-  discovery.
-- [x] Remove actions and credentials from the write-authorized release source
-  fetch; use unauthenticated native Git and verify the exact `GITHUB_SHA`.
-- [x] Reproduce the first hosted bootstrap failures and add local RED/GREEN
-  coverage for Quad9 DoT plus exact archive root discovery.
-- [x] Harden Quad9 response validation and pass all authenticated A answers to
-  curl's native address fallback.
-- [x] Bind direct A owners to the exact question, validate compression
-  boundaries and the 255-byte name limit, and cap distinct addresses at 16.
-- [x] Keep attestation isolated from release-write authority with a short-lived
-  same-run workflow artifact.
-- [x] Build the release ZIP once in a read-only job and publish those exact
-  attested bytes from the protected native write job.
-- [ ] Push `ci/automation` after separate approval.
-- [ ] Observe both hosted validation checks.
-- [ ] Make the repository public after separate approval.
-- [ ] Configure required checks, the `release` environment, and immutable
-  releases.
-- [ ] Dispatch and verify release `1.0.0` after separate approval.
+**Two things that would silently corrupt the digest.**
 
-The first hosted run confirmed that Quad9's HTTP/2-only DoH endpoint is
-incompatible with the Windows curl path. The approved standard-library Quad9
-DoT replacement and pinned HTTPS checksum download pass locally. The Linux
-executable locator now uses the exact archive root. Hosted rerun remains the
-compatibility authority for both corrections.
-Blender native extension-repository hosting remains a separate milestone.
+- `LUMINANCE` computes `0.2126r + 0.7152g + 0.0722b` in Python float64 and then
+  rounds into `array("f")`. Explicitly promote operands to float64, preserve the
+  canonical expression order, convert to float32 exactly once. Never rely on
+  implicit numpy promotion, never compute it in float32.
+- Channel views are non-contiguous. `numpy.ascontiguousarray` before
+  `tobytes()` so hashed bytes reproduce the canonical sequence.
 
-The read-only release-package job builds once from exact `GITHUB_SHA`.
-Attestation and protected publication independently download the same
-current-run workflow artifact and verify its producer-reported SHA-256.
-Publication uploads those exact bytes, re-downloads the stored ZIP, re-hashes
-it, and publishes only after attestation succeeds.
+**Instrumentation.** Add per-phase timers distinguishing extraction, digest,
+mask generation where separable, rasterization, prefix construction, counting,
+cache-key construction, cache lookup, and cache construction, with negligible or
+explicitly controllable overhead. The harness today times whole analysis,
+digests, and prefix first/reuse only. Every later stage is chosen from this
+split, so it is production instrumentation and belongs in this branch.
 
-## Public integration boundary
+**RED.** `tests/blender/test_image_data.py` requiring identical digest bytes,
+mask bytes, returned metadata, and error behavior across component counts
+1/2/3/4, channels `ALPHA`/`RED`/`GREEN`/`BLUE`/`LUMINANCE`, finite/NaN/+inf/-inf
+inputs, threshold boundary cases, and both read paths. Force path selection
+explicitly via `rows_per_chunk` so no test outcome depends on host RAM. Commit
+generated canonical golden values, and keep a small independent reference form
+in the test rather than relying on goldens alone once the production loop is
+gone.
 
-Stable operators use `bpy.ops.alpha_material_separator.*`: capability query,
-analyze, select faces, assign materials, and clear results. API 1.2 additively
-reports validation state, pending scopes, unsupported scope, material-group
-disposition, and planned action. `unsupported_policy="TO_ALPHA"` applies only
-to face-local uncertainty in a resolved group; earlier values and scripted
-defaults remain compatible. A versioned WindowManager status record exposes
-JSON-compatible capabilities, stable status codes, counts, planned changes,
-skips, and the analysis ID.
+**Acceptance.** Byte-identical digests and masks, unchanged errors, unit suite
+green, headless suite green, measured whole-Analyze improvement, peak working
+set recorded, read path recorded per tier. The expected large speedup is a
+hypothesis, not an acceptance criterion.
 
-Future CATS code must feature-detect the capability operator, tolerate absence
-or incompatible API majors, and use only documented operators/status. This
-extension never imports or depends on CATS.
+**Memory decision rule.** The 8K fast path may raise peak by roughly 1 GiB on a
+2.92 GiB baseline, past the repository's 25% limit. If it breaches, document the
+exact increase, justify it from measured performance, and carry an explicitly
+re-approved baseline in the same PR. Do not silently redefine the baseline.
 
-## Version 1.0 exclusions
+## Stage 2 — Re-profile
 
-- Topology cutting, subdivision, or physical object separation.
-- Shader rewriting or Unity editor automation.
-- Automatic CATS integration.
-- Evaluated-modifier topology analysis.
-- Arbitrary or ambiguous shader evaluation.
-- Automatic make-local or single-user conversion.
-- Exact Unity filtering/mipmap/compression/shader simulation.
-- Persistent face-result attributes, runtime installers, updaters, telemetry,
-  or network access.
+Acceptance activity for Stage 1, same PR. Run `tests/blender/run_benchmarks.py`
+before and after in one session. Record total Analyze time, the full per-phase
+split, peak working set, selected read path, image dimensions, and tier. Update
+`docs/performance.md`. Choose all later work from this profile.
 
-## Local commit sequence
+---
 
-1. `docs: revise architecture and implementation plan`
-2. `chore: scaffold Blender extension`
-3. `test: add material and rasterization characterization`
-4. `feat: add alpha analysis and preview`
-5. `feat: add safe material assignment`
-6. `test: add packaging performance and export validation`
-7. `docs: document Unity VRChat workflow and integration API`
-8. `a09593b fix: preserve reviewed analysis and apply safe groups`
-9. `4c26dfd test: harden revalidation and partial assignment coverage`
-10. `1e61993 docs: document partial apply and preview revalidation`
+## Stages 3-5 — CPU optimization
 
-Commits remain local. No push or release occurs without separate approval.
+Ordered below by expected size. That order is a hypothesis, not a commitment;
+Stage 2 decides, and each stage proceeds only if it is still material.
+
+**Stage 3 — vectorize the rasterizer.** Branch `codex/vectorize-rasterizer`.
+After extraction is fixed the residual is ~24 s. Prefix construction accounts
+for roughly 3.7 s of it — 0.61 + 0.61 + 2.52 from the per-image table at
+`docs/performance.md:62-67`, which belongs to the first baseline and was not
+republished on 2026-08-01, so treat it as an estimate Stage 2 replaces with a
+measurement. The bulk is `_clip_y` scanline clipping over 301,088 triangles and
+4,469,760 runs in Python, allocating lists per row
+(`addon/core/raster.py:31-70`). `docs/performance.md` records an
+allocation-reduction attempt worth only 4.8% — a different change, not evidence
+against vectorization.
+
+Gate on the existing fixed-seed clipping oracle
+(`tests/unit/test_rasterization.py:122`, oracle at `:57`) plus explicit
+adversarial cases: vertices and edges exactly on texel boundaries, near-horizontal
+and near-vertical edges, sub-texel and degenerate triangles, edge-only and
+point-only contact, negative UVs, REPEAT and MIRROR boundaries, large accepted
+coordinates, and coordinates near internal limits. Reject the change if the
+complexity is not justified by measured whole-workflow improvement.
+
+**Stage 4 — vectorize row prefixes.** Branch `codex/vectorize-alpha-prefixes`.
+`numpy.cumsum` replaces the Python loop at `addon/core/alpha.py:14`. Choose the
+accumulator dtype explicitly rather than inheriting numpy's default — the Python
+reference uses arbitrary-precision integers, so the fixed-width replacement needs
+a proven bound: maximum prefix value <= maximum supported pixels in one row or
+query < chosen integer maximum. `int64` unless something justifies otherwise.
+
+This touches the `bpy`-free core, which `tests/unit` runs outside Blender, so
+numpy becomes a test requirement there too; accept that rather than building a
+dual-path dispatcher. Prefix values must be exactly identical integers across
+empty, single-pixel, all-unaffected, all-affected, alternating, random, and
+maximum-width rows, including REPEAT and MIRROR inputs.
+
+**Stage 5 — coverage-cache regression.** Branch `codex/coverage-cache-cost`.
+Reuse has measured slower than cold at the high tier; the cache hashes every
+triangle's float64 UVs and retains an entry per polygon
+(`addon/adapters/analysis.py:1038-1053`). Treat a reuse path slower than cold as
+a defect: begin with systematic debugging and instrument key construction, UV
+serialization, BLAKE2b, lookup, hit and miss handling, entry construction,
+retained volume, polygon iteration, and cache lifecycle separately. Do not
+redesign until the source is measured. Either fix it with a regression test and
+measured improvement, or demonstrate the structure is not worthwhile at that
+scale and record the negative result.
+
+---
+
+## Stage 6 — GPU feasibility gate
+
+No production GPU backend until Stage 6 passes. Stages 1-5 must be landed or
+explicitly rejected from current measurements first, and every GPU comparison is
+against the then-current optimized CPU implementation — never the original
+baseline, and never the pre-numpy implementation.
+
+**6A — Scale spike.** Branch `codex/gpu-capability-spike`, discardable. The
+existence question is already answered above, so this spike is about scale, not
+capability. Extend the exact-`R32UI` proof to realistic sizes: allocation and
+upload of 4K/8K-scale data through image bindings within the 8-slot limit, a
+reduction strategy that returns a compact result rather than a full buffer,
+repeated dispatch, and synchronization that stays correct under load — the probe
+above needed no barrier, but none is exposed, so verify rather than assume.
+Measure shader creation, cold execution, warm execution, synchronization,
+readback, and total CPU-visible latency. Use unsigned integer formats for any
+value that must be exact; `R32I` readback is broken through `GPUTexture.read()`.
+If no practical complete path to an exact CPU-visible result exists at scale,
+document the limitation and stop — do not jump to an external runtime.
+
+**6B — Rank candidates from measurement.** For each remaining cost record CPU
+wall time, input and output volume, independent work items, dispatch count,
+batching opportunity, synchronization requirements, data reuse, expected
+arithmetic intensity, and exactness difficulty. Do not pick a workload because
+it maps neatly to a shader, and do not assume prefix-based counting is worth
+moving merely because it is integer work — an O(1) CPU prefix lookup is a very
+low bar for GPU submission, transfer, and synchronization to clear.
+
+**6C — Digest and dataflow.** The canonical BLAKE2b fingerprint may require CPU
+traversal of all participating pixels whenever Blender cannot prove them
+unchanged. That caps the achievable speedup; it does not by itself eliminate any
+architecture.
+
+| Architecture | Position |
+| --- | --- |
+| A — CPU canonical extraction, GPU downstream | Lowest risk. Digest unchanged, easiest correctness proof; cannot remove CPU extraction, and needs enough downstream GPU work to pay for the overhead. |
+| B — reuse Blender's resident GPU texture | Viable only if measurement shows resident-resource reuse materially reduces other costs, and only after 6D proves compatible representation. |
+| C — GPU-derived canonical fingerprint | Out of scope. Do not reimplement BLAKE2b on GPU or alter fingerprint semantics to make B attractive. If fingerprinting becomes the measured blocker, open a separate design review. |
+
+**6D — Characterize the resident GPU image.** Only if a live candidate needs
+`gpu.texture.from_image()`. Do not assume it matches `image.pixels`: check
+width, height, channel representation per channel, straight vs premultiplied
+alpha, byte vs float images, color-managed vs non-color data, 4K and 8K, and
+Blender texture-size limits. If the representation differs in any way that
+affects exact classification, the resident texture cannot be the canonical
+source for that operation — which does not invalidate GPU acceleration on
+CPU-prepared canonical resources.
+
+**6E — Prototype complete dataflows.** Only candidates justified by 6B, and not
+all of them. Time everything needed to obtain a usable CPU-visible answer: CPU
+preparation, allocation, upload, dispatch, execution, reduction,
+synchronization, readback, cleanup. Record cold and warm, CPU peak, and GPU
+memory impact where measurable. Command submission is not completion; never
+claim acceleration from asynchronous enqueue time.
+
+**6F — Exactness gate.** Require `reference CPU == optimized numpy CPU == GPU`
+on all committed deterministic cases and the fixed-seed differential suite, plus
+new cases for whatever moved. Never weaken the oracle to accommodate the
+implementation. Rasterization need not move to the GPU at all — if it is cheap
+after Stage 3, leave it. If an exact GPU formulation is attempted, it must prove
+agreement across the same adversarial list as Stage 3; an f32 rasterizer that
+merely agrees on ordinary assets fails, and an integer or fixed-point
+formulation is the route, not a relaxed oracle.
+
+**6G — Runtime context and failure policy.** GPU work must never make ordinary
+Analyze unavailable. Do not call Blender GPU APIs from arbitrary worker threads;
+keep any CPU multiprocessing or threading separate from GPU context ownership;
+create resources only where Blender permits; do not assume headless and
+interactive contexts behave identically — `gpu.init()` is required for the
+former; clean up deterministically. Design internally for AUTO/CPU/GPU
+selection even with no public selector: AUTO attempts GPU only when the workload
+is eligible, capability is present, and size exceeds the measured crossover,
+and any failure disables the relevant GPU path for the session and falls back to
+CPU. Never report GPU execution when CPU actually ran.
+
+**6H — Crossover.** Measure initialization, shader creation, cold dispatch, warm
+dispatch, upload, synchronization, and readback separately, then derive a simple
+conservative heuristic from inputs such as image pixels, triangle count, run
+count, batch size, or reusable GPU data. Do not fit a complex cost model to one
+computer. If no robust crossover exists, CPU stays the default.
+
+**6I — Claim levels.** Distinguish API portability from verified portability.
+*Experimental*: exact on tested cases, faster on one realistic workload, one
+device family — this is the level the probe above supports. *Backend-portable*:
+uses Blender's abstraction, no vendor-specific path, CPU fallback retained;
+describable as implemented against Blender's cross-platform GPU abstraction, but
+claiming nothing about verified hardware coverage. *Verified*: exact and
+successful on at least two materially different vendor/backend families —
+usefully NVIDIA, AMD, Intel, and Apple Silicon/Metal. CI has no GPU and
+`docs/testing.md:54-55` keeps self-hosted runners and installers out of it, so
+this is local and contributor validation by decision. For every GPU validation
+record Blender version, OS, GPU vendor and model, driver, backend, workload,
+cold and warm timings, CPU comparison, correctness, and fallback result. Claim
+only what was tested.
+
+**6J — Keep or abort.** Keep only with exact oracle agreement, no relaxed
+semantics, no unresolved representation mismatch, controlled CPU fallback,
+**>=20% whole-workflow improvement** on at least one realistic supported
+workload inclusive of preparation, transfer, execution, synchronization,
+reduction and readback, and no unacceptable increase in CPU memory, GPU memory,
+Analyze startup latency, persistent GPU resources, or Blender stability.
+
+On failure: stop, remove experimental production code, keep the benchmark and
+prototype results, and record the outcome in `docs/performance.md` specifically
+enough that a future agent does not repeat it without new evidence.
+
+## Stages 7-9 — Production, validation, control
+
+**Stage 7** (`codex/gpu-analysis-backend`, only after 6J passes) implements only
+the workload proven worthwhile, with the smallest abstraction two real
+implementations require: CPU callable independently, GPU callable independently
+for differential tests, AUTO selection separated from computation, GPU failure
+translated into controlled CPU fallback, GPU lifecycle kept out of the pure core
+where practical. Do not simultaneously redesign fingerprints or unrelated
+rasterization, add a public selector, or design hypothetical backend subclasses.
+
+**Stage 8** adds deterministic CPU/GPU differential coverage for everything
+moved, keeps CI validating reference semantics, optimized CPU semantics, shader
+source construction where practical, and non-GPU fallback logic, and provides a
+documented local GPU validation runner reporting device and backend. Ordinary
+contributors must not need vendor SDKs or package installers.
+
+**Stage 9** — a user-facing backend selector is a public UX and API change
+requiring its own design and approval under `AGENTS.md:53`. Do not add one
+merely because two implementations exist.
+
+## Deliberately not doing
+
+- **Hierarchical opacity / mip pyramid.** `AlphaGrid.count_run`
+  (`addon/core/alpha.py:110`) already answers coverage queries exactly in O(1)
+  per run for any length, including REPEAT and MIRROR, and coverage is already
+  reduced to merged intervals. Do not replace an exact answer with a
+  conservative `maybe`.
+- **A speculative backend framework.** No CUDA/WebGPU/Metal/Vulkan hierarchy
+  before multiple real implementations exist.
+- **Dual pure-Python/numpy production paths.** numpy is present; verified.
+- **Approximate f32 rasterization**, GPU-derived fingerprints, vendor SDKs,
+  native helper processes, and GPU mesh editing.
+
+## Verification
+
+```bash
+python -m unittest discover -s tests/unit -t .
+```
+
+```bash
+'/c/Program Files/Blender Foundation/Blender 5.2/blender.exe' --factory-startup --background --python-exit-code 1 --python tests/blender/run_all.py
+```
+
+Plus `tests/blender/run_benchmarks.py` same-session before/after,
+`git diff --check`, new `docs/performance.md` rows per landed stage recording old
+and new measurements, conditions, memory impact, and what was kept or rejected
+and why, and a `docs/HANDOFF.md` update at each branch completion recording goal,
+completed work, test and benchmark status, unresolved risks, and the next
+measured bottleneck.
+
+## Policy status
+
+The third-party runtime dependency ban, the single-ZIP constraint, and the
+committed-test determinism sentence are removed from `AGENTS.md` and
+`docs/testing.md` — currently uncommitted on `feat/gpu-acceleration`. They stay
+removed.
+
+That removes policy as a blocker; it does not make an external GPU runtime a
+good idea, and the probe above makes it markedly less likely to be needed — the
+exact-integer compute path exists inside Blender itself, with no dependency, no
+packaging change, and headless test support. Keep the removed rules as
+engineering defaults anyway: avoid third-party native runtime dependencies,
+prefer simple packaging, prefer a single distributable package.
+
+If Blender-native GPU proves insufficient **and** a meaningful GPU-suitable
+bottleneck still remains, an external runtime becomes an ordinary architecture
+decision requiring its own plan and approval, justified by measurement and
+covering runtime choice, supported operating systems and CPU architectures,
+supported GPU vendors, licensing, binary provenance, build reproducibility,
+package size, Python/Blender ABI compatibility, per-platform packaging including
+macOS signing, driver requirements, offline installation, update strategy,
+failure isolation, security surface, CPU fallback, and maintenance burden.

@@ -2,7 +2,7 @@
 """Pure-Python rasterization and classification package."""
 
 from .alpha import AlphaGrid
-from .classify import classify_coverage, classify_polygon
+from .classify import classify_counted, classify_coverage, classify_polygon
 from .model import (
     AddressMode,
     AnalysisSettings,
@@ -13,7 +13,7 @@ from .model import (
     RasterBudgetExceeded,
     RasterStats,
 )
-from .raster import rasterize_polygon, uv_to_texel_edge
+from .raster import rasterize_batch, rasterize_polygon, uv_to_texel_edge
 
 __all__ = (
     "AddressMode",
@@ -27,6 +27,8 @@ __all__ = (
     "RasterStats",
     "classify_polygon",
     "classify_coverage",
+    "classify_counted",
+    "rasterize_batch",
     "rasterize_polygon",
     "uv_to_texel_edge",
 )

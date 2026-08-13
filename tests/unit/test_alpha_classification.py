@@ -3,7 +3,10 @@
 
 from __future__ import annotations
 
+import random
 import unittest
+
+import numpy
 
 from addon.core import (
     AddressMode,
@@ -11,13 +14,61 @@ from addon.core import (
     AnalysisSettings,
     FaceClass,
     classify_polygon,
+    rasterize_polygon,
     uv_to_texel_edge,
 )
+from addon.core.alpha import _prefix_rows
 
 SQUARE = (
     ((0.0, 0.0), (2.0, 0.0), (2.0, 2.0)),
     ((0.0, 0.0), (2.0, 2.0), (0.0, 2.0)),
 )
+
+
+def _reference_prefix(values):
+    """Arbitrary-precision prefix sums the fixed-width version must reproduce."""
+    result = [0]
+    total = 0
+    for value in values:
+        total += int(value)
+        result.append(total)
+    return result
+
+
+def _prefix(values):
+    """One row's prefix sums out of the row-block builder."""
+    block = numpy.frombuffer(values, dtype=numpy.uint8).reshape(1, len(values))
+    return _prefix_rows(block)[0].tolist()
+
+
+def _resolve_index(value, size, mode):
+    """Where one virtual coordinate lands, or None outside a clipped image."""
+    if mode is AddressMode.CLIP:
+        return value if 0 <= value < size else None
+    if mode is AddressMode.EXTEND:
+        return min(max(value, 0), size - 1)
+    if mode is AddressMode.REPEAT:
+        return value % size
+    position = value % (2 * size)
+    return position if position < size else 2 * size - 1 - position
+
+
+def _oracle_count_run(width, height, affected, row, start, stop, mode):
+    """Count one run cell by cell, with no prefix sums involved."""
+    resolved_row = _resolve_index(row, height, mode)
+    total = 0
+    for x in range(start, stop):
+        column = _resolve_index(x, width, mode)
+        if resolved_row is None or column is None:
+            total += 1  # outside a clipped image counts as transparent
+        else:
+            total += bool(affected[resolved_row * width + column])
+    return total
+
+
+def _iter_runs(coverage):
+    """Half-open runs in the flat representation, one triple at a time."""
+    return zip(coverage.rows, coverage.starts, coverage.stops)
 
 
 class AlphaAddressingTests(unittest.TestCase):
@@ -40,6 +91,158 @@ class AlphaAddressingTests(unittest.TestCase):
     def test_threshold_is_strictly_below(self):
         grid = AlphaGrid.from_alpha_values(2, 1, (0.998, 0.999), threshold=0.999)
         self.assertEqual(grid.affected, bytes((True, False)))
+
+    def test_row_prefix_counting_matches_a_cell_by_cell_oracle(self):
+        random_source = random.Random(0xA1FA)
+        for width, height in ((1, 1), (1, 5), (5, 1), (2, 3), (7, 4), (64, 3)):
+            affected = bytes(
+                random_source.randint(0, 1) for _cell in range(width * height)
+            )
+            grid = AlphaGrid(width, height, affected)
+            for mode in AddressMode:
+                for _case in range(40):
+                    row = random_source.randint(-2 * height - 1, 2 * height + 1)
+                    start = random_source.randint(-2 * width - 1, 2 * width + 1)
+                    stop = start + random_source.randint(0, 3 * width + 2)
+                    self.assertEqual(
+                        grid.count_run(row, start, stop, mode),
+                        _oracle_count_run(
+                            width, height, affected, row, start, stop, mode
+                        ),
+                        (width, height, mode, row, start, stop, affected),
+                    )
+
+    def test_row_prefix_counting_handles_all_on_and_all_off_rows(self):
+        for width in (1, 3, 33):
+            for filler in (0, 1):
+                affected = bytes([filler]) * (width * 2)
+                grid = AlphaGrid(width, 2, affected)
+                for mode in AddressMode:
+                    for row in (-1, 0, 1, 2):
+                        for start, stop in ((0, width), (-width, 2 * width), (2, 2)):
+                            self.assertEqual(
+                                grid.count_run(row, start, stop, mode),
+                                _oracle_count_run(
+                                    width, 2, affected, row, start, stop, mode
+                                ),
+                                (width, filler, mode, row, start, stop),
+                            )
+
+    def test_prefix_values_match_the_arbitrary_precision_reference(self):
+        random_source = random.Random(0x9E3D)
+        rows = {
+            "empty": b"",
+            "single unaffected": bytes((0,)),
+            "single affected": bytes((1,)),
+            "all unaffected": bytes(1024),
+            "all affected": bytes([1]) * 1024,
+            "alternating": bytes(index % 2 for index in range(1024)),
+            "random": bytes(
+                random_source.randint(0, 1) for _cell in range(1024)
+            ),
+            # An 8K row is the widest the supported image sizes produce; the
+            # MIRROR form below doubles it.
+            "maximum width": bytes([1]) * 8192,
+        }
+        for label, values in rows.items():
+            with self.subTest(label):
+                self.assertEqual(
+                    _prefix(values), _reference_prefix(values), label
+                )
+                mirrored = values + values[::-1]
+                self.assertEqual(
+                    _prefix(mirrored),
+                    _reference_prefix(mirrored),
+                    f"{label} mirrored",
+                )
+
+    def test_row_prefix_counts_are_plain_integers(self):
+        grid = AlphaGrid(4, 2, bytes((1, 0, 1, 1, 0, 0, 1, 0)))
+        for mode in AddressMode:
+            count = grid.count_run(0, -3, 9, mode)
+            self.assertIs(type(count), int, mode)
+
+
+class BatchedCountingTests(unittest.TestCase):
+    """`count_batch` counts a whole step chunk at once.
+
+    Per-polygon counting spends a Python call on each of the millions of runs a
+    real mesh produces. The batched form is only worth having if it is exactly
+    equal, so every case here is checked against both the per-polygon counter
+    and the cell-by-cell oracle.
+    """
+
+    def _coverages(self, random_source, width, height, count):
+        coverages = []
+        for _polygon in range(count):
+            def coordinate(size):
+                return random_source.randint(-2 * size - 2, 3 * size + 2) / 2
+
+            triangles = tuple(
+                tuple(
+                    (coordinate(width), coordinate(height)) for _point in range(3)
+                )
+                for _triangle in range(random_source.randint(1, 2))
+            )
+            coverages.append(
+                rasterize_polygon(triangles, max_scanlines=10_000_000,
+                                  max_run_emissions=10_000_000)
+            )
+        return coverages
+
+    def test_batched_counts_match_per_polygon_and_the_oracle(self):
+        random_source = random.Random(0xB47C)
+        for width, height in ((1, 1), (3, 5), (7, 4), (16, 16), (64, 3)):
+            affected = bytes(
+                random_source.randint(0, 1) for _cell in range(width * height)
+            )
+            grid = AlphaGrid(width, height, affected)
+            coverages = self._coverages(random_source, width, height, 12)
+            # Guard against the comparison passing because there is nothing to
+            # compare: these cases must produce real runs on both sides.
+            self.assertGreater(
+                sum(one.spans.shape[1] for one in coverages), 20, (width, height)
+            )
+            for mode in AddressMode:
+                with self.subTest(size=(width, height), mode=mode):
+                    batched = grid.count_batch(coverages, mode)
+                    self.assertEqual(
+                        list(batched),
+                        [grid.count_coverage(one, mode) for one in coverages],
+                    )
+                    self.assertEqual(
+                        list(batched),
+                        [
+                            sum(
+                                _oracle_count_run(
+                                    width, height, affected, row, start, stop, mode
+                                )
+                                for row, start, stop in _iter_runs(one)
+                            )
+                            for one in coverages
+                        ],
+                    )
+
+    def test_batched_counts_survive_empty_and_absent_coverage(self):
+        grid = AlphaGrid(4, 2, bytes((1, 0, 1, 1, 0, 0, 1, 0)))
+        # A fully degenerate polygon contributes no runs, so the batch has to
+        # keep its slot rather than shifting every later polygon's total.
+        empty = rasterize_polygon((((0.0, 0.0), (1.0, 1.0), (2.0, 2.0)),))
+        solid = rasterize_polygon((((0.0, 0.0), (4.0, 0.0), (0.0, 2.0)),))
+        for mode in AddressMode:
+            with self.subTest(mode=mode):
+                self.assertEqual(
+                    list(grid.count_batch((empty, solid, empty), mode)),
+                    [0, grid.count_coverage(solid, mode), 0],
+                )
+        self.assertEqual(list(grid.count_batch((), AddressMode.REPEAT)), [])
+
+    def test_batched_counts_are_plain_integers(self):
+        grid = AlphaGrid(4, 2, bytes((1, 0, 1, 1, 0, 0, 1, 0)))
+        coverage = rasterize_polygon((((0.0, 0.0), (4.0, 0.0), (0.0, 2.0)),))
+        for mode in AddressMode:
+            for count in grid.count_batch((coverage,), mode):
+                self.assertIs(type(count), int, mode)
 
 
 class ClassificationTests(unittest.TestCase):

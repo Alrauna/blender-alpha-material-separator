@@ -5,7 +5,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Mapping
+
+import numpy
 
 
 class AddressMode(str, Enum):
@@ -55,12 +56,32 @@ class RasterStats:
     covered_texels: int
 
 
-@dataclass(frozen=True, slots=True)
+# eq=False because a generated `__eq__` would compare the span arrays with
+# `==`, which returns an array rather than a bool. Compare `spans` explicitly.
+@dataclass(frozen=True, slots=True, eq=False)
 class Coverage:
-    """Unioned half-open x spans keyed by virtual integer texel row."""
+    """Unioned half-open x spans as one flat array, ordered by virtual row.
 
-    rows: Mapping[int, tuple[tuple[int, int], ...]]
+    `spans` is `(3, run_count)` of int64: virtual row, start, half-open stop.
+    Flat rather than a mapping of tuples so a whole step chunk of polygons can
+    be counted in one gather; int64 because a virtual coordinate is a UV value
+    times an image dimension, which the adversarial suite pushes past int32.
+    """
+
+    spans: numpy.ndarray
     stats: RasterStats
+
+    @property
+    def rows(self) -> numpy.ndarray:
+        return self.spans[0]
+
+    @property
+    def starts(self) -> numpy.ndarray:
+        return self.spans[1]
+
+    @property
+    def stops(self) -> numpy.ndarray:
+        return self.spans[2]
 
 
 @dataclass(frozen=True, slots=True)

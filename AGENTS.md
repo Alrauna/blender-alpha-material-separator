@@ -90,9 +90,7 @@ a skill merely to create ceremony.
   scope and are never relabeled as opaque. Explicit policy may route face-local
   uncertainty in an otherwise resolved material to alpha; an unresolved
   material-wide source stays unchanged.
-- No runtime network, telemetry, updater, installer, or CATS dependency. Ship
-  no third-party runtime dependency required by the extension; test or build
-  tooling requires separate repository approval.
+- No runtime network, telemetry, updater, installer, or CATS dependency.
 
 ## Material support and private inputs
 
@@ -112,7 +110,7 @@ file paths may be documented when necessary.
 - Production branch completion requires the unit suite, complete headless
   Blender suite, and source validation.
 - Packaging or installable-behavior changes require a clean build and
-  validation of exactly one version-independent AMS ZIP.
+  validation of version-independent AMS ZIPs.
 - Performance-sensitive changes follow the same-session protocol in
   `docs/performance.md`; never claim a cross-session baseline.
 - Release work follows every automated, private-if-authorized, installed-ZIP,
@@ -120,11 +118,10 @@ file paths may be documented when necessary.
 - Documentation-only changes use applicable document/link contracts and
   `git diff --check`, not the Blender product matrix.
 
-Committed and CI tests must be deterministic and independent of private machine
-state. Add practical in-scope regressions automatically; record unrelated
-discoveries as future work rather than expanding the branch. When automation is
-genuinely impractical, document why, retain the nearest automated protection,
-and report the remaining manual validation.
+Add practical in-scope regressions automatically; record unrelated discoveries
+as future work rather than expanding the branch. When automation is genuinely
+impractical, document why, retain the nearest automated protection, and report
+the remaining manual validation.
 
 ## Git and publication guard
 

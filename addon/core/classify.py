@@ -14,6 +14,7 @@ from .model import (
     InvalidRasterInput,
     RasterBudgetExceeded,
     Coverage,
+    RasterStats,
 )
 from .raster import Point, rasterize_polygon
 
@@ -62,7 +63,40 @@ def classify_coverage(
     settings: AnalysisSettings = AnalysisSettings(),
 ) -> ClassificationResult:
     """Classify a previously rasterized polygon coverage union."""
-    covered = coverage.stats.covered_texels
+    if coverage.stats.covered_texels == 0:
+        return classify_counted(coverage, 0, settings=settings)
+    return classify_counted(
+        coverage, alpha.count_coverage(coverage, address_mode), settings=settings
+    )
+
+
+def classify_counted(
+    coverage: Coverage,
+    affected: int,
+    *,
+    settings: AnalysisSettings = AnalysisSettings(),
+) -> ClassificationResult:
+    """Apply the classification rule to an already-counted polygon.
+
+    Split out so the analysis engine can count a whole step chunk at once and
+    still reach the same rule the single-polygon entry points use.
+    """
+    return classify_stats(coverage.stats, affected, settings=settings)
+
+
+def classify_stats(
+    stats: RasterStats,
+    affected: int,
+    *,
+    settings: AnalysisSettings = AnalysisSettings(),
+) -> ClassificationResult:
+    """The same rule, for a caller that has the counters but no `Coverage`.
+
+    The GPU path counts as it unions and never materializes spans, so it can
+    reach the rule only through this door. Keeping one implementation is the
+    point: the two paths must not be able to classify differently.
+    """
+    covered = stats.covered_texels
     if covered == 0:
         return ClassificationResult(
             classification=FaceClass.UNSUPPORTED,
@@ -71,10 +105,9 @@ def classify_coverage(
             opaque_texels=0,
             affected_fraction=0.0,
             unsupported_reason="NO_POSITIVE_AREA_UV_COVERAGE",
-            raster_stats=coverage.stats,
+            raster_stats=stats,
         )
 
-    affected = alpha.count_coverage(coverage, address_mode)
     opaque = covered - affected
     fraction = affected / covered
     if affected == 0:
@@ -84,7 +117,7 @@ def classify_coverage(
             affected_texels=0,
             opaque_texels=opaque,
             affected_fraction=0.0,
-            raster_stats=coverage.stats,
+            raster_stats=stats,
         )
 
     shape = FaceClass.ALPHA_AFFECTED if opaque == 0 else FaceClass.MIXED
@@ -105,7 +138,7 @@ def classify_coverage(
             affected_fraction=fraction,
             failed_gates=tuple(failed),
             unsuppressed_shape=shape,
-            raster_stats=coverage.stats,
+            raster_stats=stats,
         )
     return ClassificationResult(
         classification=shape,
@@ -113,5 +146,5 @@ def classify_coverage(
         affected_texels=affected,
         opaque_texels=opaque,
         affected_fraction=fraction,
-        raster_stats=coverage.stats,
+        raster_stats=stats,
     )

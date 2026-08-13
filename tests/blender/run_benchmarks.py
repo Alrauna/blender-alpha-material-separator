@@ -8,7 +8,9 @@ import ctypes
 from ctypes import wintypes
 import gc
 import json
+import os
 import platform
+import random
 import statistics
 import sys
 import tempfile
@@ -17,6 +19,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import bpy
+import numpy
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 if str(REPOSITORY_ROOT) not in sys.path:
@@ -28,7 +31,9 @@ from addon.adapters.analysis import (  # noqa: E402
     AnalysisEngine,
     validate_report,
 )
-from addon.adapters.image_data import read_image_snapshot  # noqa: E402
+from addon.adapters import gpu_raster  # noqa: E402
+from addon.adapters import image_data  # noqa: E402
+from addon.adapters.image_data import ImageSnapshotBuilder  # noqa: E402
 from addon.adapters.assignment import build_assignment_plan  # noqa: E402
 from addon.core import AddressMode, RasterBudgetExceeded, rasterize_polygon  # noqa: E402
 from addon.operators.assign_materials import _validated_plan  # noqa: E402
@@ -92,13 +97,71 @@ def _material(name: str, image):
     return material
 
 
-def _grid_fixture(name, segments, image_sizes, material_count, uv_scale=1.0, uv_offset=0.0):
+def _alpha_pattern(image, seed):
+    """Structured alpha, because `images.new` fills it uniformly opaque.
+
+    A uniform mask makes every prefix row identical and every run count trivial,
+    which understates the classification phase that dominates real assets.
+    """
+    width, height = image.size
+    generator = random.Random(seed)
+    column = numpy.arange(width, dtype=numpy.float32)
+    row = numpy.arange(height, dtype=numpy.float32).reshape(-1, 1)
+    # Irregular bands and blobs rather than a clean gradient: run lengths of
+    # affected texels need to vary along a row, not just between rows.
+    field = (
+        numpy.sin(column * (0.05 + generator.random() * 0.05))
+        + numpy.cos(row * (0.03 + generator.random() * 0.05))
+        + numpy.sin((column + row) * 0.017)
+    )
+    alpha = (field > 0.4).astype(numpy.float32)
+    pixels = numpy.ones((height, width, 4), dtype=numpy.float32)
+    pixels[:, :, 3] = alpha
+    image.pixels.foreach_set(pixels.reshape(-1))
+
+
+def _uv_tile(divisions, jitter, seed):
+    """Monotone but unevenly spaced tile edges in [0, 1].
+
+    Even spacing gives every triangle the same scanline count. Real UV layouts
+    do not, and the variance is what a SIMT accelerator would have to survive.
+    """
+    generator = random.Random(seed)
+    widths = [0.15 + generator.random() * jitter for _ in range(divisions)]
+    total = sum(widths)
+    edges = [0.0]
+    for width in widths:
+        edges.append(edges[-1] + width / total)
+    edges[-1] = 1.0
+    return edges
+
+
+def _grid_fixture(
+    name,
+    segments,
+    image_sizes,
+    material_count,
+    uv_scale=1.0,
+    uv_offset=0.0,
+    uv_jitter=0.0,
+    shared_uv_divisions=0,
+    degenerate_every=0,
+    alpha_pattern=False,
+):
     images = [
         bpy.data.images.new(
-            f"{name}_IMAGE_{index:02d}", width=size, height=size, alpha=True
+            f"{name}_IMAGE_{index:02d}",
+            # A size may be an int for a square image or a (width, height) pair;
+            # real scenes mix aspect ratios and the ranking depends on volume.
+            width=size if isinstance(size, int) else size[0],
+            height=size if isinstance(size, int) else size[1],
+            alpha=True,
         )
         for index, size in enumerate(image_sizes)
     ]
+    if alpha_pattern:
+        for index, image in enumerate(images):
+            _alpha_pattern(image, seed=0xA1FA + index)
     vertices = [
         (float(x), float(y), 0.0)
         for y in range(segments + 1)
@@ -126,16 +189,42 @@ def _grid_fixture(name, segments, image_sizes, material_count, uv_scale=1.0, uv_
     uv_layer = mesh.uv_layers.new(name="UVMap", do_init=False)
     uv_layer.active_render = True
     modern = getattr(uv_layer, "uv", None)
-    for loop in mesh.loops:
-        x, y, _z = vertices[loop.vertex_index]
-        uv = (
-            uv_offset + uv_scale * x / segments,
-            uv_offset + uv_scale * y / segments,
-        )
+    edges = _uv_tile(shared_uv_divisions, uv_jitter, seed=0x0FF5) if (
+        shared_uv_divisions and uv_jitter
+    ) else None
+    # The shared island is sized so its average cell matches an unwrapped quad;
+    # the jitter then spreads cell sizes around it.
+    span = shared_uv_divisions / segments if edges else 0.0
+
+    def assign(loop_index, uv):
         if modern is not None:
-            modern[loop.index].vector = uv
+            modern[loop_index].vector = uv
         else:
-            uv_layer.data[loop.index].uv = uv
+            uv_layer.data[loop_index].uv = uv
+
+    for polygon in mesh.polygons:
+        column, row = polygon.index % segments, polygon.index // segments
+        if degenerate_every and polygon.index % degenerate_every == 0:
+            # A collapsed UV quad, which real unwraps produce and the even grid
+            # never does. Both of its triangles have zero area.
+            collapsed = (uv_offset + uv_scale * column / segments,
+                         uv_offset + uv_scale * row / segments)
+            for loop_index in polygon.loop_indices:
+                assign(loop_index, collapsed)
+            continue
+        # Half the grid is uniquely unwrapped and half reuses one tile, so the
+        # coverage cache sees the mix of unique and repeated islands a real
+        # asset has instead of missing on every polygon.
+        tiled = edges is not None and row >= segments // 2
+        for loop_index in polygon.loop_indices:
+            x, y, _z = vertices[mesh.loops[loop_index].vertex_index]
+            if tiled:
+                low_column, low_row = column % shared_uv_divisions, row % shared_uv_divisions
+                u = span * edges[low_column + (x > column)]
+                v = span * edges[low_row + (y > row)]
+            else:
+                u, v = x / segments, y / segments
+            assign(loop_index, (uv_offset + uv_scale * u, uv_offset + uv_scale * v))
     object_ = bpy.data.objects.new(name, mesh)
     bpy.context.collection.objects.link(object_)
     return object_, images, materials
@@ -159,12 +248,23 @@ def _digest_benchmark(size: int) -> dict:
     )
     times = []
     retained = None
+    phases: dict[str, float] = {}
+    read_path = ""
     for run in range(6):
+        before = dict(image_data.PHASE_SECONDS)
         started = time.perf_counter()
-        snapshot = read_image_snapshot(image, channel="ALPHA", threshold=0.999)
+        builder = ImageSnapshotBuilder(image, channel="ALPHA", threshold=0.999)
+        while not builder.complete:
+            builder.step()
+        snapshot = builder.finish()
         elapsed = time.perf_counter() - started
+        read_path = "bulk" if builder.use_bulk_read else "chunked"
         if run:
             times.append(elapsed)
+            phases = {
+                f"{name}_seconds": image_data.PHASE_SECONDS[name] - before[name]
+                for name in before
+            }
         retained = snapshot
         if run < 5:
             del snapshot
@@ -178,12 +278,14 @@ def _digest_benchmark(size: int) -> dict:
         retained.grid.count_run(row, 0, size, AddressMode.REPEAT)
     prefix_reuse = time.perf_counter() - prefix_started
     result = {
+        "digest_phase_seconds": phases,
         "digest_seconds_median_5": statistics.median(times),
         "digest_seconds_runs": times,
         "image_size": size,
         "prefix_build_seconds": prefix_first,
         "prefix_reuse_seconds": prefix_reuse,
         "memory": _memory(),
+        "read_path": read_path,
         "texels": size * size,
     }
     del retained
@@ -442,6 +544,13 @@ def main(argv=None) -> int:
         help="Run the complete release baseline or only the mode/revalidation tier",
     )
     args = parser.parse_args(argv)
+    # A benchmark exists to time the real path, so it opts this background
+    # Blender back into the probe that `gpu_raster` keeps off by default. Here
+    # rather than at module scope: `test_benchmark_contract` imports this module
+    # inside the headless suite, which must stay off.
+    os.environ.setdefault(gpu_raster._BACKGROUND_OPT_IN, "1")
+    device = "GPU" if gpu_raster.available() else f"CPU: {gpu_raster.reason()}"
+    print(f"DEVICE {device}", flush=True)
     tiers = (
         {"name": "small", "segments": 70, "image_sizes": [1024], "material_count": 1},
         {
@@ -457,6 +566,23 @@ def main(argv=None) -> int:
             "material_count": 16,
         },
         {
+            # Shaped from authorized private characterization: a real asset has
+            # tiled UVs, uneven triangle sizes, repeated islands the coverage
+            # cache hits, mixed resolutions, degenerate UV quads, and actual
+            # alpha structure. The even grid tiers have none of those and
+            # understate run counting by about half.
+            "name": "realistic",
+            "segments": 388,
+            "image_sizes": [4096, 4096, (1024, 512), 2048, 512],
+            "material_count": 16,
+            "uv_scale": 6.0,
+            "uv_offset": -1.0,
+            "uv_jitter": 0.9,
+            "shared_uv_divisions": 12,
+            "degenerate_every": 83,
+            "alpha_pattern": True,
+        },
+        {
             "name": "large_tiled_uv",
             "segments": 70,
             "image_sizes": [1024],
@@ -467,6 +593,9 @@ def main(argv=None) -> int:
     )
     result = {
         "blender_version": bpy.app.version_string,
+        # Which path these numbers came from, so a run that fell back to the CPU
+        # cannot be read as a GPU measurement afterwards.
+        "device": device,
         "machine": {
             "platform": platform.platform(),
             "processor": platform.processor(),

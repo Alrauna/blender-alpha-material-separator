@@ -4,8 +4,9 @@
 
 ```powershell
 $Blender52 = 'C:\Program Files\Blender Foundation\Blender 5.2\blender.exe'
+$Python52 = 'C:\Program Files\Blender Foundation\Blender 5.2\5.2\python\bin\python.exe'
 
-python -m unittest discover -s tests/unit -t . -v
+& $Python52 -m unittest discover -s tests/unit -t . -v
 & $Blender52 --factory-startup --background --python-exit-code 1 --python tests/blender/run_all.py
 & $Blender52 --factory-startup --command extension validate addon
 Remove-Item .\.packaged-releases\*.zip -ErrorAction SilentlyContinue
@@ -15,15 +16,57 @@ $Archive = (Get-ChildItem .\.packaged-releases\alpha_material_separator-*.zip | 
 & $Blender52 --factory-startup --command extension validate $Archive
 
 $IsolatedRoot = Join-Path (Resolve-Path .\.test-output).Path "isolated-install-$PID"
+$env:BLENDER_USER_RESOURCES = $IsolatedRoot
 $env:BLENDER_USER_CONFIG = Join-Path $IsolatedRoot 'config'
 $env:BLENDER_USER_SCRIPTS = Join-Path $IsolatedRoot 'scripts'
+$env:BLENDER_USER_EXTENSIONS = Join-Path $IsolatedRoot 'extensions'
 $env:BLENDER_USER_DATAFILES = Join-Path $IsolatedRoot 'datafiles'
-New-Item -ItemType Directory -Force -Path $env:BLENDER_USER_CONFIG | Out-Null
-New-Item -ItemType Directory -Force -Path $env:BLENDER_USER_SCRIPTS | Out-Null
-New-Item -ItemType Directory -Force -Path $env:BLENDER_USER_DATAFILES | Out-Null
+foreach ($Path in @(
+    $env:BLENDER_USER_CONFIG, $env:BLENDER_USER_SCRIPTS,
+    $env:BLENDER_USER_EXTENSIONS, $env:BLENDER_USER_DATAFILES)) {
+    New-Item -ItemType Directory -Force -Path $Path | Out-Null
+}
 & $Blender52 --command extension install-file -r user_default -e $Archive
+$Installed = Join-Path $env:BLENDER_USER_EXTENSIONS 'user_default\alpha_material_separator\blender_manifest.toml'
+if (-not (Test-Path $Installed)) { throw "the install escaped the isolated root" }
 & $Blender52 --background --python-exit-code 1 --python tests/blender/verify_installed_zip.py
 ```
+
+`BLENDER_USER_EXTENSIONS` is not optional and is not covered by
+`BLENDER_USER_SCRIPTS`. Blender resolves extensions through their own user path,
+so a sequence that isolates config, scripts and datafiles alone still installs
+into the operator's real profile and silently upgrades whatever AMS build they
+had. `install-file` reports `Reinstalled` rather than `Installed` when that
+happens, which is the symptom to watch for. The `Test-Path` guard above is the
+check: it fails the gate rather than letting an unisolated run report success.
+
+The `Remove-Item` above keeps the archive glob resolving to one file. Selecting
+the expected filename explicitly does the same thing without discarding a
+previously built release, and is preferable when an earlier ZIP is still wanted.
+
+A background Blender does not probe the GPU unless
+`ALPHA_MATERIAL_SEPARATOR_GPU_IN_BACKGROUND` is set, so the headless command
+above skips the GPU kernel tests and reports
+`ALPHA_MATERIAL_SEPARATOR_GPU_RASTER_TESTS_SKIPPED`. Asking for a context where
+there is no display server is not a recoverable failure — a Linux runner without
+`libEGL.so.1` exits and a Windows one on a software GL takes an access violation
+— so CI and any headless machine stay on the CPU by default. On a machine with a
+working headless GPU, run the suite again with the opt-in to cover the kernel:
+
+```powershell
+$env:ALPHA_MATERIAL_SEPARATOR_GPU_IN_BACKGROUND = '1'
+& $Blender52 --factory-startup --background --python-exit-code 1 --python tests/blender/run_all.py
+Remove-Item env:ALPHA_MATERIAL_SEPARATOR_GPU_IN_BACKGROUND
+```
+
+Both runs are required on a GPU machine before branch completion: the default
+one proves the fallback, the opted-in one proves the kernel. `run_benchmarks.py`
+sets the opt-in itself and records the device it measured in its JSON.
+
+The unit layer uses Blender's bundled interpreter because `addon/core` depends
+on numpy for image extraction and row prefixes. The core still imports without
+`bpy`; it is not importable on a bare Python that lacks numpy. CI matches this
+by running `tests/unit` on the prepared Blender Python.
 
 When all commands above pass, the checkpoint verifies ordinary-Python import
 without `bpy`, deterministic
@@ -47,7 +90,7 @@ Pull requests targeting `main` and pushes to `main` run three stable checks:
 
 All three use Blender 5.2.0 exactly and run the unit suite, complete headless
 Blender suite with auto-execution disabled, source validation, extension build,
-and version-independent discovery and validation of the one generated AMS ZIP.
+and version-independent discovery and validation of the generated AMS ZIPs.
 Each runner builds and discards its own ZIP. The `macos-15` runner is Apple
 Silicon; macOS is not excluded from or allowed to ignore any shared validation
 step.
@@ -78,8 +121,9 @@ only to previously validated label boundaries. CNAME expansion is unsupported
 and therefore fails closed. Pass at most 16 distinct valid addresses to curl,
 which keeps `download.blender.org` as the validated TLS hostname. Curl has a
 30-second connection timeout, a fixed total limit, and two retries. Linux tar
-extraction uses Python's safe data filter and selects Blender from the exact
-archive root. Any malformed response, disagreement, or timeout fails closed.
+extraction uses Python's safe data filter and selects Blender from the
+exact archive root. Any malformed response, disagreement, or timeout fails
+closed.
 On macOS, the pinned archive is
 `blender-5.2.0-macos-arm64.dmg`, with committed SHA-256
 `ed4d8390166dec5ea0a2813a03db6221f206ce016442be7f59f41d760972568a`.
@@ -133,15 +177,23 @@ A package or attestation failure creates no draft. A failure after draft
 creation leaves an unpublished draft. No path publishes before successful
 attestation and stored-release ZIP digest verification.
 
-After downloading a published extension ZIP, discover exactly one AMS archive
-and verify that its digest and provenance are bound to this repository's
-release workflow:
+In summary, the read-only release-package job builds once from exact
+`GITHUB_SHA`. Attestation and protected publication independently download the
+same current-run workflow artifact and verify its producer-reported SHA-256.
+Publication uploads those exact bytes, re-downloads the stored ZIP, re-hashes
+it, and publishes only after attestation succeeds.
+
+After downloading a published extension ZIP, discover the AMS archives and
+verify that every discovered digest and provenance is bound to this
+repository's release workflow:
 
 ```powershell
 $Archives = @(Get-ChildItem -Filter 'alpha_material_separator-*.zip' -File)
-if ($Archives.Count -ne 1) { throw "Expected one AMS ZIP." }
-gh attestation verify $Archives[0].FullName `
-  --repo Alrauna/blender-alpha-material-separator
+if ($Archives.Count -lt 1) { throw "Expected at least one AMS ZIP." }
+foreach ($Archive in $Archives) {
+  gh attestation verify $Archive.FullName `
+    --repo Alrauna/blender-alpha-material-separator
+}
 ```
 
 An attestation identifies the source workflow and artifact digest; it does not
@@ -180,11 +232,10 @@ regression. Verification then proceeds through pure-Python tests, headless
 Blender state-transition and mutation tests, semantic preservation checks,
 installed-ZIP interaction, and instrumented performance measurements.
 
-Committed and CI tests are deterministic and independent of private machine
-state. The ignored `.local-references` validator is a separate, user-authorized
-local acceptance layer. If an automated regression is genuinely impractical,
-document why, retain the closest automated contract, and report the remaining
-manual interaction explicitly.
+The ignored `.local-references` validator is a separate, user-authorized local
+acceptance layer. If an automated regression is genuinely impractical, document
+why, retain the closest automated contract, and report the remaining manual
+interaction explicitly.
 
 Installed-ZIP UI acceptance requires human confirmation unless the current
 harness is capable of controlling Blender and the user explicitly authorizes

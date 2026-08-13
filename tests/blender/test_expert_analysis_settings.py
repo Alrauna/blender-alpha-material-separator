@@ -3,15 +3,31 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import bpy
 
 from addon import runtime
+from addon.adapters import gpu_raster
+from addon.panel import ALPHA_MATERIAL_SEPARATOR_PT_analysis_settings
 from addon.properties import ANALYSIS_SETTING_NAMES
 from tests.blender.test_analysis_preview import (
     _clear_scene,
     _image,
     _material,
     _quad,
+)
+from tests.blender.test_ux_overrides import _RecordingLayout
+
+GPU_TOGGLE = "disable_gpu_acceleration"
+GPU_TOGGLE_DESCRIPTION = "Manual fallback to full CPU analysis"
+GPU_MISSING_INSTRUCTIONS = (
+    "This GPU does not support the necessary instructions for GPU acceleration "
+    "with this extension"
+)
+GPU_UNKNOWN_FAILURE = (
+    "This GPU does not support GPU acceleration with this extension for an "
+    "unknown reason"
 )
 
 EXPECTED_DESCRIPTIONS = {
@@ -138,6 +154,101 @@ def _assert_reset_behavior() -> None:
     _clear_scene()
 
 
+def _draw_settings_panel() -> _RecordingLayout:
+    layout = _RecordingLayout()
+    ALPHA_MATERIAL_SEPARATOR_PT_analysis_settings.draw(
+        SimpleNamespace(layout=layout), bpy.context
+    )
+    return layout
+
+
+def _drawn_text(layout: _RecordingLayout) -> str:
+    """The panel's copy as one string, since long labels are drawn wrapped."""
+    return " ".join(text for text, _icon in layout.labels)
+
+
+def _assert_the_gpu_toggle_follows_the_hardware() -> None:
+    """Off by default on a machine that can use the GPU, forced on where it cannot.
+
+    The refusal lives in the property rather than in the panel row because the
+    engine and any script read the property, not the row. It is deliberately
+    outside ANALYSIS_SETTING_NAMES: both devices produce the same report, so
+    neither toggling it nor a reset of the analysis settings should touch it.
+    """
+    settings = _settings()
+    described = settings.bl_rna.properties[GPU_TOGGLE]
+    assert described.name == "Disable GPU acceleration", described.name
+    assert described.description == GPU_TOGGLE_DESCRIPTION, described.description
+    assert GPU_TOGGLE not in ANALYSIS_SETTING_NAMES
+    assert getattr(settings, GPU_TOGGLE) is not gpu_raster.available()
+
+    original = gpu_raster.available
+    gpu_raster.available = lambda: False
+    try:
+        assert getattr(settings, GPU_TOGGLE) is True
+        setattr(settings, GPU_TOGGLE, False)
+        assert getattr(settings, GPU_TOGGLE) is True, "the fallback was cleared"
+    finally:
+        gpu_raster.available = original
+
+
+def _assert_an_unusable_gpu_says_why() -> None:
+    """Two messages, and the reason picks between them.
+
+    A missing instruction set is a fact about the hardware and is worth saying
+    plainly. Anything else — a driver that miscompiles the kernel, a probe that
+    raised — is not something the reader can act on, so it says so.
+    """
+    original_available, original_reason = gpu_raster.available, gpu_raster.reason
+    gpu_raster.available = lambda: False
+    try:
+        gpu_raster.reason = lambda: "NO_FP64: this GPU computes double as single"
+        drawn = _drawn_text(_draw_settings_panel())
+        assert GPU_MISSING_INSTRUCTIONS in drawn, drawn
+
+        gpu_raster.reason = lambda: "MISMATCH: the self-test did not reproduce"
+        drawn = _drawn_text(_draw_settings_panel())
+        assert GPU_UNKNOWN_FAILURE in drawn, drawn
+    finally:
+        gpu_raster.available, gpu_raster.reason = original_available, original_reason
+
+    # A usable GPU explains nothing, because there is nothing to explain.
+    if gpu_raster.available():
+        drawn = _drawn_text(_draw_settings_panel())
+        assert GPU_MISSING_INSTRUCTIONS not in drawn, drawn
+        assert GPU_UNKNOWN_FAILURE not in drawn, drawn
+
+
+def _assert_the_gpu_toggle_keeps_a_report() -> None:
+    """Switching device does not make a completed report stale.
+
+    The two paths are exact reproductions of each other, so the input signature
+    does not carry the choice, and a reset of the analysis settings leaves it
+    where the reader put it.
+    """
+    if not gpu_raster.available():
+        return
+    _clear_scene()
+    image = _image("AMS_GPU_TOGGLE_IMAGE")
+    material, _tree, _principled, _texture = _material("AMS_GPU_TOGGLE_SOURCE", image)
+    _quad("AMS_GPU_TOGGLE_OBJECT", material)
+    settings = _settings()
+
+    _analyze_clean_report()
+    setattr(settings, GPU_TOGGLE, True)
+    assert runtime.validation_state() == runtime.VALIDATION_CLEAN, (
+        runtime.validation_state()
+    )
+    result = bpy.ops.alpha_material_separator.reset_analysis_settings()
+    assert result == {"FINISHED"}, result
+    assert getattr(settings, GPU_TOGGLE) is True, "a settings reset changed the device"
+
+    # The CPU fallback has to produce the same report the GPU just produced.
+    _analyze_clean_report()
+    setattr(settings, GPU_TOGGLE, False)
+    _clear_scene()
+
+
 def _assert_public_setting_names_are_guarded() -> None:
     """Every guarded name must exist on the real analyze operator RNA."""
 
@@ -160,5 +271,8 @@ def run() -> None:
     _assert_names_cover_the_panel()
     _assert_descriptions_are_artist_readable()
     _assert_minimum_affected_pixels_is_reachable()
+    _assert_the_gpu_toggle_follows_the_hardware()
+    _assert_an_unusable_gpu_says_why()
+    _assert_the_gpu_toggle_keeps_a_report()
     _assert_reset_behavior()
     print("ALPHA_MATERIAL_SEPARATOR_EXPERT_SETTINGS_TESTS_OK")

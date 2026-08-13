@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import json
+import random
 from array import array
+from collections import Counter
 
 import bmesh
 import bpy
@@ -20,7 +22,12 @@ from addon.adapters.analysis import (
 from addon.adapters.assignment import build_assignment_plan
 from addon.adapters.image_data import ImageReadError, read_image_snapshot
 from addon.adapters.material_resolver import resolve_material
-from addon.core import FaceClass
+from addon.core import (
+    FaceClass,
+    InvalidRasterInput,
+    rasterize_polygon,
+    uv_to_texel_edge,
+)
 from addon.operators import analyze as analyze_operator
 
 
@@ -470,20 +477,20 @@ def _single_preparation_pass_test(*objects) -> None:
     calls = 0
     uv_passes = 0
     original_prepare = analysis_module._prepare
-    original_uv_values = analysis_module._uv_values
+    original_uv_bytes = analysis_module._uv_bytes
 
     def counted_prepare(*args, **kwargs):
         nonlocal calls
         calls += 1
         return original_prepare(*args, **kwargs)
 
-    def counted_uv_values(layer):
+    def counted_uv_bytes(layer):
         nonlocal uv_passes
         uv_passes += 1
-        yield from original_uv_values(layer)
+        return original_uv_bytes(layer)
 
     analysis_module._prepare = counted_prepare
-    analysis_module._uv_values = counted_uv_values
+    analysis_module._uv_bytes = counted_uv_bytes
     try:
         engine = AnalysisEngine(objects, AnalysisConfig(), defer_images=True)
         while not engine.step(32):
@@ -491,7 +498,7 @@ def _single_preparation_pass_test(*objects) -> None:
         engine.finish()
     finally:
         analysis_module._prepare = original_prepare
-        analysis_module._uv_values = original_uv_values
+        analysis_module._uv_bytes = original_uv_bytes
     assert calls == 1, f"modal analysis prepared the same inputs {calls} times"
     expected_uv_passes = sum(len(object_.data.uv_layers) for object_ in objects)
     assert uv_passes == expected_uv_passes, (
@@ -513,6 +520,341 @@ def _single_preparation_pass_test(*objects) -> None:
     finally:
         analysis_module.material_fingerprint = original_fingerprint
     assert max(fingerprint_calls.values(), default=0) == 1, fingerprint_calls
+
+
+def _batched_raster_object(name: str, count: int, *, duplicates: bool = True):
+    """Scattered UV triangles, deliberately crossing the batch's seams.
+
+    Rasterization batches 256 polygons at a time and deduplicates by coverage
+    key, so an equivalence fixture has to cross that boundary and repeat some
+    triangles rather than being a handful of distinct quads. `duplicates=False`
+    drops the repeats, for a test that needs one batch entry per polygon.
+    """
+    image = _image(f"{name}_IMAGE")
+    material, _tree, _principled, _texture = _material(f"{name}_MATERIAL", image)
+    generator = random.Random(0x5CA1E)
+    vertices = []
+    faces = []
+    uvs = []
+    for index in range(count):
+        offset = len(vertices)
+        x = float(index)
+        vertices.extend(((x, 0.0, 0.0), (x + 0.5, 0.0, 0.0), (x, 0.5, 0.0)))
+        faces.append((offset, offset + 1, offset + 2))
+        if duplicates and index and index % 7 == 0:
+            # Two polygons with one coverage key, which the cache used to
+            # collapse and the batch has to collapse for itself.
+            uvs.extend(uvs[-3:])
+        else:
+            uvs.extend(
+                (generator.uniform(-0.5, 1.5), generator.uniform(-0.5, 1.5))
+                for _ in range(3)
+            )
+    mesh = bpy.data.meshes.new(f"{name}_MESH")
+    mesh.from_pydata(vertices, (), faces)
+    mesh.materials.append(material)
+    uv_layer = mesh.uv_layers.new(name="UVMap", do_init=False)
+    uv_layer.active_render = True
+    modern = getattr(uv_layer, "uv", None)
+    for loop in mesh.loops:
+        if modern is not None:
+            modern[loop.index].vector = uvs[loop.index]
+        else:
+            uv_layer.data[loop.index].uv = uvs[loop.index]
+    object_ = bpy.data.objects.new(name, mesh)
+    bpy.context.collection.objects.link(object_)
+    object_.select_set(True)
+    return object_, image
+
+
+def _raster_counters_absent_when_nothing_rasterizes_test() -> None:
+    """A chunk where every face trips a budget must not report zeroed counters.
+
+    The six raster counters are summed per chunk rather than per face, and
+    `report.metrics` is the whole counter, so an unguarded `+= 0` would add six
+    keys to a report that never had them. Here the only polygon's UV triangle
+    exceeds the scanline budget, so nothing rasterizes at all.
+    """
+    _clear_scene()
+    object_, _image = _batched_raster_object("ams_no_raster", 1, duplicates=False)
+    uv_layer = object_.data.uv_layers[0]
+    modern = getattr(uv_layer, "uv", None)
+    tall = ((0.0, 0.0), (1.0, 0.0), (0.0, 600_000.0))
+    for loop in range(3):
+        if modern is not None:
+            modern[loop].vector = tall[loop]
+        else:
+            uv_layer.data[loop].uv = tall[loop]
+
+    runtime.clear_coverage_cache()
+    engine = AnalysisEngine([object_], AnalysisConfig())
+    while not engine.step(4_096):
+        pass
+    report = engine.finish()
+    faces = [
+        face.result
+        for result in report.object_results.values()
+        for face in result.faces.values()
+    ]
+    assert len(faces) == 1, faces
+    assert faces[0].classification is FaceClass.UNSUPPORTED, faces[0]
+    present = [name for name in _RASTER_COUNTERS if name in engine.metrics]
+    assert not present, present
+    _clear_scene()
+
+
+def _loop_triangle_order_test() -> None:
+    """`mesh.loop_triangles` is grouped by polygon and ascending.
+
+    The prepared triangle layout is a slice per polygon rather than a dict of
+    lists, which makes Blender's ordering load-bearing instead of incidental.
+    A mesh of a triangle, a quad and a hexagon produces one, two and four loop
+    triangles, so a grouping that broke would show as an out-of-order index.
+    """
+    _clear_scene()
+    mesh = bpy.data.meshes.new("AMS_TRIANGLE_ORDER_MESH")
+    mesh.from_pydata(
+        (
+            (0.0, 0.0, 0.0),
+            (1.0, 0.0, 0.0),
+            (0.0, 1.0, 0.0),
+            (2.0, 0.0, 0.0),
+            (3.0, 0.0, 0.0),
+            (3.0, 1.0, 0.0),
+            (2.0, 1.0, 0.0),
+            (4.0, 0.0, 0.0),
+            (5.0, 0.0, 0.0),
+            (5.5, 1.0, 0.0),
+            (5.0, 2.0, 0.0),
+            (4.0, 2.0, 0.0),
+            (3.5, 1.0, 0.0),
+        ),
+        (),
+        ((0, 1, 2), (3, 4, 5, 6), (7, 8, 9, 10, 11, 12)),
+    )
+    mesh.calc_loop_triangles()
+    order = [triangle.polygon_index for triangle in mesh.loop_triangles]
+    assert order == sorted(order), order
+    assert Counter(order) == {0: 1, 1: 2, 2: 4}, Counter(order)
+    bpy.data.meshes.remove(mesh)
+
+
+def _uv_traversal_values_test() -> None:
+    """The texel-edge triangles reaching the rasterizer, pinned to the mesh.
+
+    UV traversal reads one loop at a time today and is being replaced by whole
+    array reads. No value it produces may change, so this captures what actually
+    arrives at `rasterize_batch` and compares it to an oracle read loop by loop
+    with `uv_to_texel_edge`. The fixture drops its duplicate coverage keys so
+    that every polygon appears in the batch exactly once, in polygon order.
+    """
+    _clear_scene()
+    object_, image = _batched_raster_object("ams_uv_values", 40, duplicates=False)
+    mesh = object_.data
+    uv_layer = mesh.uv_layers[0]
+    modern = getattr(uv_layer, "uv", None)
+    expected = [
+        [
+            list(
+                uv_to_texel_edge(
+                    modern[loop].vector if modern is not None else uv_layer.data[loop].uv,
+                    image.size[0],
+                    image.size[1],
+                )
+            )
+            for loop in polygon.loop_indices
+        ]
+        for polygon in mesh.polygons
+    ]
+
+    seen = []
+    original = analysis_module.rasterize_batch
+
+    def capturing(triangles, counts, **settings):
+        offset = 0
+        for count in counts:
+            seen.append(triangles[offset : offset + int(count)])
+            offset += int(count)
+        return original(triangles, counts, **settings)
+
+    analysis_module.rasterize_batch = capturing
+    try:
+        runtime.clear_coverage_cache()
+        engine = AnalysisEngine([object_], AnalysisConfig())
+        # The traversal under test is shared, but only the CPU path hands its
+        # result to `rasterize_batch`, which is what this hook watches. On a
+        # machine with a GPU the engine would otherwise take the other route.
+        engine._gpu = False
+        while not engine.step(4_096):
+            pass
+        engine.finish()
+    finally:
+        analysis_module.rasterize_batch = original
+
+    assert len(seen) == len(expected) == 40, (len(seen), len(expected))
+    for index, (produced, triangle) in enumerate(zip(seen, expected)):
+        assert produced.shape == (1, 3, 2), (index, produced.shape)
+        assert produced[0].tolist() == triangle, (index, produced[0].tolist(), triangle)
+    _clear_scene()
+
+
+def _non_finite_uv_test() -> None:
+    """A non-finite UV aborts the whole analysis, and must keep doing so.
+
+    `uv_to_texel_edge` validates finiteness per point, and nothing in the
+    stepping loop catches what it raises. Vectorizing the traversal removes that
+    per-point call, so the abort has to be reproduced deliberately rather than
+    quietly becoming a per-face `INVALID_UV`. Changing it to per-face may well
+    be an improvement, but it is a separate decision.
+    """
+    _clear_scene()
+    object_, _image = _batched_raster_object("ams_uv_nan", 4, duplicates=False)
+    uv_layer = object_.data.uv_layers[0]
+    modern = getattr(uv_layer, "uv", None)
+    if modern is not None:
+        modern[5].vector = (float("nan"), 0.5)
+    else:
+        uv_layer.data[5].uv = (float("nan"), 0.5)
+    runtime.clear_coverage_cache()
+    engine = AnalysisEngine([object_], AnalysisConfig())
+    try:
+        while not engine.step(4_096):
+            pass
+    except InvalidRasterInput:
+        pass
+    else:
+        raise AssertionError("a non-finite UV no longer aborts the analysis")
+    _clear_scene()
+
+
+_RASTER_COUNTERS = (
+    "triangles",
+    "degenerate_triangles",
+    "scanlines",
+    "emitted_runs",
+    "union_runs",
+    "covered_texels",
+)
+
+
+def _batched_rasterization_equivalence_test() -> None:
+    """Every face must get the coverage the single-polygon path would give it.
+
+    The unit suite proves `rasterize_batch` matches `rasterize_polygon` on
+    synthetic triangles. What only a live analysis can prove is that the adapter
+    groups the right triangles into a batch, deduplicates by coverage key
+    correctly, and returns each result to the polygon it came from. So the
+    oracle here is built from the mesh directly. Swapping the rasterizer
+    underneath the adapter would prove nothing: an adapter bug would corrupt
+    both sides equally and the comparison would still pass.
+    """
+    _clear_scene()
+    object_, image = _batched_raster_object("ams_batch_seam", 600)
+    settings = AnalysisConfig().settings
+    mesh = object_.data
+    uv_layer = mesh.uv_layers[0]
+    modern = getattr(uv_layer, "uv", None)
+    expected = {}
+    for polygon in mesh.polygons:
+        triangle = tuple(
+            uv_to_texel_edge(
+                modern[loop].vector if modern is not None else uv_layer.data[loop].uv,
+                image.size[0],
+                image.size[1],
+            )
+            for loop in polygon.loop_indices
+        )
+        expected[polygon.index] = rasterize_polygon(
+            [triangle],
+            margin_texels=settings.margin_texels,
+            max_scanlines=settings.max_scanlines,
+            max_run_emissions=settings.max_run_emissions,
+        ).stats
+
+    runtime.clear_coverage_cache()
+    engine = AnalysisEngine([object_], AnalysisConfig())
+    while not engine.step(4_096):
+        pass
+    report = engine.finish()
+    faces = {
+        index: face.result
+        for result in report.object_results.values()
+        for index, face in result.faces.items()
+    }
+    assert len(faces) == len(expected) == 600, (len(faces), len(expected))
+    for index, stats in expected.items():
+        assert faces[index].raster_stats == stats, (
+            index,
+            faces[index].raster_stats,
+            stats,
+        )
+    totals = Counter()
+    for stats in expected.values():
+        for name in _RASTER_COUNTERS:
+            totals[name] += getattr(stats, name)
+    for name in _RASTER_COUNTERS:
+        assert engine.metrics[name] == totals[name], (
+            name,
+            engine.metrics[name],
+            totals[name],
+        )
+    assert totals["covered_texels"] > 0, totals
+    assert totals["union_runs"] > 600, totals
+    _clear_scene()
+
+
+def _structural_signature_sensitivity_test() -> None:
+    """Every mesh array the signature hashes must move the digest.
+
+    The revalidation matrix already covers vertex and UV edits. Edges, loops and
+    the polygon fields have no coverage, and they are exactly what a signature
+    that reads whole arrays at once could silently stop reading.
+    """
+    config = AnalysisConfig()
+    object_ = _polygon_strip("AMS_SIGNATURE_STRIP", 4)
+    object_.data.materials.append(bpy.data.materials.new("AMS_SIGNATURE_SLOT_A"))
+    object_.data.materials.append(bpy.data.materials.new("AMS_SIGNATURE_SLOT_B"))
+    mesh = object_.data
+    objects = (object_,)
+
+    baseline = analysis_module._structural_signature(objects, config)
+    assert analysis_module._structural_signature(objects, config) == baseline, (
+        "structural signature is not stable across two reads of one mesh"
+    )
+
+    # `loop_total` is read-only and derives from consecutive `loop_start`
+    # offsets, so moving one start is what exercises both polygon fields.
+    mutations = (
+        ("vertex_co", lambda: setattr(mesh.vertices[1], "co", (9.0, 8.0, 7.0))),
+        ("edge_vertices", lambda: setattr(mesh.edges[0], "vertices", (0, 5))),
+        ("loop_vertex_index", lambda: setattr(mesh.loops[2], "vertex_index", 4)),
+        ("material_index", lambda: setattr(mesh.polygons[0], "material_index", 1)),
+        ("loop_start", lambda: setattr(mesh.polygons[1], "loop_start", 4)),
+    )
+    seen = {baseline}
+    previous = baseline
+    for name, mutate in mutations:
+        mutate()
+        current = analysis_module._structural_signature(objects, config)
+        assert current != previous, (
+            f"{name} did not change the structural signature"
+        )
+        assert current not in seen, f"{name} reproduced an earlier signature"
+        seen.add(current)
+        previous = current
+
+    uv_layer = mesh.uv_layers.new(name="UVMap", do_init=False)
+    with_uv = analysis_module._structural_signature(objects, config)
+    assert with_uv not in seen, "adding a UV layer did not change the signature"
+    modern = getattr(uv_layer, "uv", None)
+    if modern is not None:
+        modern[0].vector = (0.25, 0.75)
+    else:
+        uv_layer.data[0].uv = (0.25, 0.75)
+    seen.add(with_uv)
+    assert analysis_module._structural_signature(objects, config) not in seen, (
+        "a UV coordinate edit did not change the structural signature"
+    )
 
 
 def _analysis_cadence_tests() -> None:
@@ -755,6 +1097,13 @@ def run() -> None:
     _bulk_image_reader_tests()
     _out_of_range_uv_test()
     _preview_component_selection_test()
+    _clear_scene()
+    _loop_triangle_order_test()
+    _uv_traversal_values_test()
+    _non_finite_uv_test()
+    _raster_counters_absent_when_nothing_rasterizes_test()
+    _batched_rasterization_equivalence_test()
+    _structural_signature_sensitivity_test()
     _clear_scene()
     _analysis_cadence_tests()
     _clear_scene()
