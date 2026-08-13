@@ -114,6 +114,12 @@ their respective outside handling; REPEAT and MIRROR use the periodic form, with
 MIRROR folding the index at `2 * width`. Each mirrors the corresponding branch
 of `AlphaGrid._count_run` and `count_batch`.
 
+MIRROR costs the kernel no second counting path. Its mask rows are uploaded
+already folded, each row followed by its own reverse, which is what
+`AlphaGrid._ensure_mirrors` builds on the CPU; the period then becomes twice the
+width and the REPEAT form covers it unchanged. The folded mask is a separate
+cache entry, so a grid only pays for it when something addresses it that way.
+
 ### The alpha mask on the GPU
 
 24 texels per float32, rows padded to a whole number of words so a run never

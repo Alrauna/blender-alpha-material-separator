@@ -42,12 +42,13 @@ def assert_probe_is_total() -> None:
     assert gpu_raster.available() is first, "probe is not stable across calls"
 
 
-def assert_repeat_crosses_edges() -> None:
+def assert_modes_cross_edges() -> None:
     """Runs that leave the image on both sides, and rows that leave it too.
 
-    REPEAT is a closed form over whole periods plus two partial ones, so the
-    cases that break it are runs longer than the image, runs starting at a
-    negative multiple of the width, and rows outside the image height.
+    Each mode fails differently outside the image, so the fixture has to leave
+    it in every direction: runs longer than a whole period, runs starting at a
+    negative multiple of the width, rows above and below, and for MIRROR a run
+    long enough to cross the fold more than once.
     """
     grid = _patterned_grid(53, 17, seed=0x5EED)
     quads = []
@@ -66,16 +67,19 @@ def assert_repeat_crosses_edges() -> None:
     triangles = numpy.array(quads, dtype=numpy.float64)
     counts = numpy.array(counts, dtype=numpy.int64)
 
-    produced = gpu_raster.counted_batch(
-        triangles, counts, grid, AddressMode.REPEAT, settings=_DEFAULTS
-    )
-    assert produced is not None, "REPEAT batch was refused"
-    covered, affected = produced
-    want_covered, want_affected = _oracle(
-        triangles, counts, grid, AddressMode.REPEAT
-    )
-    assert numpy.array_equal(covered, want_covered), (covered, want_covered)
-    assert numpy.array_equal(affected, want_affected), (affected, want_affected)
+    for mode in AddressMode:
+        produced = gpu_raster.counted_batch(
+            triangles, counts, grid, mode, settings=_DEFAULTS
+        )
+        assert produced is not None, f"{mode} batch was refused"
+        covered, affected = produced
+        want_covered, want_affected = _oracle(triangles, counts, grid, mode)
+        assert numpy.array_equal(covered, want_covered), (
+            mode, covered, want_covered
+        )
+        assert numpy.array_equal(affected, want_affected), (
+            mode, affected, want_affected
+        )
 
 
 def assert_exact_at_scale() -> None:
@@ -111,24 +115,22 @@ def assert_exact_at_scale() -> None:
             )
         triangles = numpy.array(pieces, dtype=numpy.float64)
 
-        produced = gpu_raster.counted_batch(
-            triangles, counts, grid, AddressMode.REPEAT, settings=_DEFAULTS
-        )
-        assert produced is not None, f"{width}x{height} batch was refused"
-        covered, affected = produced
-        want_covered, want_affected = _oracle(
-            triangles, counts, grid, AddressMode.REPEAT
-        )
-        differing = int((covered != want_covered).sum())
-        assert not differing, (
-            f"{width}x{height}: {differing} of {polygons} covered counts differ, "
-            f"first at {numpy.flatnonzero(covered != want_covered)[:3]}"
-        )
-        differing = int((affected != want_affected).sum())
-        assert not differing, (
-            f"{width}x{height}: {differing} of {polygons} affected counts differ, "
-            f"first at {numpy.flatnonzero(affected != want_affected)[:3]}"
-        )
+        for mode in AddressMode:
+            produced = gpu_raster.counted_batch(
+                triangles, counts, grid, mode, settings=_DEFAULTS
+            )
+            assert produced is not None, f"{width}x{height} {mode} batch was refused"
+            covered, affected = produced
+            want_covered, want_affected = _oracle(triangles, counts, grid, mode)
+            for name, got, want in (
+                ("covered", covered, want_covered),
+                ("affected", affected, want_affected),
+            ):
+                differing = int((got != want).sum())
+                assert not differing, (
+                    f"{width}x{height} {mode}: {differing} of {polygons} {name} "
+                    f"counts differ, first at {numpy.flatnonzero(got != want)[:3]}"
+                )
 
 
 def assert_unhandled_inputs_fall_back() -> None:
@@ -138,14 +140,6 @@ def assert_unhandled_inputs_fall_back() -> None:
         [[[1.0, 2.0], [40.0, 2.0], [40.0, 20.0]]], dtype=numpy.float64
     )
     counts = numpy.array([1], dtype=numpy.int64)
-
-    for mode in (AddressMode.CLIP, AddressMode.EXTEND, AddressMode.MIRROR):
-        assert (
-            gpu_raster.counted_batch(
-                triangles, counts, grid, mode, settings=_DEFAULTS
-            )
-            is None
-        ), f"{mode} should fall back until the kernel implements it"
 
     margined = AnalysisSettings(margin_texels=1)
     assert (
@@ -175,7 +169,7 @@ def run() -> None:
         print(f"SKIP: the GPU kernel tests did not run: {why}")
         print("ALPHA_MATERIAL_SEPARATOR_GPU_RASTER_TESTS_SKIPPED")
         return
-    assert_repeat_crosses_edges()
+    assert_modes_cross_edges()
     assert_exact_at_scale()
     assert_unhandled_inputs_fall_back()
     gpu_raster.clear_cache()

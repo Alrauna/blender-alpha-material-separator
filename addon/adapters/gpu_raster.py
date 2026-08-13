@@ -27,8 +27,13 @@ _BITS = 24
 #: Textures are laid out as rows of this width; anything longer wraps.
 _ROW_WIDTH = 8192
 
-#: Address modes the kernel implements. The rest fall back to the CPU.
-_SUPPORTED = frozenset((AddressMode.REPEAT,))
+#: Address modes as the kernel numbers them. GLSL has no enums worth the ceremony.
+_MODE_CODE = {
+    AddressMode.REPEAT: 0,
+    AddressMode.EXTEND: 1,
+    AddressMode.CLIP: 2,
+    AddressMode.MIRROR: 3,
+}
 
 _SOURCE = """
 ivec2 at(int linear) { return ivec2(linear %% row_width, linear / row_width); }
@@ -72,19 +77,63 @@ uint bits_in(int row, int from, int to) {
   return total + uint(bitCount(uint(imageLoad(mask, at(base + last)).r) & high));
 }
 
-/* `AlphaGrid._periodic_counts`, with popcount in place of the row prefixes. */
+/* `AlphaGrid._periodic_counts`, with popcount in place of the row prefixes.
+   `period` is the width for REPEAT and twice it for MIRROR, whose mask rows are
+   uploaded already folded, so both modes share this one form. */
 uint periodic(int row, int start, int stop) {
   int remaining = stop - start;
   if (remaining <= 0) { return 0u; }
-  int position = floor_mod(start, width);
-  int first = min(remaining, width - position);
+  int position = floor_mod(start, period);
+  int first = min(remaining, period - position);
   uint total = bits_in(row, position, position + first);
   remaining -= first;
   if (remaining > 0) {
-    total += uint(remaining / width) * uint(imageLoad(rowsum, at(row)).r);
-    total += bits_in(row, 0, remaining %% width);
+    total += uint(remaining / period) * uint(imageLoad(rowsum, at(row)).r);
+    total += bits_in(row, 0, remaining %% period);
   }
   return total;
+}
+
+bool edge_set(int row, int column) {
+  uint word = uint(imageLoad(mask, at(row * words_per_row + column / %(bits)d)).r);
+  return (word & (1u << (column %% %(bits)d))) != 0u;
+}
+
+/* One run, in whichever mode this batch is using. Mirrors the branches of
+   `AlphaGrid.count_batch`; `outside` is its CLIP row mask. */
+uint counted(int row, bool outside, int start, int stop) {
+  if (stop <= start) { return 0u; }
+  if (mode == 0 || mode == 3) { return periodic(row, start, stop); }
+  if (outside) { return uint(stop - start); }
+
+  int inside_start = clamp(start, 0, width);
+  int inside_stop = clamp(stop, 0, width);
+  int inside = max(inside_stop - inside_start, 0);
+  uint total = (inside > 0) ? bits_in(row, inside_start, inside_stop) : 0u;
+  if (mode == 2) {
+    /* Outside a clipped image every cell is transparent. */
+    return total + uint((stop - start) - inside);
+  }
+  /* EXTEND repeats the edge texel, so an overhang counts only when that texel
+     is itself affected. */
+  if (edge_set(row, 0)) { total += uint(min(stop, 0) - min(start, 0)); }
+  if (edge_set(row, width - 1)) {
+    total += uint(max(stop, width) - max(start, width));
+  }
+  return total;
+}
+
+/* `AlphaGrid._resolve_rows`. Returns the mask row; sets `outside` for a CLIP
+   row that falls off the image, where the whole run counts as transparent. */
+int resolve_row(int row, out bool outside) {
+  outside = false;
+  if (mode == 0) { return floor_mod(row, height); }
+  if (mode == 3) {
+    int position = floor_mod(row, 2 * height);
+    return (position < height) ? position : 2 * height - 1 - position;
+  }
+  outside = (mode == 2) && (row < 0 || row >= height);
+  return clamp(row, 0, height - 1);
 }
 
 void main() {
@@ -187,7 +236,8 @@ void main() {
     }
 
     /* `_merge_spans` over one row: sorted by start, absorb while they touch. */
-    int resolved = floor_mod(int(row), height);
+    bool outside;
+    int resolved = resolve_row(int(row), outside);
     int index = 0;
     while (index < found) {
       int start = lo[index], stop = hi[index];
@@ -197,7 +247,7 @@ void main() {
         ++index;
       }
       total_covered += uint(stop - start);
-      total_affected += periodic(resolved, start, stop);
+      total_affected += counted(resolved, outside, start, stop);
     }
   }
   imageStore(covered, at(p), uvec4(total_covered, 0u, 0u, 0u));
@@ -271,17 +321,22 @@ def _packed_mask(plane: numpy.ndarray) -> tuple[numpy.ndarray, int]:
     return triples[:, :, 0] | (triples[:, :, 1] << 8) | (triples[:, :, 2] << 16), words
 
 
-def _mask_textures(grid):
-    key = id(grid)
+def _mask_textures(grid, mirrored: bool):
+    """The packed mask and per-row sums, built once per grid and folding.
+
+    MIRROR gets its rows uploaded already folded, each row followed by its own
+    reverse, which is what `AlphaGrid._ensure_mirrors` builds on the CPU. That
+    turns MIRROR into REPEAT over a period of twice the width and keeps one
+    counting form in the kernel instead of two.
+    """
+    key = (id(grid), mirrored)
     entry = _masks.get(key)
     if entry is None or entry[0] is not grid:
-        packed, words = _packed_mask(grid._plane)
-        entry = (
-            grid,
-            _texture(packed),
-            _texture(grid._plane.sum(axis=1)),
-            words,
-        )
+        plane = grid._plane
+        if mirrored:
+            plane = numpy.concatenate((plane, plane[:, ::-1]), axis=1)
+        packed, words = _packed_mask(plane)
+        entry = (grid, _texture(packed), _texture(plane.sum(axis=1)), words)
         _masks[key] = entry
     return entry[1], entry[2], entry[3]
 
@@ -328,7 +383,10 @@ def _build():
     info.image(3, "R32F", "FLOAT_2D", "layout_", qualifiers={"READ"})
     info.image(4, "R32UI", "UINT_2D", "covered", qualifiers={"WRITE"})
     info.image(5, "R32UI", "UINT_2D", "affected", qualifiers={"WRITE"})
-    for name in ("row_width", "polygon_count", "width", "height", "words_per_row"):
+    for name in (
+        "row_width", "polygon_count", "width", "height", "words_per_row",
+        "mode", "period",
+    ):
         info.push_constant("INT", name)
     info.local_group_size(64, 1, 1)
     info.compute_source(_SOURCE % {"bits": _BITS, "cap": SPAN_CAP})
@@ -342,7 +400,8 @@ def _dispatch(shader, triangles, counts, grid, mode):
     chunks, layout, widest = _prepare(triangles, counts)
     if widest > SPAN_CAP:
         return None
-    mask, rowsum, words = _mask_textures(grid)
+    mirrored = mode is AddressMode.MIRROR
+    mask, rowsum, words = _mask_textures(grid, mirrored)
     polygons = int(counts.shape[0])
     # Held in locals, not passed inline: a texture collected between bind and
     # dispatch takes its storage with it.
@@ -363,6 +422,8 @@ def _dispatch(shader, triangles, counts, grid, mode):
     shader.uniform_int("width", grid.width)
     shader.uniform_int("height", grid.height)
     shader.uniform_int("words_per_row", words)
+    shader.uniform_int("mode", _MODE_CODE[mode])
+    shader.uniform_int("period", grid.width * 2 if mirrored else grid.width)
     gpu.compute.dispatch(shader, -(-polygons // 64), 1, 1)
     # Releasing a still-bound shader hard-crashes Blender on the next bind.
     gpu.shader.unbind()
@@ -419,17 +480,22 @@ def _self_test(shader) -> bool:
     if any(isinstance(one, str) for one in oracle):
         return False
     expected_covered = numpy.array([one.stats.covered_texels for one in oracle])
-    expected_affected = numpy.array(grid.count_batch(oracle, AddressMode.REPEAT))
 
-    produced = _dispatch(shader, quads, counts, grid, AddressMode.REPEAT)
-    clear_cache()
-    if produced is None:
-        return False
-    covered, affected = produced
-    return bool(
-        numpy.array_equal(covered, expected_covered)
-        and numpy.array_equal(affected, expected_affected)
-    )
+    try:
+        for mode in _MODE_CODE:
+            produced = _dispatch(shader, quads, counts, grid, mode)
+            if produced is None:
+                return False
+            covered, affected = produced
+            if not numpy.array_equal(covered, expected_covered):
+                return False
+            if not numpy.array_equal(
+                affected, numpy.array(grid.count_batch(oracle, mode))
+            ):
+                return False
+    finally:
+        clear_cache()
+    return True
 
 
 def available() -> bool:
@@ -484,7 +550,7 @@ def counted_batch(
     Budget enforcement arrives with partitioning; nothing calls this from the
     engine until that is in place.
     """
-    if mode not in _SUPPORTED or settings.margin_texels or not available():
+    if mode not in _MODE_CODE or settings.margin_texels or not available():
         return None
     if counts.shape[0] == 0:
         empty = numpy.zeros(0, dtype=numpy.int64)
