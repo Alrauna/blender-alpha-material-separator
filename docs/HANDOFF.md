@@ -222,8 +222,9 @@ Fresh local results on this branch:
 - `blender --factory-startup --command extension validate addon`: success;
 - packaging and the isolated installed-ZIP gate:
   `ALPHA_MATERIAL_SEPARATOR_INSTALLED_ZIP_TEST_OK` against
-  `alpha_material_separator-1.4.0.zip`, before the fp64 probe and the manual
-  fallback landed;
+  `alpha_material_separator-1.4.0.zip`, rebuilt at 99,515 bytes after the fp64
+  probe and the manual fallback landed. Install status was `Installed`, not
+  `Reinstalled`, which is the tell that the isolated root held;
 - `git diff --check`: clean before each commit;
 - same-session before/after benchmarks per stage, each with wall time and peak
   working set, recorded in `docs/performance.md`.
@@ -332,8 +333,6 @@ benchmark fixtures.
   completed report stale.
 - The GPU tests skip on a machine without a usable GPU, so CI proves the
   fallback rather than the kernel. Only this machine has run them.
-- The packaged 1.4.0 ZIP predates the fp64 probe and the manual fallback. Both
-  are source-only and add no dependency, but the ZIP has not been rebuilt.
 - The 29 human-interaction checkboxes in `docs/testing.md` were last confirmed
   on 2026-08-01, before any of the GPU work. The ones covering Analyze,
   progress, and cancellation arguably want a re-run, and the new Expert
@@ -342,9 +341,12 @@ benchmark fixtures.
 
 ## Next action
 
-Rebuild `alpha_material_separator-1.4.0.zip` and re-run the isolated
-installed-ZIP gate in `docs/testing.md`, so the packaged artifact matches the
-branch. Both new changes are source-only, so this is expected to pass.
+Every automated gate on this branch is green and the packaged artifact matches
+the source. What is left is human: open Blender, switch the AMS panel to
+Expert, and click the new **Disable GPU acceleration** checkbox — it has only
+ever been drawn into a recording layout headlessly. Then re-run the Analyze,
+progress, and cancellation rows of the human-interaction matrix in
+`docs/testing.md`, which were last confirmed on 2026-08-01, before any GPU work.
 
 Everything the GPU design specified exists: all four address modes, host-side
 partitioning for polygons past the span cap, budget trips with the CPU's reason
@@ -365,9 +367,10 @@ Where the path finished, same session, medians of five:
 
 The gate is 20 percent and 150,544 face comparisons produced zero differences.
 
-After packaging, the remaining work is release-gate work, not implementation:
-the export, Unity, and human interaction gates in `docs/testing.md`, none of
-which has been run on this branch.
+Packaging is done and the automated export gate runs headlessly
+(`ALPHA_MATERIAL_SEPARATOR_FBX_EXPORT_TESTS_OK`). The Unity and
+human-interaction gates in `docs/testing.md` were confirmed on 2026-08-01 and
+have not been re-run since any GPU work landed.
 
 The one open question no measurement here can settle is portability. The kernel
 needs fp64 and `_has_fp64()` decides that per machine rather than by backend
