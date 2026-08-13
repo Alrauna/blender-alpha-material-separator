@@ -36,6 +36,7 @@ from tests.blender.test_credits_panel import (  # noqa: E402
     run as run_credits_panel_tests,
 )
 from tests.blender.test_fbx_export import run as run_fbx_export_tests  # noqa: E402
+from tests.blender.test_gpu_raster import run as run_gpu_raster_tests  # noqa: E402
 from tests.blender.test_preservation import run as run_preservation_tests  # noqa: E402
 from tests.blender.test_ux_overrides import run as run_ux_override_tests  # noqa: E402
 from tests.blender.test_revalidation_matrix import (  # noqa: E402
@@ -122,6 +123,7 @@ def run() -> None:
             run_published_workflow_tests()
             run_identity_transition_tests()
             run_fbx_export_tests()
+            run_gpu_raster_tests()
             run_preservation_tests()
             run_ux_override_tests()
             run_revalidation_matrix_tests()

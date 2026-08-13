@@ -241,3 +241,78 @@ cannot, so it is the gate for the integration commit rather than an extra.
 
 Each commit leaves the addon working with the CPU path unchanged; the GPU path
 is not reachable from the engine until commit 6.
+
+## Implementation notes
+
+Recorded as the design meets the machine. Nothing here changes the agreed
+behaviour, scope, risk, or architecture.
+
+### Commits 1 and 2 merged
+
+The probe's self-test verifies results, so it needs the kernel and the host
+preparation to exist. Building a throwaway shader for the probe to reject would
+have been ceremony. The two boundaries became one commit; the rest stand.
+
+### Negative operands to `%` are undefined in GLSL, and the driver proves it
+
+The first test run disagreed with the CPU on exactly the polygons with a
+negative row range or a negative run start: covered counts all matched, so the
+spans were right and only the addressing was wrong. Replicating the shader's
+`periodic` and `bits_in` in Python with C truncation semantics reproduced the
+CPU exactly, which placed the defect below the algorithm.
+
+GLSL leaves `%` undefined when either operand is negative. The kernel now folds
+the value positive before the operator ever sees it, rather than truncating and
+correcting afterwards.
+
+Two things about how this was missed are worth keeping:
+
+- The 150,544-polygon exactness result did not catch it. Every image in the
+  benchmark tier has power-of-two dimensions, and for a power-of-two period the
+  broken form and the correct one agree. A large exactness run is not
+  automatically a broad one.
+- The self-test did not catch it either, for the same reason: the fixture was
+  64×16. It is now 53×17, and neither dimension will become a power of two.
+
+### The self-test fixture needs triangles that are not axis-aligned
+
+Removing the mid-vertex straddle correction was caught by the at-scale test on
+526 of 3,000 polygons, but the probe passed it. A rectangle split into two right
+triangles puts the middle vertex on a shared corner, where the straddle
+correction never changes a run, so a fixture of rectangles alone cannot see that
+defect. The fixture now carries two triangles whose middle vertex is the row's
+extremum strictly inside a band.
+
+Both defects are now rejected by the probe itself, which was verified by
+reintroducing each one and observing `available()` turn False.
+
+### A failed self-test is a test failure, not a skip
+
+`gpu_raster.reason()` reports why the probe decided as it did. A machine with no
+usable GPU skips; a machine whose GPU returns wrong answers reports `MISMATCH`
+and fails the suite. Without that split, breaking the kernel would have turned
+the GPU tests into a silent skip, which is the harness failure the test strategy
+above warns about.
+
+### A raster margin always falls back
+
+`settings.margin_texels` is a permanent CPU case. The kernel counts spans as it
+unions them and never materializes them, so it has nothing to dilate;
+reproducing the margin pass would mean giving up the fusion that makes it fast.
+No default configuration sets a margin.
+
+### `gpu.init()` in background mode
+
+A background Blender has no window to borrow a GPU context from, so the probe
+calls `gpu.init()` when `bpy.app.background` is set. It costs about 0.36 s, once
+per process, and only where a context does not already exist.
+
+### The at-scale test is scaled down
+
+Test 3 uses synthetic polygons rather than the benchmark tier, so the headless
+suite stays quick: three image sizes including a non-square, non-power-of-two
+one, 8,000 polygons, UVs six times the unit square and offset negative so most
+runs wrap, mixed triangle counts per polygon, and degenerate triangles. The
+whole module runs in about one second. The benchmark tier remains the subject of
+the same-session measurement in commit 7 and of the engine equality test in
+commit 6.

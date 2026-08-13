@@ -1644,6 +1644,14 @@ uploads as 3.6 MB where the prefix sums would be 154 MB. Popcount wins on both.
 150,544 polygons, zero mismatched counts, with `precise` on every declaration
 that feeds a comparison.
 
+Every image in that table has power-of-two dimensions, which turned out to
+matter. Implementing the kernel found a driver divergence on negative row and
+column indices that this run could not have exposed, because the modulo that
+resolves them is only ambiguous when the period is not a power of two. The
+result above stands; its coverage does not extend as far as its size suggests.
+`docs/gpu-rasterization.md` records the defect and what it changed about the
+self-test fixture.
+
 ### Cost
 
 Medians of five on both sides, same polygons, one process.
