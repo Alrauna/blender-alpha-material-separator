@@ -119,7 +119,10 @@ authorized.
 - `0ad3852` — vectorized structural signature;
 - `756f03c` — the re-measured batched rasterization result;
 - `907246f` — batched rasterization;
-- `d20952f` — vectorized UV traversal, cache keys, and triangle layout.
+- `d20952f` — vectorized UV traversal, cache keys, and triangle layout;
+- `33af2e6` — per-chunk raster counters;
+- `a54e241` — the Stage 6E transfer floor, exactness and round-trip spikes;
+- `290fd99` — the fused GPU kernel result.
 
 ## GPU findings worth not rediscovering
 
@@ -236,24 +239,37 @@ benchmark fixtures.
 
 ## Next action
 
-Decide whether the branch is done. The CPU path is exhausted as far as
-measurement can currently see: rasterization at 21.3 percent and classification
-at 20.2 are both vectorized and batched with no untaken idea behind either, UV
-traversal at 11.1 is newly vectorized, and every named statement in the
-stepping loop has been timed. The largest remaining item is 22.9 percent
-unattributed, of which about 0.15 s is `_record_face` bookkeeping the report
-contract requires and roughly 0.37 s is genuinely diffuse.
+Decide whether to build the GPU path. Stage 6E is finished and the answer it
+returned is yes-on-measurement: the fused kernel is bit-exact on all 150,544
+polygons of the realistic tier and replaces 0.642 s of CPU work with 0.104 s,
+saving 23.8 percent of the tier against a 20 percent keep gate. That figure is
+the worst case rather than a projection, because the GPU total covers every
+face while the 0.642 s it is compared against skipped coverage-cache hits.
 
-Nothing further is designed, and the two candidates that would need designing —
-replacing the per-polygon loop, and the 6E GPU prototype — are both larger than
-anything this branch has taken.
+Nothing in the addon has changed. Every GPU artefact is a scratchpad spike and
+`docs/performance.md` holds the results.
 
-The GPU prototype is deferred by the user until the CPU path is exhausted. A 6E
-prototype of the fused rasterize-and-classify dataflow is now worth at most 35.2
-percent of the realistic tier — rasterization plus classification — down from
-52.8, because the CPU work took most of what it was competing for.
+What the gate does not price, and what the decision actually turns on:
 
-If no further work is taken, the branch is complete as a measurement result: the
+- Metal has no fp64, so this kernel cannot run on macOS at all. Shipping it
+  means the CPU rasterizer stays forever as a fallback and two implementations
+  of the same arithmetic are maintained under the same bit-exactness tests.
+- Three of the four address modes are unimplemented, along with the raster
+  budgets and their reason scopes, non-finite UV handling, `margin_texels`, and
+  polygons past the sixteen-triangle cap.
+- The kernel returns counts, not spans, so the coverage cache changes shape, and
+  five of the six raster counters still need producing.
+- One machine, one driver, one backend.
+
+The CPU path is exhausted as far as measurement can currently see:
+rasterization at 21.3 percent and classification at 20.2 are both vectorized and
+batched with no untaken idea behind either, UV traversal at 11.1 is newly
+vectorized, and every named statement in the stepping loop has been timed. The
+largest remaining item is 22.9 percent unattributed, of which about 0.15 s is
+`_record_face` bookkeeping the report contract requires and roughly 0.37 s is
+genuinely diffuse. Replacing the per-polygon loop remains undesigned.
+
+If the GPU path is declined, the branch is complete as a measurement result: the
 high tier went from 80.239 s to 6.963 s and the realistic tier stands at
 2.264 s, from 6.017 s when the tier was introduced.
 
