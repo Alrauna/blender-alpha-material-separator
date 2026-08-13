@@ -12,9 +12,11 @@ suite runs without Blender, while `gpu` is a Blender module.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import numpy
 
-from ..core import AddressMode
+from ..core import AddressMode, rasterize_batch
 
 #: Triangles per polygon the kernel can union in one thread. A polygon past this
 #: goes to the CPU rather than failing its batch.
@@ -26,6 +28,20 @@ _BITS = 24
 
 #: Textures are laid out as rows of this width; anything longer wraps.
 _ROW_WIDTH = 8192
+
+@dataclass(frozen=True, slots=True)
+class GpuCounts:
+    """Per-polygon results, aligned with the input order.
+
+    `reasons` holds the unsupported reason for any polygon the CPU path rejected,
+    keyed by index and usually empty. Those polygons keep zeros in the arrays,
+    exactly as `rasterize_batch` leaves them.
+    """
+
+    covered: numpy.ndarray
+    affected: numpy.ndarray
+    reasons: dict[int, str]
+
 
 #: Address modes as the kernel numbers them. GLSL has no enums worth the ceremony.
 _MODE_CODE = {
@@ -346,6 +362,38 @@ def clear_cache() -> None:
     _masks.clear()
 
 
+def _survey(triangles: numpy.ndarray, counts: numpy.ndarray):
+    """Per-polygon live triangle count and scanline total, without rasterizing.
+
+    Both come from the sorted heights alone, which is why partitioning can be
+    decided before a dispatch rather than after one.
+    """
+    xs, ys = triangles[:, :, 0], triangles[:, :, 1]
+    polygons = int(counts.shape[0])
+    of_triangle = numpy.repeat(numpy.arange(polygons), counts)
+    finite = numpy.isfinite(triangles).all(axis=(1, 2))
+    # Excluded from `live` before the arithmetic, or a NaN would read as a
+    # positive area and then poison the scanline sum.
+    live = finite & (
+        (
+            (xs[:, 1] - xs[:, 0]) * (ys[:, 2] - ys[:, 0])
+            - (ys[:, 1] - ys[:, 0]) * (xs[:, 2] - xs[:, 0])
+        )
+        != 0.0
+    )
+    heights = ys[live]
+    rows = numpy.maximum(
+        0.0, numpy.ceil(heights.max(axis=1)) - numpy.floor(heights.min(axis=1))
+    )
+    return (
+        numpy.bincount(of_triangle[live], minlength=polygons).astype(numpy.int64),
+        numpy.bincount(of_triangle[live], weights=rows, minlength=polygons).astype(
+            numpy.int64
+        ),
+        numpy.bincount(of_triangle[~finite], minlength=polygons).astype(bool),
+    )
+
+
 def _prepare(triangles: numpy.ndarray, counts: numpy.ndarray):
     """Drop degenerate triangles and height-sort, as `rasterize_batch` does."""
     xs, ys = triangles[:, :, 0], triangles[:, :, 1]
@@ -546,13 +594,61 @@ def counted_batch(
     A non-zero raster margin always falls back. The kernel counts spans as it
     unions them and never materializes them, so it has nothing to dilate, and
     reproducing `rasterize_batch`'s margin pass would mean giving that up.
-
-    Budget enforcement arrives with partitioning; nothing calls this from the
-    engine until that is in place.
     """
     if mode not in _MODE_CODE or settings.margin_texels or not available():
         return None
-    if counts.shape[0] == 0:
+    polygons = int(counts.shape[0])
+    if polygons == 0:
         empty = numpy.zeros(0, dtype=numpy.int64)
-        return empty, empty
-    return _dispatch(_shader, triangles, counts, grid, mode)
+        return GpuCounts(empty, empty, {})
+
+    live_counts, scanlines, invalid = _survey(triangles, counts)
+    # `_within_segment` makes the CPU's budget a running total within a polygon,
+    # so a polygon whose total stays inside the budget never trips and one whose
+    # total exceeds it always does. Runs are at most one per triangle per row, so
+    # the scanline total bounds the emission total too and one comparison covers
+    # both budgets. Conservative in the safe direction: a polygon routed to the
+    # CPU that would not have tripped still gets the right answer.
+    budget = min(settings.max_scanlines, settings.max_run_emissions)
+    slow = invalid | (live_counts > SPAN_CAP) | (scanlines > budget)
+    if not slow.any():
+        produced = _dispatch(_shader, triangles, counts, grid, mode)
+        if produced is None:
+            return None
+        return GpuCounts(produced[0], produced[1], {})
+
+    # One awkward polygon must not disable the GPU for the whole mesh, so the
+    # awkward ones go to the CPU and the results merge back by index.
+    by_triangle = numpy.repeat(slow, counts)
+    covered = numpy.zeros(polygons, dtype=numpy.int64)
+    affected = numpy.zeros(polygons, dtype=numpy.int64)
+    fast = ~slow
+    if fast.any():
+        produced = _dispatch(
+            _shader, triangles[~by_triangle], counts[fast], grid, mode
+        )
+        if produced is None:
+            return None
+        covered[fast], affected[fast] = produced
+
+    coverages = rasterize_batch(
+        triangles[by_triangle],
+        counts[slow],
+        max_scanlines=settings.max_scanlines,
+        max_run_emissions=settings.max_run_emissions,
+    )
+    # `count_batch` takes coverages, not reasons, so the rejected ones are held
+    # out of the gather and their counts stay zero.
+    resolved = iter(
+        grid.count_batch(
+            [one for one in coverages if not isinstance(one, str)], mode
+        )
+    )
+    reasons: dict[int, str] = {}
+    for coverage, index in zip(coverages, numpy.flatnonzero(slow)):
+        if isinstance(coverage, str):
+            reasons[int(index)] = coverage
+            continue
+        covered[index] = coverage.stats.covered_texels
+        affected[index] = next(resolved)
+    return GpuCounts(covered, affected, reasons)

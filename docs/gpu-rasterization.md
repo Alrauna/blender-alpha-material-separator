@@ -81,20 +81,36 @@ today.
 def counted_batch(triangles, counts, grid, mode, *, settings) -> GpuCounts | None
 ```
 
-`GpuCounts` carries, per polygon, the affected count and a `RasterStats`.
-`None` means the caller must use the CPU path for the whole batch, which happens
-only when the probe failed.
+`GpuCounts` carries, per polygon, the affected count and a `RasterStats`, plus a
+sparse `reasons` mapping for any polygon the CPU path rejected. `None` means the
+caller must use the CPU path for the whole batch, which happens when the probe
+failed, when the mode is unknown, or when a raster margin is set.
+
+Non-finite UV is also routed to the CPU. `_analyze_polygon` raises before such a
+face is deferred, so it should never arrive, but a NaN reads as a positive area
+and would poison the scanline sums rather than announce itself.
 
 Polygons the kernel cannot take are partitioned out on the host rather than
 failing the batch, because one awkward polygon in a chunk must not silently
 disable the GPU for a whole mesh:
 
 - more triangles than the span cap of 32;
-- any polygon the kernel reports as over `max_scanlines` or `max_run_emissions`.
+- any polygon over `max_scanlines` or `max_run_emissions`.
 
 Those indices go to `rasterize_batch` plus `count_batch` and the results merge
 by index. Budget trips keep their exact scalar reason and ordering semantics for
 free, which is worth far more than reproducing `_first_trip` in GLSL.
+
+Both budgets are decided on the host before the dispatch, from the sorted
+heights alone, rather than reported back by the kernel. `_within_segment` makes
+the CPU's budget a running total within a polygon, so a polygon whose total
+stays inside the budget never trips and one whose total exceeds it always does:
+the per-polygon total is an exact test, not an approximation of one. Emitted
+runs are at most one per triangle per row, so the scanline total bounds the
+emission total and a single comparison against the smaller of the two budgets
+covers both. That is conservative in the safe direction — it can route a polygon
+to the CPU that would not have tripped, and that polygon still gets the right
+answer — and it saves both an output channel and a second pass.
 
 Non-finite UV never reaches here: `_analyze_polygon` already raises before the
 face is deferred.

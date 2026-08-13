@@ -20,13 +20,51 @@ from addon.core import AddressMode, AlphaGrid, AnalysisSettings, rasterize_batch
 _DEFAULTS = AnalysisSettings()
 
 
-def _oracle(triangles, counts, grid, mode, *, margin_texels=0):
-    coverages = rasterize_batch(triangles, counts, margin_texels=margin_texels)
-    assert not any(isinstance(one, str) for one in coverages), coverages
-    return (
-        numpy.array([one.stats.covered_texels for one in coverages], dtype=numpy.int64),
-        numpy.array(grid.count_batch(coverages, mode), dtype=numpy.int64),
+def _oracle(triangles, counts, grid, mode, settings=_DEFAULTS):
+    """The whole answer computed on the CPU alone, in the same shape as GpuCounts."""
+    coverages = rasterize_batch(
+        triangles,
+        counts,
+        margin_texels=settings.margin_texels,
+        max_scanlines=settings.max_scanlines,
+        max_run_emissions=settings.max_run_emissions,
     )
+    covered = numpy.zeros(counts.shape[0], dtype=numpy.int64)
+    affected = numpy.zeros(counts.shape[0], dtype=numpy.int64)
+    reasons = {}
+    resolved = iter(
+        grid.count_batch([one for one in coverages if not isinstance(one, str)], mode)
+    )
+    for index, coverage in enumerate(coverages):
+        if isinstance(coverage, str):
+            reasons[index] = coverage
+            continue
+        covered[index] = coverage.stats.covered_texels
+        affected[index] = next(resolved)
+    return covered, affected, reasons
+
+
+def _assert_matches_cpu(triangles, counts, grid, mode, settings=_DEFAULTS, label=""):
+    produced = gpu_raster.counted_batch(
+        triangles, counts, grid, mode, settings=settings
+    )
+    assert produced is not None, f"{label}{mode} batch was refused"
+    want_covered, want_affected, want_reasons = _oracle(
+        triangles, counts, grid, mode, settings
+    )
+    assert produced.reasons == want_reasons, (
+        label, mode, produced.reasons, want_reasons
+    )
+    for name, got, want in (
+        ("covered", produced.covered, want_covered),
+        ("affected", produced.affected, want_affected),
+    ):
+        differing = int((got != want).sum())
+        assert not differing, (
+            f"{label}{mode}: {differing} of {counts.shape[0]} {name} counts "
+            f"differ, first at {numpy.flatnonzero(got != want)[:3]}"
+        )
+    return produced
 
 
 def _patterned_grid(width, height, seed):
@@ -68,18 +106,7 @@ def assert_modes_cross_edges() -> None:
     counts = numpy.array(counts, dtype=numpy.int64)
 
     for mode in AddressMode:
-        produced = gpu_raster.counted_batch(
-            triangles, counts, grid, mode, settings=_DEFAULTS
-        )
-        assert produced is not None, f"{mode} batch was refused"
-        covered, affected = produced
-        want_covered, want_affected = _oracle(triangles, counts, grid, mode)
-        assert numpy.array_equal(covered, want_covered), (
-            mode, covered, want_covered
-        )
-        assert numpy.array_equal(affected, want_affected), (
-            mode, affected, want_affected
-        )
+        _assert_matches_cpu(triangles, counts, grid, mode)
 
 
 def assert_exact_at_scale() -> None:
@@ -116,21 +143,92 @@ def assert_exact_at_scale() -> None:
         triangles = numpy.array(pieces, dtype=numpy.float64)
 
         for mode in AddressMode:
-            produced = gpu_raster.counted_batch(
-                triangles, counts, grid, mode, settings=_DEFAULTS
+            _assert_matches_cpu(
+                triangles, counts, grid, mode, label=f"{width}x{height} "
             )
-            assert produced is not None, f"{width}x{height} {mode} batch was refused"
-            covered, affected = produced
-            want_covered, want_affected = _oracle(triangles, counts, grid, mode)
-            for name, got, want in (
-                ("covered", covered, want_covered),
-                ("affected", affected, want_affected),
-            ):
-                differing = int((got != want).sum())
-                assert not differing, (
-                    f"{width}x{height} {mode}: {differing} of {polygons} {name} "
-                    f"counts differ, first at {numpy.flatnonzero(got != want)[:3]}"
-                )
+
+
+def _fan(centre, radius_x, radius_y, sides, generator):
+    """A convex n-gon fan-triangulated the way `_prepare` receives one."""
+    angles = numpy.linspace(0.0, 2.0 * numpy.pi, sides, endpoint=False)
+    points = numpy.stack(
+        (
+            centre[0] + numpy.cos(angles) * radius_x,
+            centre[1] + numpy.sin(angles) * radius_y,
+        ),
+        axis=1,
+    )
+    points += (generator.random(points.shape) - 0.5) * 0.25
+    return [[points[0], points[index], points[index + 1]] for index in range(1, sides - 1)]
+
+
+def assert_awkward_polygons_are_partitioned() -> None:
+    """An n-gon past the span cap must not disable the GPU for its neighbours."""
+    generator = numpy.random.default_rng(0xFA7)
+    grid = _patterned_grid(97, 41, seed=0x0DD)
+
+    pieces, counts = [], []
+    for polygon in range(12):
+        # Every fourth polygon exceeds the 32-triangle cap and has to go to the
+        # CPU while the quads around it stay on the GPU.
+        sides = 40 if polygon % 4 == 3 else 4
+        fan = _fan(
+            (polygon * 23.0 - 40.0, polygon * 11.0 - 30.0), 31.0, 17.0, sides, generator
+        )
+        pieces.extend(fan)
+        counts.append(len(fan))
+    triangles = numpy.array(pieces, dtype=numpy.float64)
+    counts = numpy.array(counts, dtype=numpy.int64)
+    assert (counts > gpu_raster.SPAN_CAP).sum() == 3, counts
+
+    for mode in AddressMode:
+        produced = _assert_matches_cpu(triangles, counts, grid, mode, label="mixed ")
+        assert produced.reasons == {}, produced.reasons
+
+    # And the same polygons on their own, so the all-CPU partition is covered too.
+    over = counts > gpu_raster.SPAN_CAP
+    by_triangle = numpy.repeat(over, counts)
+    _assert_matches_cpu(
+        triangles[by_triangle], counts[over], grid, AddressMode.REPEAT, label="all-slow "
+    )
+
+
+def assert_budget_trips_match_the_cpu() -> None:
+    """A polygon over a budget keeps the CPU's reason string and its neighbours."""
+    generator = numpy.random.default_rng(0xB0D)
+    grid = _patterned_grid(64, 48, seed=0xB1)
+
+    # One tall polygon whose scanline count dwarfs the others, and ordinary ones
+    # around it that must survive on the GPU.
+    pieces, counts = [], []
+    for polygon in range(6):
+        tall = polygon == 2
+        fan = _fan(
+            (polygon * 19.0, 20.0),
+            9.0,
+            400.0 if tall else 6.0,
+            4,
+            generator,
+        )
+        pieces.extend(fan)
+        counts.append(len(fan))
+    triangles = numpy.array(pieces, dtype=numpy.float64)
+    counts = numpy.array(counts, dtype=numpy.int64)
+
+    # Runs are at most one per triangle per row, so a budget below the tall
+    # polygon's scanline total but above its neighbours' isolates it. The two
+    # budgets are exercised separately because they produce different reasons.
+    scanline_limit = AnalysisSettings(max_scanlines=200)
+    emission_limit = AnalysisSettings(max_run_emissions=200)
+    for settings, expected in (
+        (scanline_limit, "BUDGET_SCANLINES"),
+        (emission_limit, "BUDGET_RUN_EMISSIONS"),
+    ):
+        produced = _assert_matches_cpu(
+            triangles, counts, grid, AddressMode.REPEAT, settings, label="budget "
+        )
+        assert produced.reasons == {2: expected}, produced.reasons
+        assert produced.affected[3] > 0, "a neighbour lost its count to the trip"
 
 
 def assert_unhandled_inputs_fall_back() -> None:
@@ -156,7 +254,7 @@ def assert_unhandled_inputs_fall_back() -> None:
         AddressMode.REPEAT,
         settings=_DEFAULTS,
     )
-    assert empty is not None and empty[0].size == 0, empty
+    assert empty is not None and empty.covered.size == 0, empty
 
 
 def run() -> None:
@@ -171,6 +269,8 @@ def run() -> None:
         return
     assert_modes_cross_edges()
     assert_exact_at_scale()
+    assert_awkward_polygons_are_partitioned()
+    assert_budget_trips_match_the_cpu()
     assert_unhandled_inputs_fall_back()
     gpu_raster.clear_cache()
     print("ALPHA_MATERIAL_SEPARATOR_GPU_RASTER_TESTS_OK")
