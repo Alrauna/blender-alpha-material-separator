@@ -1,6 +1,6 @@
 # Repository handoff
 
-Updated: 2026-08-12
+Updated: 2026-08-13
 
 ## Current branch objective
 
@@ -13,9 +13,12 @@ fresh profile, and a successful outcome does not require shipping GPU code.
 Stages 1 through 5 are complete. Stage 6A and 6B are complete, 6B twice: once
 against the grid fixture and then again against a realistic tier that ranks the
 candidates differently. Every CPU candidate the re-ranking surfaced has landed:
-flat-array coverage, batched rasterization, and vectorized UV traversal. The
-gate is open with a stable baseline. No GPU prototype has been built and none is
-authorized.
+flat-array coverage, batched rasterization, and vectorized UV traversal.
+
+The GPU path is now built and integrated behind a capability probe, authorized
+by the user across seven commit boundaries after `docs/gpu-rasterization.md` was
+approved. It is exact and it misses the keep gate. **The branch is at a decision
+point, not at completion**: see "Next action".
 
 ## Decisions
 
@@ -101,6 +104,21 @@ authorized.
   per-face `INVALID_UV`. The vectorized path reproduces the abort deliberately
   and `_non_finite_uv_test` pins it. **Turning it into a per-face reason is a
   behavior change and has not been proposed to the user.**
+- The GPU path bypasses the coverage cache entirely, digest included, because a
+  kernel that fuses rasterizing and counting cannot use a geometry-keyed span
+  entry. `coverage_cache_bypassed` replaces the hit and miss counters on that
+  path. This is the design's one report-visible change and it was approved.
+- Both paths classify through one rule. `classify_stats` was added to
+  `core.classify` so the GPU path reaches it with counters instead of faking a
+  `Coverage`; `classify_counted` delegates to it.
+- Commit boundaries 1 and 2 of the approved design were merged. Behaviour, scope,
+  risk and architecture were unchanged; only granularity.
+- GLSL leaves `%` undefined when either operand is negative and the driver acts
+  on that. Power-of-two image dimensions hide it, which is why the self-test
+  fixture is 53x17. Detail in `docs/gpu-rasterization.md`.
+- A failed self-test is a test failure, not a skip. `gpu_raster.reason()` returns
+  a `MISMATCH`-prefixed string in that case and the headless tests assert on the
+  prefix, so a machine with a wrong GPU fails while a machine with no GPU skips.
 
 ## Commits
 
@@ -122,7 +140,14 @@ authorized.
 - `d20952f` — vectorized UV traversal, cache keys, and triangle layout;
 - `33af2e6` — per-chunk raster counters;
 - `a54e241` — the Stage 6E transfer floor, exactness and round-trip spikes;
-- `290fd99` — the fused GPU kernel result.
+- `290fd99` — the fused GPU kernel result;
+- `25671af` — the approved GPU design, and the power-of-two caveat on the
+  Stage 6E exactness run;
+- `081dcc0` — the kernel, the capability probe, and the REPEAT tests;
+- `df47f04` — CLIP, EXTEND and MIRROR;
+- `e8b5733` — host-side partitioning, budget trips, and the raster counters;
+- `8747074` — engine integration behind the probe, and the equality test;
+- `e74464e` — the integrated measurement, which misses the keep gate.
 
 ## GPU findings worth not rediscovering
 
@@ -236,42 +261,66 @@ benchmark fixtures.
   `loops * 16 * (1 + distinct image sizes)` bytes per UV map per object, so a
   mesh with many more loops or many more distinct image sizes would pay more.
   Only the realistic tier has been measured.
+- **The GPU path is currently enabled by default and is a net regression on
+  re-analysis.** On a machine whose probe passes, a cold realistic tier is 10.4
+  percent faster and a second analysis over unchanged geometry is 15.1 percent
+  slower, because the coverage cache is bypassed. The 20 percent keep gate is
+  not met. Nothing has been reverted pending the decision below.
+- The integrated measurement is one machine, one driver, one OpenGL backend.
+  Metal has no fp64, so `available()` returns False on macOS and those users get
+  the CPU path; that is untested on actual hardware.
+- The GPU tests skip on a machine without a usable GPU, so CI proves the
+  fallback rather than the kernel. Only this machine has run them.
+- No packaging or installed-ZIP run has been done since the GPU path landed. It
+  adds no dependency and no file outside `addon/adapters/`, but the ZIP gates in
+  `docs/testing.md` have not been re-run.
 
 ## Next action
 
-Decide whether to build the GPU path. Stage 6E is finished and the answer it
-returned is yes-on-measurement: the fused kernel is bit-exact on all 150,544
-polygons of the realistic tier and replaces 0.642 s of CPU work with 0.104 s,
-saving 23.8 percent of the tier against a 20 percent keep gate. That figure is
-the worst case rather than a projection, because the GPU total covers every
-face while the 0.642 s it is compared against skipped coverage-cache hits.
+Decide what to do with the GPU path, which is built, integrated, exact, and
+below the keep gate.
 
-Nothing in the addon has changed. Every GPU artefact is a scratchpad spike and
-`docs/performance.md` holds the results.
+Everything the design specified exists: all four address modes, host-side
+partitioning for polygons past the span cap, budget trips with the CPU's reason
+strings, all six raster counters, a runtime self-test probe, and seven headless
+tests including a full-engine equality run. 301,088 face comparisons on the
+realistic tier produced zero differences.
 
-What the gate does not price, and what the decision actually turns on:
+The measurement, same session, medians of five:
 
-- Metal has no fp64, so this kernel cannot run on macOS at all. Shipping it
-  means the CPU rasterizer stays forever as a fallback and two implementations
-  of the same arithmetic are maintained under the same bit-exactness tests.
-- Three of the four address modes are unimplemented, along with the raster
-  budgets and their reason scopes, non-finite UV handling, `margin_texels`, and
-  polygons past the sixteen-triangle cap.
-- The kernel returns counts, not spans, so the coverage cache changes shape, and
-  five of the six raster counters still need producing.
-- One machine, one driver, one backend.
+| Configuration | Cold | vs CPU | Re-analysis | vs CPU |
+| --- | ---: | ---: | ---: | ---: |
+| CPU | 2.470 s | — | 1.898 s | — |
+| GPU at the shipped cadence | 2.214 s | -10.4% | 2.184 s | +15.1% |
+| GPU at 65,536 per dispatch | 1.831 s | -25.9% | 1.872 s | -1.4% |
 
-The CPU path is exhausted as far as measurement can currently see:
-rasterization at 21.3 percent and classification at 20.2 are both vectorized and
-batched with no untaken idea behind either, UV traversal at 11.1 is newly
-vectorized, and every named statement in the stepping loop has been timed. The
-largest remaining item is 22.9 percent unattributed, of which about 0.15 s is
-`_record_face` bookkeeping the report contract requires and roughly 0.37 s is
-genuinely diffuse. Replacing the per-polygon loop remains undesigned.
+The gate is 20 percent. The cause is dispatch granularity, not arithmetic:
+`_flush_pending` runs once per `step()` and `MODAL_POLYGON_BUDGET` is 4,096, so
+the tier costs about 37 dispatches, and reading a result texture carries 1 to
+2 ms of synchronization each. The compute floor is 0.053 s.
 
-If the GPU path is declined, the branch is complete as a measurement result: the
-high tier went from 80.239 s to 6.963 s and the realistic tier stands at
-2.264 s, from 6.017 s when the tier was introduced.
+Three options, none of them started:
+
+1. **Revert the GPU path.** Six commits, no addon file outside
+   `addon/adapters/gpu_raster.py` and the `_gpu` branches in
+   `addon/adapters/analysis.py`. `classify_stats` can stay; it is a smaller
+   `classify_counted` either way. The measurement and the design stay in
+   `docs/`, which is where the value of the work is.
+2. **Keep it, default off.** Requires a user-facing setting, which is a
+   public-contract change needing its own design, and leaves two implementations
+   of the same arithmetic under the same bit-exactness tests forever, with the
+   macOS half untestable here.
+3. **Pipeline the dispatch.** Submit a chunk, keep deferring the next chunk's
+   polygons while the GPU works, read back one flush later. Estimated at about
+   22 percent, which would clear the gate. It restructures the stepping loop and
+   makes classification lag its faces by one chunk. Needs a design and approval.
+
+Recommendation: option 1. The plan's terms were that a successful outcome does
+not require shipping GPU code, and the branch already delivered the realistic
+tier from 6.017 s to 2.264 s on CPU work alone.
+
+Until that decision is made, the addon ships the GPU path on by default, which
+is the regression recorded under Limitations.
 
 Push and pull-request creation require separate authorization and have not been
 requested.
