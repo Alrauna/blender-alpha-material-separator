@@ -19,8 +19,12 @@ The GPU path is built and integrated behind a capability probe, authorized by
 the user across nine commit boundaries after `docs/gpu-rasterization.md` was
 approved. It is exact, and after two rounds of dispatch scheduling work it
 clears the keep gate at **-27.2% cold** with re-analysis level and a lower
-worst-case callback than the CPU path. The branch's implementation work is
-complete; what remains is the packaging and release gates it has never run.
+worst-case callback than the CPU path.
+
+Two later user requests landed on top: the Metal deny list became a runtime fp64
+measurement, and Expert Analysis Settings gained a manual **Disable GPU
+acceleration** fallback. The branch's implementation work is complete; what
+remains is the packaging and release gates.
 
 ## Decisions
 
@@ -184,7 +188,11 @@ complete; what remains is the packaging and release gates it has never run.
 - `13668ba` — the handoff at that decision point;
 - `4bbeaf6` — the cross-step pipelining design;
 - `2bc5f28` — cross-step dispatch pipelining, measured at -11.9%;
-- `075565d` — the submit threshold, which clears the gate at -27.2%.
+- `075565d` — the submit threshold, which clears the gate at -27.2%;
+- `01d3443`, `17e986c`, `1bd4bbc` — handoff, release 1.4.0, and the
+  installed-ZIP isolation fix;
+- `c9a5c9f` — fp64 measured at runtime in place of the Metal deny list;
+- `6077b25` — the manual **Disable GPU acceleration** fallback.
 
 ## GPU findings worth not rediscovering
 
@@ -212,6 +220,10 @@ Fresh local results on this branch:
 - headless Blender suite: exit 0, all 19 modules OK, including
   `ALPHA_MATERIAL_SEPARATOR_GPU_RASTER_TESTS_OK`;
 - `blender --factory-startup --command extension validate addon`: success;
+- packaging and the isolated installed-ZIP gate:
+  `ALPHA_MATERIAL_SEPARATOR_INSTALLED_ZIP_TEST_OK` against
+  `alpha_material_separator-1.4.0.zip`, before the fp64 probe and the manual
+  fallback landed;
 - `git diff --check`: clean before each commit;
 - same-session before/after benchmarks per stage, each with wall time and peak
   working set, recorded in `docs/performance.md`.
@@ -320,16 +332,19 @@ benchmark fixtures.
   completed report stale.
 - The GPU tests skip on a machine without a usable GPU, so CI proves the
   fallback rather than the kernel. Only this machine has run them.
-- No packaging or installed-ZIP run has been done since the GPU path landed. It
-  adds no dependency and no file outside `addon/adapters/`, but the ZIP gates in
-  `docs/testing.md` have not been re-run.
+- The packaged 1.4.0 ZIP predates the fp64 probe and the manual fallback. Both
+  are source-only and add no dependency, but the ZIP has not been rebuilt.
+- The 29 human-interaction checkboxes in `docs/testing.md` were last confirmed
+  on 2026-08-01, before any of the GPU work. The ones covering Analyze,
+  progress, and cancellation arguably want a re-run, and the new Expert
+  checkbox has never been clicked in a real Blender window — only drawn into a
+  recording layout headlessly.
 
 ## Next action
 
-Run the packaging and installed-ZIP gates in `docs/testing.md`, which this
-branch has never run and which are the only automated gates still outstanding.
-The GPU path adds no dependency and no file outside `addon/adapters/`, so this
-is expected to pass; it has simply not been done.
+Rebuild `alpha_material_separator-1.4.0.zip` and re-run the isolated
+installed-ZIP gate in `docs/testing.md`, so the packaged artifact matches the
+branch. Both new changes are source-only, so this is expected to pass.
 
 Everything the GPU design specified exists: all four address modes, host-side
 partitioning for polygons past the span cap, budget trips with the CPU's reason
