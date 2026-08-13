@@ -1586,3 +1586,87 @@ The candidate is alive. Of the 0.190 s the gate allows, the transfer floor takes
 0.015 s and the modal round trips 0.003 s, leaving **0.172 s for the rasterizer
 itself** to do what the CPU does in 0.642 s. Nothing measured so far kills it,
 and nothing measured so far is a speed claim: no rasterizer has been written.
+
+## Stage 6E, the fused kernel exists and clears the gate
+
+The prototype is a single compute shader: one thread per polygon, walking that
+polygon's scanline range, recomputing each triangle's cross-section per row in
+`precise` fp64, unioning the spans and counting alpha by popcount over the
+packed mask. No atomics, because a thread owns its polygon. The oracle is
+`rasterize_batch` plus `count_batch` on the same polygons, and the bar is
+per-polygon equality on both counts, not a tolerance.
+
+### The tier's shape decided the design
+
+| Property | Realistic tier |
+| --- | --- |
+| Address modes in use | REPEAT only |
+| Triangles per polygon | 2, every polygon |
+| Merged spans | 5,599,082 from 11,198,164 emitted runs |
+| Span length | mean 54.5, median 64, max 107 |
+
+Two triangles per polygon means the per-row union is at most two spans, so no
+sort is needed in the general case and none at all here. The span lengths
+settled alpha counting: popcount over the packed mask needs 20.4 million word
+reads against the 2D prefix sum's 22.4 million texel reads, and the packed mask
+uploads as 3.6 MB where the prefix sums would be 154 MB. Popcount wins on both.
+
+### Exactness
+
+| Group | Polygons | Covered differ | Affected differ |
+| --- | ---: | ---: | ---: |
+| 4096×4096 | 37,636 | 0 | 0 |
+| 4096×4096 | 28,227 | 0 | 0 |
+| 2048×2048 | 28,227 | 0 | 0 |
+| 1024×512 | 28,227 | 0 | 0 |
+| 512×512 | 28,227 | 0 | 0 |
+
+150,544 polygons, zero mismatched counts, with `precise` on every declaration
+that feeds a comparison.
+
+### Cost
+
+Medians of five on both sides, same polygons, one process.
+
+| | Seconds |
+| --- | ---: |
+| CPU `rasterize_batch` + `count_batch` | 1.686 |
+| GPU host preparation, per chunk | 0.036 |
+| GPU mask packing, per image | 0.030 |
+| GPU upload, dispatch, readback | 0.038 |
+| **GPU total** | **0.104** |
+
+The CPU figure is larger than the profiled 0.642 s because this run rasterizes
+every face while the profiled run skipped coverage-cache hits. That difference
+only strengthens the result, because the GPU total above is also for all
+150,544 faces. Taking the worst case — a GPU path that keeps no coverage cache
+at all and rasterizes everything, every time — it spends 0.104 s to replace
+0.642 s, saving 0.538 s of the 2.258 s tier. That is **23.8%**, and the keep
+gate is 20%. No projection is involved.
+
+### What the number does not include
+
+The gate is cleared; the candidate is not finished. Missing from the prototype,
+each of them work rather than risk:
+
+- Three of the four address modes. CLIP, EXTEND and MIRROR are unimplemented,
+  not merely untested; the tier exercises only REPEAT.
+- The raster budgets and their reason scopes, non-finite UV handling,
+  `margin_texels`, and polygons past the sixteen-triangle span cap.
+- Five of the six raster counters. The kernel returns `covered_texels` and the
+  affected count; `triangles`, `degenerate_triangles`, `scanlines`,
+  `emitted_runs` and `union_runs` still need producing.
+- `Coverage.spans`. The kernel returns counts, and the coverage cache currently
+  stores spans, so a counts-only path changes what the cache holds.
+
+### The portability finding, which is not a performance number
+
+Metal has no fp64. The exactness result rests entirely on GLSL `double` with
+`precise`, so this kernel cannot run on macOS at all — not slower, not at all —
+unless the whole formulation is redone in exact integer or fixed-point
+arithmetic. Blender 5.2 ships on macOS, so shipping this means keeping the CPU
+rasterizer as a permanent fallback and maintaining two implementations of the
+same arithmetic, both bound by the same bit-exactness tests, forever.
+
+That cost is not measured in seconds and the keep gate does not see it. It
+belongs in the decision anyway.
