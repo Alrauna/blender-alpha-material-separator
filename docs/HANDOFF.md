@@ -192,7 +192,8 @@ remains is the packaging and release gates.
 - `01d3443`, `17e986c`, `1bd4bbc` — handoff, release 1.4.0, and the
   installed-ZIP isolation fix;
 - `c9a5c9f` — fp64 measured at runtime in place of the Metal deny list;
-- `6077b25` — the manual **Disable GPU acceleration** fallback.
+- `6077b25` — the manual **Disable GPU acceleration** fallback;
+- `543f5d9` — the README's Speed section and the corrected portability risk.
 
 ## GPU findings worth not rediscovering
 
@@ -226,6 +227,10 @@ Fresh local results on this branch:
   probe and the manual fallback landed. Install status was `Installed`, not
   `Reinstalled`, which is the tell that the isolated root held;
 - `git diff --check`: clean before each commit;
+- both probe outcomes hand-run in a real Blender window: Windows/OpenGL, where
+  **Disable GPU acceleration** is unchecked and usable, and a Mac, where it is
+  checked, greyed out, and captioned with the instruction-set sentence. Neither
+  run was timed;
 - same-session before/after benchmarks per stage, each with wall time and peak
   working set, recorded in `docs/performance.md`.
 
@@ -324,9 +329,14 @@ benchmark fixtures.
   computed from the per-face size, not measured with a working-set sample as the
   earlier stages were.
 - The integrated measurement is one machine, one driver, one OpenGL backend.
-  `_has_fp64()` measures double precision at runtime, so a backend without it —
-  Metal today — falls back with reason `NO_FP64`. Only the pass path has run on
-  real hardware; the failure path is covered by monkeypatching the probe.
+  Only that machine has timings.
+- Both probe outcomes have now run on real hardware. The user exercised the
+  Expert panel on Windows/OpenGL, where the checkbox is off and usable, and on a
+  Mac, where it came up checked, greyed out, and captioned with the
+  instruction-set sentence. That caption is only reachable from a `NO_FP64`
+  reason, so Metal took the fp64 branch rather than failing some other way, and
+  the fallback is confirmed rather than assumed. Neither run was timed and the
+  Mac has no measurement.
 - **Disable GPU acceleration** in Expert Analysis Settings forces the CPU path.
   It is outside `ANALYSIS_SETTING_NAMES` and outside `AnalysisConfig.payload()`
   on purpose, so it neither resets with the analysis settings nor makes a
@@ -334,19 +344,24 @@ benchmark fixtures.
 - The GPU tests skip on a machine without a usable GPU, so CI proves the
   fallback rather than the kernel. Only this machine has run them.
 - The 29 human-interaction checkboxes in `docs/testing.md` were last confirmed
-  on 2026-08-01, before any of the GPU work. The ones covering Analyze,
-  progress, and cancellation arguably want a re-run, and the new Expert
-  checkbox has never been clicked in a real Blender window — only drawn into a
-  recording layout headlessly.
+  on 2026-08-01, before any of the GPU work. The new Expert checkbox has since
+  been exercised by hand on Windows and macOS, but the Analyze, progress, and
+  cancellation rows have not been re-run against the GPU path.
+- The manual toggle does not survive a file load, on either `load_ui` setting.
+  Neither does `max_scanlines`, so this is the settings group's ordinary
+  session lifetime rather than anything specific to the toggle. Measured, not
+  assumed.
 
 ## Next action
 
-Every automated gate on this branch is green and the packaged artifact matches
-the source. What is left is human: open Blender, switch the AMS panel to
-Expert, and click the new **Disable GPU acceleration** checkbox — it has only
-ever been drawn into a recording layout headlessly. Then re-run the Analyze,
-progress, and cancellation rows of the human-interaction matrix in
-`docs/testing.md`, which were last confirmed on 2026-08-01, before any GPU work.
+Open the pull request. Every automated gate is green, the packaged artifact
+matches the source, the README documents the GPU path for users, and both probe
+outcomes have been confirmed by hand on Windows and macOS.
+
+One release gate is still outstanding and is not a blocker for review: the
+Analyze, progress, and cancellation rows of the human-interaction matrix in
+`docs/testing.md` were last confirmed on 2026-08-01, before any GPU work, and
+have not been re-run against the accelerated path.
 
 Everything the GPU design specified exists: all four address modes, host-side
 partitioning for polygons past the span cap, budget trips with the CPU's reason
@@ -372,13 +387,13 @@ Packaging is done and the automated export gate runs headlessly
 human-interaction gates in `docs/testing.md` were confirmed on 2026-08-01 and
 have not been re-run since any GPU work landed.
 
-The one open question no measurement here can settle is portability. The kernel
+Portability is settled for the two backends anyone here can reach. The kernel
 needs fp64 and `_has_fp64()` decides that per machine rather than by backend
-name, so a backend without it — Metal today — falls back with reason `NO_FP64`
-and the panel says so. That is untested on actual hardware, and it means the CPU
-rasterizer is permanent and both implementations stay bound by the same
-bit-exactness tests. A reader on a machine that does have fp64 can still force
-the CPU path with **Disable GPU acceleration**.
+name; Windows/OpenGL takes the GPU path and a Mac falls back with `NO_FP64` and
+says so in the panel. Both were confirmed by hand. What that does not change is
+the price: the CPU rasterizer is permanent, and both implementations stay bound
+by the same bit-exactness tests. A reader on a machine that does have fp64 can
+still force the CPU path with **Disable GPU acceleration**.
 
 Push and pull-request creation require separate authorization and have not been
 requested.
