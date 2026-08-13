@@ -1698,3 +1698,103 @@ same arithmetic, both bound by the same bit-exactness tests, forever.
 
 That cost is not measured in seconds and the keep gate does not see it. It
 belongs in the decision anyway.
+
+## Stage 6J, the integrated kernel measured, and it misses the gate
+
+The kernel is now wired into `AnalysisEngine` behind the capability probe. This
+is the whole-workflow measurement the plan gates the candidate on, and the
+candidate fails it at the cadence the extension actually runs at.
+
+Same session, realistic tier, one fixture, three configurations interleaved so
+drift lands on all of them, medians of five after one discarded warm-up each.
+Both GPU rows are the same code; they differ only in polygons per dispatch.
+
+| Configuration | Cold | vs CPU | Re-analysis | vs CPU |
+| --- | ---: | ---: | ---: | ---: |
+| CPU (shipped) | 2.470 s | — | 1.898 s | — |
+| GPU, 4,096 per dispatch | 2.214 s | **-10.4%** | 2.184 s | **+15.1%** |
+| GPU, 65,536 per dispatch | 1.831 s | -25.9% | 1.872 s | -1.4% |
+
+The keep gate is 20% of the whole workflow. The production row is the middle
+one, and it returns 10.4%.
+
+### Exactness at tier scale, which did hold
+
+301,088 face comparisons — 150,544 polygons against both GPU configurations —
+produced zero differing `ClassificationResult` values, and all six raster
+counters are identical across all three rows. The kernel computes the right
+answer on a real-shaped asset. Nothing below is a correctness finding.
+
+Every image in this tier is still power-of-two in both dimensions, so this run
+does not extend the addressing coverage that `docs/gpu-rasterization.md` records
+as narrower than it looks. The headless tests carry the non-power-of-two cases.
+
+### Why the Stage 6E projection was wrong
+
+Stage 6E measured 0.104 s of GPU work replacing 0.642 s of CPU work and read
+23.8% off it. That priced the kernel as a small number of large dispatches. The
+engine cannot dispatch that way: `_flush_pending` runs once per `step()`, and
+`MODAL_POLYGON_BUDGET` is 4,096, so the tier costs about 37 dispatches rather
+than three.
+
+Splitting a dispatch inside a tier run shows where the difference goes:
+
+| Polygons per dispatch | Dispatches | Host preparation | Texture upload | Submit | Readback |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 256 | 592 | 0.086 s | 0.098 s | 0.005 s | 0.710 s |
+| 4,096 | 185 | 0.064 s | 0.033 s | 0.002 s | 0.378 s |
+| 65,536 | 15 | 0.060 s | 0.007 s | 0.000 s | 0.053 s |
+
+Submission is free and readback is where the time is, because reading the result
+texture is the synchronization point — it waits for the dispatch. The actual
+compute is the 0.053 s floor in the last row; everything above it is about 1 to
+2 ms of fixed latency multiplied by the dispatch count. A `texture.read()`
+measured in a tight loop costs 0.002 ms, which is why the spike did not see this:
+back-to-back dispatches pipeline, and a dispatch whose result is consumed by
+Python before the next one is submitted does not.
+
+The keep gate therefore depends almost entirely on flush cadence, which is a
+property of the responsiveness contract rather than of the kernel.
+
+### Re-analysis regresses, because the cache is gone
+
+The GPU path bypasses the coverage cache by design, and the tier is built so
+half the polygons share islands. A second analysis over unchanged geometry costs
+1.898 s on the CPU and 2.184 s on the GPU: **15.1% slower**. That is under the
+25% same-machine regression limit, but it is a regression on a path users hit
+whenever they re-run Analyze after a selection or mode change.
+
+At 65,536 per dispatch the two are level, because the saved rasterization
+happens to cancel the lost cache. Cold and re-analysis do not both improve at
+any cadence the engine can currently produce.
+
+### What clearing the gate would take
+
+Raising `MODAL_POLYGON_BUDGET` does not reach it. The 12 ms face time budget cuts
+a step at roughly 6,600 deferred polygons on this machine, so the reachable
+cadence sits just above the 4,096 row, not near the 65,536 one.
+
+Dispatching 65,536 polygons per flush means one callback that rasterizes and
+classifies 65,536 faces — about 650 ms of work in a single timer tick, against a
+12 ms target and a previously measured 197 ms worst case. It trades the gate for
+the responsiveness contract.
+
+The real option is pipelining: submit a chunk, keep deferring the next chunk's
+polygons while the GPU works, and read back one flush later. That hides the
+1 to 2 ms stall behind the roughly 7 ms of UV traversal the next chunk needs, and
+would be worth an estimated 0.3 s, or about 22%. It is a change to the stepping
+loop's structure, not to the kernel, and it makes classification lag its faces by
+one chunk. It is not attempted here.
+
+### Position
+
+The kernel is exact, the integration is exact, and the measured whole-workflow
+improvement at the shipped cadence is 10.4% cold with a 15.1% re-analysis
+regression. That is below the 20% keep gate. The plan's own terms apply: a
+successful outcome does not require shipping GPU code, and negative results are
+results.
+
+The portability cost recorded above has not changed either. Metal has no fp64,
+so shipping this means the CPU rasterizer stays permanent and two implementations
+of the same arithmetic are bound by the same bit-exactness tests indefinitely —
+for a benefit that does not clear the threshold set before the work began.
