@@ -344,5 +344,33 @@ suite stays quick: three image sizes including a non-square, non-power-of-two
 one, 8,000 polygons, UVs six times the unit square and offset negative so most
 runs wrap, mixed triangle counts per polygon, and degenerate triangles. The
 whole module runs in about one second. The benchmark tier remains the subject of
-the same-session measurement in commit 7 and of the engine equality test in
-commit 6.
+the same-session measurement in commit 7.
+
+### The engine equality test builds its own scene
+
+Test 7 uses 200 quads over a 37×23 image with UVs spread five times the unit
+square and offset negative, not the benchmark tier. The tier is private and the
+headless suite is redistributable, and a scene this size already produces the
+whole matrix the comparison needs: MIXED, OPAQUE and wrapping in both
+directions. It compares `ClassificationResult` objects face by face rather than
+totals, because two paths can reach the same totals from different per-face
+answers.
+
+### One CPU test had to opt out of the probe
+
+`_uv_traversal_values_test` hooks `analysis_module.rasterize_batch` to capture
+what the engine hands the rasterizer. The GPU path does not call it, so on a
+machine with a GPU the hook saw nothing. The test now sets `engine._gpu = False`:
+the traversal it checks is shared by both paths, but only one of them routes
+through the function it watches. Any future test that hooks a CPU internal has
+the same obligation.
+
+### A mid-run decline turns the path off for the rest of the run
+
+`counted_batch` returning `None` is unreachable from the engine as written — the
+margin case is decided once at construction, the probe is cached, and the survey
+already routes over-cap polygons to the CPU. It is still handled, because the
+alternative to handling it is a wrong report. The chunk's faces get their
+coverage keys computed, are counted as cache misses since they were never looked
+up, and the CPU path finishes them; `self._gpu` stays False afterwards so one
+analysis runs on one implementation.

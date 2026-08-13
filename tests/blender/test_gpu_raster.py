@@ -12,9 +12,11 @@ without one they report a skip instead of passing quietly.
 
 from __future__ import annotations
 
+import bpy
 import numpy
 
 from addon.adapters import gpu_raster
+from addon.adapters.analysis import AnalysisConfig, AnalysisEngine
 from addon.core import AddressMode, AlphaGrid, AnalysisSettings, rasterize_batch
 
 _DEFAULTS = AnalysisSettings()
@@ -271,6 +273,128 @@ def assert_unhandled_inputs_fall_back() -> None:
     assert empty is not None and empty.covered_texels.size == 0, empty
 
 
+def _scene(polygons: int):
+    """One patterned image, one material, one grid of quads with wrapping UVs."""
+    if bpy.context.object is not None and bpy.context.object.mode != "OBJECT":
+        bpy.ops.object.mode_set(mode="OBJECT")
+    bpy.ops.object.select_all(action="SELECT")
+    bpy.ops.object.delete(use_global=False)
+
+    width, height = 37, 23
+    image = bpy.data.images.new("AMS_GPU_EQ", width=width, height=height, alpha=True)
+    generator = numpy.random.default_rng(0xE0)
+    pixels = numpy.ones((height * width, 4), dtype=numpy.float32)
+    pixels[:, 3] = (generator.random(height * width) < 0.41).astype(numpy.float32)
+    image.pixels.foreach_set(pixels.reshape(-1))
+
+    material = bpy.data.materials.new("AMS_GPU_EQ_MAT")
+    material.use_nodes = True
+    tree = material.node_tree
+    tree.nodes.clear()
+    output = tree.nodes.new("ShaderNodeOutputMaterial")
+    output.is_active_output = True
+    principled = tree.nodes.new("ShaderNodeBsdfPrincipled")
+    texture = tree.nodes.new("ShaderNodeTexImage")
+    texture.image = image
+    tree.links.new(principled.outputs["BSDF"], output.inputs["Surface"])
+    tree.links.new(texture.outputs["Color"], principled.inputs["Base Color"])
+    tree.links.new(texture.outputs["Alpha"], principled.inputs["Alpha"])
+    material.blend_method = "BLEND"
+
+    columns = 16
+    vertices, faces = [], []
+    for polygon in range(polygons):
+        column, row = polygon % columns, polygon // columns
+        base = len(vertices)
+        vertices.extend(
+            (
+                (float(column), float(row), 0.0),
+                (column + 1.0, float(row), 0.0),
+                (column + 1.0, row + 1.0, 0.0),
+                (float(column), row + 1.0, 0.0),
+            )
+        )
+        faces.append((base, base + 1, base + 2, base + 3))
+    mesh = bpy.data.meshes.new("AMS_GPU_EQ_MESH")
+    mesh.from_pydata(vertices, (), faces)
+    mesh.materials.append(material)
+
+    # UVs several times the unit square and offset negative, so runs wrap in
+    # both directions and the kernel's addressing is exercised rather than
+    # only its rasterization.
+    layer = mesh.uv_layers.new(name="UVMap", do_init=False)
+    layer.active_render = True
+    corners = generator.random((polygons, 2)) * 5.0 - 2.0
+    extent = 0.05 + generator.random((polygons, 2)) * 1.4
+    quad = numpy.array([[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]])
+    uvs = corners[:, None, :] + quad[None, :, :] * extent[:, None, :]
+    layer.uv.foreach_set("vector", uvs.reshape(-1).astype(numpy.float32))
+
+    object_ = bpy.data.objects.new("AMS_GPU_EQ_OBJ", mesh)
+    bpy.context.collection.objects.link(object_)
+    object_.select_set(True)
+    return object_
+
+
+def _report(object_, *, on_gpu: bool):
+    engine = AnalysisEngine([object_], AnalysisConfig())
+    assert engine._gpu, "the probe passed but the engine did not take the GPU path"
+    engine._gpu = on_gpu
+    while not engine.step(64):
+        pass
+    return engine.finish()
+
+
+def assert_the_engine_agrees_with_itself() -> None:
+    """A whole analysis on the GPU equals the same analysis on the CPU.
+
+    Face by face, not in aggregate: two paths can reach the same totals from
+    different per-face answers, and the report is per-face.
+    """
+    object_ = _scene(200)
+    on_gpu = _report(object_, on_gpu=True)
+    on_cpu = _report(object_, on_gpu=False)
+
+    assert on_gpu.counts == on_cpu.counts, (on_gpu.counts, on_cpu.counts)
+    for pointer, wanted in on_cpu.object_results.items():
+        produced = on_gpu.object_results[pointer]
+        assert produced.skipped_reason == wanted.skipped_reason
+        assert set(produced.faces) == set(wanted.faces), "different polygons analyzed"
+        for index, face in wanted.faces.items():
+            assert produced.faces[index].result == face.result, (
+                index,
+                produced.faces[index].result,
+                face.result,
+            )
+    assert on_cpu.counts.total() == 200, on_cpu.counts
+
+    # The raster counters are part of the report, so they have to agree too.
+    for name in (
+        "triangles",
+        "degenerate_triangles",
+        "scanlines",
+        "emitted_runs",
+        "union_runs",
+        "covered_texels",
+    ):
+        assert on_gpu.metrics[name] == on_cpu.metrics[name], (
+            name,
+            on_gpu.metrics[name],
+            on_cpu.metrics[name],
+        )
+
+    # The one deliberate report difference: the GPU counts what it skipped
+    # instead of hits and misses, because a fused kernel has nothing to cache.
+    assert on_gpu.metrics["coverage_cache_bypassed"] == 200, on_gpu.metrics
+    assert "coverage_cache_misses" not in on_gpu.metrics, on_gpu.metrics
+    assert "coverage_cache_hits" not in on_gpu.metrics, on_gpu.metrics
+    assert on_cpu.metrics["coverage_cache_bypassed"] == 0, on_cpu.metrics
+    assert (
+        on_cpu.metrics["coverage_cache_hits"] + on_cpu.metrics["coverage_cache_misses"]
+        == 200
+    ), on_cpu.metrics
+
+
 def run() -> None:
     assert_probe_is_total()
     if not gpu_raster.available():
@@ -286,5 +410,6 @@ def run() -> None:
     assert_awkward_polygons_are_partitioned()
     assert_budget_trips_match_the_cpu()
     assert_unhandled_inputs_fall_back()
+    assert_the_engine_agrees_with_itself()
     gpu_raster.clear_cache()
     print("ALPHA_MATERIAL_SEPARATOR_GPU_RASTER_TESTS_OK")

@@ -21,10 +21,13 @@ from ..core import (
     ClassificationResult,
     FaceClass,
     InvalidRasterInput,
+    RasterStats,
     classify_counted,
     rasterize_batch,
 )
 from ..core import alpha as alpha_core
+from ..core.classify import classify_stats
+from . import gpu_raster
 from ..overrides import MaterialOverride, OverrideConfigError
 from ..unsupported import unsupported_scope
 from .fingerprints import material_fingerprint, source_fingerprint
@@ -780,6 +783,27 @@ def _triangle_layout(
     return loops, starts, counts
 
 
+def _coverage_key(snapshot, triangles: numpy.ndarray, settings) -> str:
+    """The coverage cache key for one polygon's texel-space triangles."""
+    digest = hashlib.blake2b(digest_size=24)
+    # V2: the triangles are hashed as one contiguous block rather than two
+    # doubles at a time. The coverage cache is a process-local dict, so no
+    # stored key is ever compared against one from another encoding.
+    digest.update(b"AMS_COVERAGE_V2")
+    digest.update(
+        struct.pack(
+            "<5Q",
+            snapshot.width,
+            snapshot.height,
+            settings.margin_texels,
+            settings.max_scanlines,
+            settings.max_run_emissions,
+        )
+    )
+    digest.update(triangles.tobytes())
+    return digest.hexdigest()
+
+
 def _input_signature(
     structural_signature: str,
     prepared: Iterable[_PreparedObject],
@@ -999,6 +1023,11 @@ class AnalysisEngine:
         self._prepared_index = 0
         self._polygon_index = 0
         self._pending: list[_DeferredFace] = []
+        # The GPU kernel fuses rasterizing and counting, so it cannot use a
+        # coverage cache keyed on geometry alone, and it has nothing to dilate
+        # for a raster margin. Both make it a whole-run decision rather than a
+        # per-chunk one. Tests and the performance protocol force it either way.
+        self._gpu = gpu_raster.available() and not self.config.settings.margin_texels
         self.counts: Counter = Counter()
         self.skip_counts: Counter = Counter()
         self.metrics: Counter = Counter()
@@ -1186,24 +1215,29 @@ class AnalysisEngine:
             # turning it into a per-face reason is a separate decision.
             raise InvalidRasterInput("UV coordinates must be two finite values")
         triangles = texel[loops]
-        key_started = time.perf_counter()
-        cache_digest = hashlib.blake2b(digest_size=24)
-        # V2: the triangles are hashed as one contiguous block rather than two
-        # doubles at a time. The coverage cache is a process-local dict, so no
-        # stored key is ever compared against one from another encoding.
-        cache_digest.update(b"AMS_COVERAGE_V2")
-        cache_digest.update(
-            struct.pack(
-                "<5Q",
-                snapshot.width,
-                snapshot.height,
-                self.config.settings.margin_texels,
-                self.config.settings.max_scanlines,
-                self.config.settings.max_run_emissions,
+        if self._gpu:
+            # No digest and no lookup: the cache stores spans keyed on geometry
+            # and image size, and a kernel that returns counts cannot use such
+            # an entry. Skipping the hash is also worth more than the cache
+            # saves, which `docs/gpu-rasterization.md` records.
+            self.metrics["phase_uv_seconds"] += time.perf_counter() - uv_started
+            self.metrics["coverage_cache_bypassed"] += 1
+            self._pending.append(
+                _DeferredFace(
+                    prepared=prepared,
+                    polygon_index=polygon.index,
+                    slot_index=slot_index,
+                    material=material,
+                    resolution=resolution,
+                    snapshot=snapshot,
+                    coverage=None,
+                    coverage_key="",
+                    triangles=triangles,
+                )
             )
-        )
-        cache_digest.update(triangles.tobytes())
-        coverage_key = cache_digest.hexdigest()
+            return
+        key_started = time.perf_counter()
+        coverage_key = _coverage_key(snapshot, triangles, self.config.settings)
         lookup_started = time.perf_counter()
         coverage = runtime.coverage_get(coverage_key)
         lookup_finished = time.perf_counter()
@@ -1316,6 +1350,76 @@ class AnalysisEngine:
                 time.perf_counter() - stored_started
             )
 
+    def _unsupported_face(self, reason: str) -> ClassificationResult:
+        return ClassificationResult(
+            classification=FaceClass.UNSUPPORTED,
+            covered_texels=0,
+            affected_texels=0,
+            opaque_texels=0,
+            affected_fraction=0.0,
+            unsupported_reason=reason,
+        )
+
+    def _classify_pending_on_gpu(self) -> list[ClassificationResult] | None:
+        """Rasterize, count and classify this chunk with the fused kernel.
+
+        Grouped by image and address mode exactly as the CPU counting pass is,
+        because one dispatch shares one alpha mask. Returns `None` if the kernel
+        declines a batch, which leaves the caller to run the CPU path instead.
+        """
+        settings = self.config.settings
+        groups: dict[tuple[int, AddressMode], list[int]] = defaultdict(list)
+        for position, deferred in enumerate(self._pending):
+            key = (id(deferred.snapshot.grid), deferred.resolution.address_mode)
+            groups[key].append(position)
+
+        classifications: list[ClassificationResult | None] = [None] * len(self._pending)
+        for positions in groups.values():
+            first = self._pending[positions[0]]
+            for begin in range(0, len(positions), _RASTER_BATCH_POLYGONS):
+                window = positions[begin : begin + _RASTER_BATCH_POLYGONS]
+                started = time.perf_counter()
+                batches = [self._pending[position].triangles for position in window]
+                produced = gpu_raster.counted_batch(
+                    numpy.concatenate(batches),
+                    numpy.fromiter(
+                        (len(batch) for batch in batches),
+                        dtype=numpy.int64,
+                        count=len(batches),
+                    ),
+                    first.snapshot.grid,
+                    first.resolution.address_mode,
+                    settings=settings,
+                )
+                classify_started = time.perf_counter()
+                self.metrics["phase_raster_seconds"] += classify_started - started
+                if produced is None:
+                    return None
+                for offset, position in enumerate(window):
+                    reason = produced.reasons.get(offset)
+                    classifications[position] = (
+                        self._unsupported_face(reason)
+                        if reason is not None
+                        else classify_stats(
+                            RasterStats(
+                                triangles=int(produced.triangles[offset]),
+                                degenerate_triangles=int(
+                                    produced.degenerate_triangles[offset]
+                                ),
+                                scanlines=int(produced.scanlines[offset]),
+                                emitted_runs=int(produced.emitted_runs[offset]),
+                                union_runs=int(produced.union_runs[offset]),
+                                covered_texels=int(produced.covered_texels[offset]),
+                            ),
+                            int(produced.affected[offset]),
+                            settings=settings,
+                        )
+                    )
+                self.metrics["phase_classify_seconds"] += (
+                    time.perf_counter() - classify_started
+                )
+        return classifications
+
     def _flush_pending(self) -> None:
         """Rasterize, count and classify every polygon deferred this chunk.
 
@@ -1325,6 +1429,22 @@ class AnalysisEngine:
         """
         if not self._pending:
             return
+        if self._gpu:
+            classifications = self._classify_pending_on_gpu()
+            if classifications is not None:
+                self._record_pending(classifications)
+                return
+            # A declined batch is not a failure, only a slower route. Turning
+            # the path off for the rest of the run keeps one analysis on one
+            # implementation rather than alternating between two. These faces
+            # were never looked up, so they are misses the CPU path is about to
+            # rasterize; without the key it dedups them all into one.
+            self._gpu = False
+            self.metrics["coverage_cache_misses"] += len(self._pending)
+            for deferred in self._pending:
+                deferred.coverage_key = _coverage_key(
+                    deferred.snapshot, deferred.triangles, self.config.settings
+                )
         self._rasterize_pending()
         started = time.perf_counter()
         groups: dict[tuple[int, AddressMode], list[int]] = defaultdict(list)
@@ -1351,6 +1471,12 @@ class AnalysisEngine:
             for deferred, count in zip(self._pending, affected)
         ]
         self.metrics["phase_classify_seconds"] += time.perf_counter() - started
+        self._record_pending(classifications)
+
+    def _record_pending(
+        self, classifications: list[ClassificationResult]
+    ) -> None:
+        """Record this chunk's faces and its raster counters, then clear it."""
         # The six raster counters are summed into locals and added to `metrics`
         # once per chunk. Adding them per face cost more than the whole of the
         # rest of `_record_face`: a fresh dict literal and a `Counter.update`

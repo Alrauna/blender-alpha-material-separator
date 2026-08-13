@@ -681,6 +681,10 @@ def _uv_traversal_values_test() -> None:
     try:
         runtime.clear_coverage_cache()
         engine = AnalysisEngine([object_], AnalysisConfig())
+        # The traversal under test is shared, but only the CPU path hands its
+        # result to `rasterize_batch`, which is what this hook watches. On a
+        # machine with a GPU the engine would otherwise take the other route.
+        engine._gpu = False
         while not engine.step(4_096):
             pass
         engine.finish()

@@ -14,6 +14,7 @@ from .model import (
     InvalidRasterInput,
     RasterBudgetExceeded,
     Coverage,
+    RasterStats,
 )
 from .raster import Point, rasterize_polygon
 
@@ -80,7 +81,22 @@ def classify_counted(
     Split out so the analysis engine can count a whole step chunk at once and
     still reach the same rule the single-polygon entry points use.
     """
-    covered = coverage.stats.covered_texels
+    return classify_stats(coverage.stats, affected, settings=settings)
+
+
+def classify_stats(
+    stats: RasterStats,
+    affected: int,
+    *,
+    settings: AnalysisSettings = AnalysisSettings(),
+) -> ClassificationResult:
+    """The same rule, for a caller that has the counters but no `Coverage`.
+
+    The GPU path counts as it unions and never materializes spans, so it can
+    reach the rule only through this door. Keeping one implementation is the
+    point: the two paths must not be able to classify differently.
+    """
+    covered = stats.covered_texels
     if covered == 0:
         return ClassificationResult(
             classification=FaceClass.UNSUPPORTED,
@@ -89,7 +105,7 @@ def classify_counted(
             opaque_texels=0,
             affected_fraction=0.0,
             unsupported_reason="NO_POSITIVE_AREA_UV_COVERAGE",
-            raster_stats=coverage.stats,
+            raster_stats=stats,
         )
 
     opaque = covered - affected
@@ -101,7 +117,7 @@ def classify_counted(
             affected_texels=0,
             opaque_texels=opaque,
             affected_fraction=0.0,
-            raster_stats=coverage.stats,
+            raster_stats=stats,
         )
 
     shape = FaceClass.ALPHA_AFFECTED if opaque == 0 else FaceClass.MIXED
@@ -122,7 +138,7 @@ def classify_counted(
             affected_fraction=fraction,
             failed_gates=tuple(failed),
             unsuppressed_shape=shape,
-            raster_stats=coverage.stats,
+            raster_stats=stats,
         )
     return ClassificationResult(
         classification=shape,
@@ -130,5 +146,5 @@ def classify_counted(
         affected_texels=affected,
         opaque_texels=opaque,
         affected_fraction=fraction,
-        raster_stats=coverage.stats,
+        raster_stats=stats,
     )
