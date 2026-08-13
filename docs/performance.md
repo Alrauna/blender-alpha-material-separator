@@ -1556,10 +1556,30 @@ returned both IEEE halves through `R32UI`.
 
 The failure is multiply-add contraction: the compiler fuses the multiply and
 the add, which is more accurate and therefore wrong here, because the CPU does
-not. Fourteen triangles in 297,460 is exactly the shape of bug that survives
-casual testing and produces a handful of misclassified faces on a real asset.
-`precise` on every declaration that feeds a comparison is mandatory, not
-advisory.
+not.
+
+How much that matters was measured afterwards rather than assumed, and the
+first answer here was wrong. This section originally said fourteen in 297,460
+was the shape of bug that produces a handful of misclassified faces on a real
+asset. It does not, on any evidence available:
+
+- the complete kernel with every `precise` stripped returns **identical counts**
+  on all 150,544 polygons of the tier, covered and affected alike;
+- a search over 4,000,000 random triangles, comparing `math.fma` against the
+  separate multiply and add, found **zero** whose texel runs differ.
+
+A perturbation of 1.137e-13 changes a count only when it crosses an integer
+boundary, and a cross-section lands that close to one about as often as the
+perturbation is large. So `precise` is not a demonstrated bug fix. It is the
+cheap way to hold the contract that the GPU reproduces the CPU exactly, and it
+is kept for that reason: the CPU is the authority, bit-equality is the bar, and
+the qualifier costs nothing measurable.
+
+The practical consequence is for the runtime probe. A self-test that compares
+counts cannot detect contraction, because contraction does not change counts.
+That is fine, because counts are what the report is made of — but it means the
+probe verifies results, not arithmetic, and no amount of self-testing
+substitutes for keeping `precise` in the source.
 
 ### Modal round trips cost 2.9 ms, not seconds
 

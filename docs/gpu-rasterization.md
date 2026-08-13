@@ -54,12 +54,23 @@ on any failure without letting an exception escape:
 2. The shader compiles.
 3. A fixed self-test batch reproduces its expected results exactly.
 
-Step 3 is the one that matters. Compilation proving nothing about `precise` is
-the whole lesson of the exactness spike: unqualified fp64 compiled fine and got
-14 of 297,460 cross-sections wrong. The self-test runs a small fixed triangle
-set chosen to exercise multiply-add contraction and compares against values
-computed by numpy at probe time, so the expectation cannot drift away from the
-CPU implementation it must match.
+Step 3 is the one that matters, because compilation proves very little. The
+self-test runs the real kernel on a small fixed fixture and compares its counts
+against `rasterize_batch` plus `count_batch` computed at probe time, so the
+expectation cannot drift away from the CPU implementation it must match.
+
+It is worth being precise about what this does and does not catch. It does not
+catch multiply-add contraction: the kernel with every `precise` stripped returns
+identical counts on all 150,544 polygons of the realistic tier, and a search
+over 4,000,000 random triangles found none whose runs change under fusion. What
+it catches is any divergence that reaches a count — a driver that rounds
+division differently, that implements `floor` or `bitCount` unexpectedly, that
+mishandles the 24-bit packing or the address-mode arithmetic, or that miscompiles
+the kernel outright. Those are the failures that would corrupt a report.
+
+`precise` stays in the source regardless. It is not load-bearing against any
+observed defect; it is the cheap way to hold the bit-equality contract, and the
+probe is not a substitute for it.
 
 A machine that fails the probe is not degraded. It runs exactly what it runs
 today.
@@ -94,8 +105,9 @@ One thread per polygon, no atomics, as prototyped. Per row it recomputes each
 triangle's cross-sections in `precise` fp64, unions the spans, and adds the
 covered length and the popcount of the alpha mask over that span.
 
-`precise` is mandatory on every declaration feeding a comparison. This is a
-correctness requirement, not a style preference.
+`precise` goes on every declaration feeding a comparison. No observed defect
+depends on it — see the probe section — but the contract is bit-equality with
+the CPU, and the qualifier is the cheapest way to hold it.
 
 All four address modes ship together. CLIP and EXTEND use the clamped form with
 their respective outside handling; REPEAT and MIRROR use the periodic form, with
@@ -209,9 +221,10 @@ cannot, so it is the gate for the integration commit rather than an extra.
   code in the addon are maintained under one set of bit-exactness tests. This is
   the real price and it is not measured in seconds.
 - **One machine, one driver.** Every measurement and the exactness result come
-  from a single OpenGL NVIDIA machine. Another driver could contract
-  differently; the runtime self-test is what makes that safe rather than
-  silent, and it is why the probe verifies results rather than compilation.
+  from a single OpenGL NVIDIA machine. Another driver could round, fold or
+  miscompile differently; the runtime self-test is what makes that disable the
+  path rather than corrupt a report, and it is why the probe verifies results
+  rather than compilation.
 - **Drivers can regress.** The self-test runs every process start, so a driver
   update that breaks exactness disables the GPU path instead of corrupting
   output.
