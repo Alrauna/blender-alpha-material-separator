@@ -374,3 +374,81 @@ alternative to handling it is a wrong report. The chunk's faces get their
 coverage keys computed, are counted as cache misses since they were never looked
 up, and the CPU path finishes them; `self._gpu` stays False afterwards so one
 analysis runs on one implementation.
+
+## Proposed: cross-step dispatch pipelining
+
+**Status: awaiting approval. Not implemented.** The integrated path returned
+10.4% against a 20% keep gate; `docs/performance.md` records that measurement and
+its cause. This section is the design for the one option that can close the gap.
+
+### The mechanism
+
+Reading a result texture is the synchronization point: it waits for the dispatch
+it belongs to. That wait is 1 to 2 ms and the engine pays it once per dispatch,
+which the measured breakdown separates cleanly from the 0.053 s of real compute.
+
+Nothing is done between submitting and reading. The fix is to do the next
+chunk's work there. Submit a flush's dispatches, return; on the following flush,
+submit that flush's work first and only then read the previous one. The GPU gets
+a whole step — roughly 7 ms of UV traversal for 4,096 polygons, plus the next
+submit — to finish in.
+
+Measured, on the tier's raster region alone so machine noise does not swamp it:
+
+| Configuration | Raster region |
+| --- | ---: |
+| CPU | 0.616 s |
+| GPU, serial | 0.500 s |
+| GPU, submit the whole flush then read it | 0.407 s |
+| GPU, 65,536 per dispatch (ceiling) | 0.184 s |
+
+The third row is intra-flush only and needs no new state; it is worth about
+0.09 s. The ceiling's entire advantage over the others is that it pays the stall
+fifteen times instead of 185, so a pipeline deep enough to hide the stall should
+approach it. Estimated whole-tier result about -27%, against a -27.5% ceiling.
+
+### What changes
+
+`_dispatch` splits at the readback into `_submit`, returning a handle that owns
+the output textures and the input textures it must outlive, and `_collect`,
+reading it. `counted_batch` splits the same way: `submit_batch` does the survey,
+the partition and the dispatch; `collect_batch` reads back, then runs the CPU
+partition for over-cap and budget-tripped polygons — which also happens while
+the GPU is busy, for free.
+
+`AnalysisEngine` gains one field, `self._inflight`, holding the previous flush's
+deferred faces alongside their handles. `_flush_pending` on the GPU path becomes:
+submit this flush, then collect and record the previous one, then rotate. Faces
+are therefore recorded one flush later than they are deferred.
+
+### What that costs, and the guards it needs
+
+- `step()` must drain before it reports completion, or the last flush is lost.
+- `finish()` must refuse to build a report with work in flight, rather than
+  silently omitting those faces.
+- `cancel()` must drop the in-flight handles so their textures are released.
+- The mid-run decline path must collect what is already in flight before it
+  turns the GPU off, or those faces are analyzed twice or not at all.
+- Peak memory rises by one flush of deferred faces and one set of textures.
+  At 4,096 polygons that is small, but it is a rise.
+- `self.completed` advances when a polygon is deferred, not when it is recorded,
+  so progress reporting is unaffected. This is existing behaviour.
+
+### Why this is a real risk and not bookkeeping
+
+Every one of those guards is a way to lose faces from a report silently. That is
+the failure mode this repository cares most about, and it is not one the
+arithmetic tests can see. Test 7, the full-engine equality run, is the test that
+catches it: it compares face by face with the path forced on and forced off, so
+a dropped, duplicated or misordered chunk fails it. Three more are needed — a
+run stepped in small budgets so several flushes are in flight in sequence, a
+cancel with work in flight, and a `finish()` attempted with work in flight.
+
+### The measurement this rests on is not yet trustworthy
+
+The whole-workflow figures moved between -10.4% and -19.0% for the same serial
+code across four runs in one session, while the CPU baseline drifted from
+2.470 s to 2.976 s. `VirtualDesktop.Streamer` was resident and using the GPU
+throughout, which contaminates dispatch latency specifically. The raster-region
+figures above are stable and the mechanism they show is real, but the gate
+decision needs a re-measurement on a quiet machine.
