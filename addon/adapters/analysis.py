@@ -81,6 +81,10 @@ class AnalysisConfig:
     address_mode: str = "AUTO"
     settings: AnalysisSettings = AnalysisSettings()
     material_overrides: tuple[MaterialOverride, ...] = ()
+    #: The reader's manual CPU fallback. Deliberately absent from `payload()`:
+    #: the two paths are exact reproductions of each other, so which device ran
+    #: is not an input, and switching must not make a completed report stale.
+    use_gpu: bool = True
 
     def payload(self) -> dict[str, Any]:
         return {
@@ -1052,7 +1056,11 @@ class AnalysisEngine:
         # coverage cache keyed on geometry alone, and it has nothing to dilate
         # for a raster margin. Both make it a whole-run decision rather than a
         # per-chunk one. Tests and the performance protocol force it either way.
-        self._gpu = gpu_raster.available() and not self.config.settings.margin_texels
+        self._gpu = (
+            config.use_gpu
+            and gpu_raster.available()
+            and not self.config.settings.margin_texels
+        )
         self.counts: Counter = Counter()
         self.skip_counts: Counter = Counter()
         self.metrics: Counter = Counter()

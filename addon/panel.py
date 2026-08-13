@@ -6,6 +6,7 @@ from __future__ import annotations
 import bpy
 
 from . import runtime, workflow
+from .adapters import gpu_raster
 from .api_contract import severity_for
 from .manifest import issues_url, maintainer_name, version_tuple
 from .overrides import dumps_material_overrides
@@ -31,6 +32,25 @@ def _label_lines(
 
     for index, line in enumerate(ui_text_lines(text, available_width)):
         layout.label(text=line, icon=icon if index == 0 else "NONE")
+
+
+def _gpu_unavailable_message(reason: str) -> str:
+    """Say why the GPU is out, drawn as copy because tooltips are fixed at
+    registration and this text is decided per machine.
+
+    A missing instruction set is a plain fact about the hardware. Everything
+    else — a driver that miscompiles the kernel, a probe that raised — is not
+    something the reader can act on, so it does not pretend to be.
+    """
+    if reason.startswith("NO_FP64"):
+        return (
+            "This GPU does not support the necessary instructions for GPU "
+            "acceleration with this extension"
+        )
+    return (
+        "This GPU does not support GPU acceleration with this extension for an "
+        "unknown reason"
+    )
 
 
 def _override_payload(settings) -> tuple[str, bool]:
@@ -529,6 +549,8 @@ class ALPHA_MATERIAL_SEPARATOR_PT_analysis_settings(_ExpertPanel, bpy.types.Pane
 
     def draw(self, context):
         layout = self.layout
+        region = getattr(context, "region", None)
+        available_width = int(getattr(region, "width", 320) or 320)
         settings = context.window_manager.alpha_material_separator_settings
         layout.prop(settings, "alpha_threshold")
         layout.prop(settings, "min_affected_texels")
@@ -544,6 +566,19 @@ class ALPHA_MATERIAL_SEPARATOR_PT_analysis_settings(_ExpertPanel, bpy.types.Pane
             text="Reset to Default Values",
             icon="LOOP_BACK",
         )
+        # Below the reset deliberately: the device is not an analysis setting and
+        # the reset does not restore it.
+        usable = gpu_raster.available()
+        row = layout.row()
+        row.enabled = usable
+        row.prop(settings, "disable_gpu_acceleration")
+        if not usable:
+            _label_lines(
+                layout,
+                _gpu_unavailable_message(gpu_raster.reason()),
+                icon="INFO",
+                available_width=available_width,
+            )
 
 
 class ALPHA_MATERIAL_SEPARATOR_PT_overrides(_ExpertPanel, bpy.types.Panel):

@@ -113,7 +113,7 @@ class ALPHA_MATERIAL_SEPARATOR_OT_analyze(bpy.types.Operator):
             text = f"{stage} - {round(completed / max(1, total) * 100)}%"
         context.workspace.status_text_set(text=text)
 
-    def _config(self) -> AnalysisConfig:
+    def _config(self, context) -> AnalysisConfig:
         material_overrides = parse_material_overrides_json(
             self.material_overrides_json
         )
@@ -122,12 +122,17 @@ class ALPHA_MATERIAL_SEPARATOR_OT_analyze(bpy.types.Operator):
                 "OVERRIDE_CONFLICT",
                 "Selection-wide image override cannot be combined with per-material overrides",
             )
+        # Read from the session settings rather than mirrored onto this operator:
+        # the two paths give the same report, so which device runs is not an
+        # analysis parameter and has no place in the published operator surface.
+        settings = context.window_manager.alpha_material_separator_settings
         return AnalysisConfig(
             image_name=self.image_name,
             uv_map_name=self.uv_map_name,
             image_channel=self.image_channel,
             address_mode=self.address_mode,
             material_overrides=material_overrides,
+            use_gpu=not settings.disable_gpu_acceleration,
             settings=AnalysisSettings(
                 alpha_threshold=self.alpha_threshold,
                 min_affected_texels=self.min_affected_texels,
@@ -180,7 +185,7 @@ class ALPHA_MATERIAL_SEPARATOR_OT_analyze(bpy.types.Operator):
         context.workspace.status_text_set(text="Preparing Inputs")
         try:
             self._engine = AnalysisEngine(
-                objects, self._config(), defer_images=defer_images
+                objects, self._config(context), defer_images=defer_images
             )
         except OverrideConfigError as error:
             context.workspace.status_text_set(text=None)

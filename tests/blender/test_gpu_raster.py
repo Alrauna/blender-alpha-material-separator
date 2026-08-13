@@ -126,6 +126,20 @@ def assert_the_probe_measures_fp64() -> None:
         gpu_raster._shader, gpu_raster._reason = shader, why
 
 
+def assert_the_setting_can_refuse_the_gpu() -> None:
+    """`use_gpu=False` is the manual fallback, and it has to reach the engine.
+
+    It is not in `AnalysisConfig.payload()` on purpose: both devices produce the
+    same report, so the choice of device must not enter the input signature and
+    make a completed report stale.
+    """
+    object_ = _scene(64)
+    assert AnalysisEngine([object_], AnalysisConfig())._gpu
+    engine = AnalysisEngine([object_], AnalysisConfig(use_gpu=False))
+    assert not engine._gpu, "the setting did not reach the engine"
+    assert AnalysisConfig().payload() == AnalysisConfig(use_gpu=False).payload()
+
+
 def assert_modes_cross_edges() -> None:
     """Runs that leave the image on both sides, and rows that leave it too.
 
@@ -526,6 +540,7 @@ def run() -> None:
         print("ALPHA_MATERIAL_SEPARATOR_GPU_RASTER_TESTS_SKIPPED")
         return
     assert_the_probe_measures_fp64()
+    assert_the_setting_can_refuse_the_gpu()
     assert_modes_cross_edges()
     assert_exact_at_scale()
     assert_awkward_polygons_are_partitioned()

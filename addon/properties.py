@@ -25,6 +25,31 @@ def _settings_changed(_self, context) -> None:
     runtime.clear_review(context.window_manager if context else None)
 
 
+def _gpu_unavailable() -> bool:
+    """Whether this machine cannot run the GPU kernel. Probed once, then cached.
+
+    Imported inside the callbacks below rather than at module scope: `gpu_raster`
+    reaches Blender's `gpu` module, and this module is imported while the
+    extension registers, before there is a GPU context to probe.
+    """
+    from .adapters import gpu_raster
+
+    return not gpu_raster.available()
+
+
+def _disable_gpu_get(self) -> bool:
+    # Forced on where the kernel cannot run, so the engine and any script read
+    # the same refusal the panel draws. A greyed-out row would only stop the row.
+    return True if _gpu_unavailable() else self.get("disable_gpu_acceleration", False)
+
+
+def _disable_gpu_set(self, value: bool) -> None:
+    # Stores unconditionally; the getter above is the single point that enforces
+    # the lock. A `set=` is required all the same, because a property with only
+    # a `get=` is read-only and the checkbox would never toggle.
+    self["disable_gpu_acceleration"] = bool(value)
+
+
 def _policy_changed(_self, context) -> None:
     from . import runtime
 
@@ -197,6 +222,17 @@ class ALPHA_MATERIAL_SEPARATOR_PG_settings(bpy.types.PropertyGroup):
         default=2_000_000,
         min=1,
         update=_settings_changed,
+    )
+    # No `update=`: both devices produce the same report, so switching one for
+    # the other is not a settings change and must not make a report stale. For
+    # the same reason it is outside ANALYSIS_SETTING_NAMES, which also keeps
+    # "Reset to Default Values" from moving the reader back onto the GPU.
+    disable_gpu_acceleration: BoolProperty(
+        name="Disable GPU acceleration",
+        description="Manual fallback to full CPU analysis",
+        default=False,
+        get=_disable_gpu_get,
+        set=_disable_gpu_set,
     )
 
     address_mode: EnumProperty(

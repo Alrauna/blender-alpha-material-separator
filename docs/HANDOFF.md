@@ -139,6 +139,19 @@ complete; what remains is the packaging and release gates it has never run.
 - The GPU path's worst callback is *lower* than the CPU's, 171 ms against
   208 ms, because it builds packed mask textures instead of a 4096-square 2D
   prefix table and only builds that table for the CPU partition.
+- fp64 is measured, not denied by backend name. `_has_fp64()` runs one `double`
+  through push constants and requires the exact bits back, which catches both a
+  backend that rejects `double` and one that silently computes it as `float`.
+  The second case would otherwise reach the self-test and be reported as a
+  defect. Requested by the user in place of the Metal deny list.
+- The manual **Disable GPU acceleration** toggle enforces its lock in the
+  property's `get=`, not in the panel row, because the engine and any script read
+  the property. Its `set=` only stores, since a property with `get=` and no
+  `set=` is read-only and would never toggle.
+- The toggle is outside `ANALYSIS_SETTING_NAMES` and outside
+  `AnalysisConfig.payload()`, and is not mirrored onto the analyze operator. The
+  device is not an analysis parameter, so it must not reset with the settings,
+  must not enter the input signature, and has no place in the published surface.
 
 ## Commits
 
@@ -188,7 +201,8 @@ agent the most time:
   is mandatory, not hygiene.
 - `double`, `int64_t` and `uint64_t` compile and compute exactly through
   `GPUShaderCreateInfo` on OpenGL/NVIDIA. Metal has no fp64, so `double` cannot
-  reach the *Backend-portable* claim level even though it works here.
+  reach the *Backend-portable* claim level even though it works here. That is
+  detected at runtime by `_has_fp64()` rather than by backend name.
 
 ## Verification evidence
 
@@ -297,8 +311,13 @@ benchmark fixtures.
   computed from the per-face size, not measured with a working-set sample as the
   earlier stages were.
 - The integrated measurement is one machine, one driver, one OpenGL backend.
-  Metal has no fp64, so `available()` returns False on macOS and those users get
-  the CPU path; that is untested on actual hardware.
+  `_has_fp64()` measures double precision at runtime, so a backend without it —
+  Metal today — falls back with reason `NO_FP64`. Only the pass path has run on
+  real hardware; the failure path is covered by monkeypatching the probe.
+- **Disable GPU acceleration** in Expert Analysis Settings forces the CPU path.
+  It is outside `ANALYSIS_SETTING_NAMES` and outside `AnalysisConfig.payload()`
+  on purpose, so it neither resets with the analysis settings nor makes a
+  completed report stale.
 - The GPU tests skip on a machine without a usable GPU, so CI proves the
   fallback rather than the kernel. Only this machine has run them.
 - No packaging or installed-ZIP run has been done since the GPU path landed. It
@@ -314,10 +333,11 @@ is expected to pass; it has simply not been done.
 
 Everything the GPU design specified exists: all four address modes, host-side
 partitioning for polygons past the span cap, budget trips with the CPU's reason
-strings, all six raster counters, a runtime self-test probe, and ten headless
-tests including a full-engine equality run and three that cover the dispatch
-pipeline's guards. Every one of those ten was verified to fail against a
-deliberate break before being kept.
+strings, all six raster counters, a runtime capability and self-test probe, and
+twelve headless tests in `test_gpu_raster.py` including a full-engine equality
+run and three that cover the dispatch pipeline's guards, plus three in
+`test_expert_analysis_settings.py` for the manual toggle. Each was verified to
+fail against a deliberate break before being kept.
 
 Where the path finished, same session, medians of five:
 
@@ -334,10 +354,13 @@ After packaging, the remaining work is release-gate work, not implementation:
 the export, Unity, and human interaction gates in `docs/testing.md`, none of
 which has been run on this branch.
 
-The one open question no measurement here can settle is portability. Metal has
-no fp64, so `available()` returns False on macOS and those users get the CPU
-path. That is untested on actual hardware, and it means the CPU rasterizer is
-permanent and both implementations stay bound by the same bit-exactness tests.
+The one open question no measurement here can settle is portability. The kernel
+needs fp64 and `_has_fp64()` decides that per machine rather than by backend
+name, so a backend without it — Metal today — falls back with reason `NO_FP64`
+and the panel says so. That is untested on actual hardware, and it means the CPU
+rasterizer is permanent and both implementations stay bound by the same
+bit-exactness tests. A reader on a machine that does have fp64 can still force
+the CPU path with **Disable GPU acceleration**.
 
 Push and pull-request creation require separate authorization and have not been
 requested.
