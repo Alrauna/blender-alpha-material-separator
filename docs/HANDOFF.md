@@ -15,10 +15,12 @@ against the grid fixture and then again against a realistic tier that ranks the
 candidates differently. Every CPU candidate the re-ranking surfaced has landed:
 flat-array coverage, batched rasterization, and vectorized UV traversal.
 
-The GPU path is now built and integrated behind a capability probe, authorized
-by the user across seven commit boundaries after `docs/gpu-rasterization.md` was
-approved. It is exact and it misses the keep gate. **The branch is at a decision
-point, not at completion**: see "Next action".
+The GPU path is built and integrated behind a capability probe, authorized by
+the user across nine commit boundaries after `docs/gpu-rasterization.md` was
+approved. It is exact, and after two rounds of dispatch scheduling work it
+clears the keep gate at **-27.2% cold** with re-analysis level and a lower
+worst-case callback than the CPU path. The branch's implementation work is
+complete; what remains is the packaging and release gates it has never run.
 
 ## Decisions
 
@@ -119,6 +121,24 @@ point, not at completion**: see "Next action".
 - A failed self-test is a test failure, not a skip. `gpu_raster.reason()` returns
   a `MISMATCH`-prefixed string in that case and the headless tests assert on the
   prefix, so a machine with a wrong GPU fails while a machine with no GPU skips.
+- Every GPU measurement before Stage 6K used `step(4096)` with no time budget, a
+  cadence the modal operator never reaches because its 12 ms timer cuts the step
+  first. The real flush is roughly 1,300 polygons. **Every earlier GPU
+  percentage in `docs/performance.md` was taken at the wrong cadence** and the
+  6K and 6L tables supersede them.
+- Dispatch pipelining was approved and built, and on its own it was worth about
+  two points, not the projected 22. The stall it hides is real, but the
+  per-dispatch texture allocation and upload underneath it is not hidden by
+  anything, and small flushes pay it repeatedly.
+- The fix is a submit threshold, not a bigger step. `_GPU_SUBMIT_POLYGONS`
+  holds polygons across steps and submits at 16,384. The responsiveness contract
+  bounds one `step`, the threshold bounds one dispatch, so neither has to move
+  for the other. Approved by the user after the pipelining measurement.
+- `_RASTER_BATCH_POLYGONS` no longer chunks the GPU path. It is a CPU cache
+  window; on the GPU it only multiplied the fixed per-dispatch cost.
+- The GPU path's worst callback is *lower* than the CPU's, 171 ms against
+  208 ms, because it builds packed mask textures instead of a 4096-square 2D
+  prefix table and only builds that table for the CPU partition.
 
 ## Commits
 
@@ -147,7 +167,11 @@ point, not at completion**: see "Next action".
 - `df47f04` — CLIP, EXTEND and MIRROR;
 - `e8b5733` — host-side partitioning, budget trips, and the raster counters;
 - `8747074` — engine integration behind the probe, and the equality test;
-- `e74464e` — the integrated measurement, which misses the keep gate.
+- `e74464e` — the integrated measurement, which missed the keep gate;
+- `13668ba` — the handoff at that decision point;
+- `4bbeaf6` — the cross-step pipelining design;
+- `2bc5f28` — cross-step dispatch pipelining, measured at -11.9%;
+- `075565d` — the submit threshold, which clears the gate at -27.2%.
 
 ## GPU findings worth not rediscovering
 
@@ -171,8 +195,8 @@ agent the most time:
 Fresh local results on this branch:
 
 - unit suite on Blender's bundled Python 3.13.13: 141 passed;
-- headless Blender suite: exit 0, all 18 modules OK, including the new
-  `ALPHA_MATERIAL_SEPARATOR_IMAGE_DATA_OK`;
+- headless Blender suite: exit 0, all 19 modules OK, including
+  `ALPHA_MATERIAL_SEPARATOR_GPU_RASTER_TESTS_OK`;
 - `blender --factory-startup --command extension validate addon`: success;
 - `git diff --check`: clean before each commit;
 - same-session before/after benchmarks per stage, each with wall time and peak
@@ -261,11 +285,17 @@ benchmark fixtures.
   `loops * 16 * (1 + distinct image sizes)` bytes per UV map per object, so a
   mesh with many more loops or many more distinct image sizes would pay more.
   Only the realistic tier has been measured.
-- **The GPU path is currently enabled by default and is a net regression on
-  re-analysis.** On a machine whose probe passes, a cold realistic tier is 10.4
-  percent faster and a second analysis over unchanged geometry is 15.1 percent
-  slower, because the coverage cache is bypassed. The 20 percent keep gate is
-  not met. Nothing has been reverted pending the decision below.
+- The GPU path is enabled by default on any machine whose probe passes. It now
+  clears the gate at 27.2 percent cold with re-analysis at +1.6 percent, level
+  within run-to-run spread; the 15.1 percent re-analysis regression recorded
+  earlier is gone. One machine, one tier.
+- `_GPU_SUBMIT_POLYGONS` is a measured constant for this machine and tier, not
+  an adaptive one, exactly like `_RASTER_BATCH_POLYGONS`. A machine with a much
+  faster or slower GPU has not been measured, and neither has a mesh whose
+  polygons spread across many more images than the tier's five.
+- The hold raises peak memory by about 11 MB at 16,384 deferred faces. That was
+  computed from the per-face size, not measured with a working-set sample as the
+  earlier stages were.
 - The integrated measurement is one machine, one driver, one OpenGL backend.
   Metal has no fp64, so `available()` returns False on macOS and those users get
   the CPU path; that is untested on actual hardware.
@@ -277,50 +307,37 @@ benchmark fixtures.
 
 ## Next action
 
-Decide what to do with the GPU path, which is built, integrated, exact, and
-below the keep gate.
+Run the packaging and installed-ZIP gates in `docs/testing.md`, which this
+branch has never run and which are the only automated gates still outstanding.
+The GPU path adds no dependency and no file outside `addon/adapters/`, so this
+is expected to pass; it has simply not been done.
 
-Everything the design specified exists: all four address modes, host-side
+Everything the GPU design specified exists: all four address modes, host-side
 partitioning for polygons past the span cap, budget trips with the CPU's reason
-strings, all six raster counters, a runtime self-test probe, and seven headless
-tests including a full-engine equality run. 301,088 face comparisons on the
-realistic tier produced zero differences.
+strings, all six raster counters, a runtime self-test probe, and ten headless
+tests including a full-engine equality run and three that cover the dispatch
+pipeline's guards. Every one of those ten was verified to fail against a
+deliberate break before being kept.
 
-The measurement, same session, medians of five:
+Where the path finished, same session, medians of five:
 
-| Configuration | Cold | vs CPU | Re-analysis | vs CPU |
-| --- | ---: | ---: | ---: | ---: |
-| CPU | 2.470 s | — | 1.898 s | — |
-| GPU at the shipped cadence | 2.214 s | -10.4% | 2.184 s | +15.1% |
-| GPU at 65,536 per dispatch | 1.831 s | -25.9% | 1.872 s | -1.4% |
+| Configuration | Cold | vs CPU | Re-analysis | vs CPU | Worst step |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| CPU | 2.270 s | — | 1.718 s | — | 208 ms |
+| GPU, no hold | 2.053 s | -9.6% | 1.925 s | +12.1% | 194 ms |
+| GPU, shipped | 1.653 s | -27.2% | 1.745 s | +1.6% | 171 ms |
+| GPU, 65,536 per step | 1.530 s | -32.6% | 1.707 s | -0.7% | 488 ms |
 
-The gate is 20 percent. The cause is dispatch granularity, not arithmetic:
-`_flush_pending` runs once per `step()` and `MODAL_POLYGON_BUDGET` is 4,096, so
-the tier costs about 37 dispatches, and reading a result texture carries 1 to
-2 ms of synchronization each. The compute floor is 0.053 s.
+The gate is 20 percent and 150,544 face comparisons produced zero differences.
 
-Three options, none of them started:
+After packaging, the remaining work is release-gate work, not implementation:
+the export, Unity, and human interaction gates in `docs/testing.md`, none of
+which has been run on this branch.
 
-1. **Revert the GPU path.** Six commits, no addon file outside
-   `addon/adapters/gpu_raster.py` and the `_gpu` branches in
-   `addon/adapters/analysis.py`. `classify_stats` can stay; it is a smaller
-   `classify_counted` either way. The measurement and the design stay in
-   `docs/`, which is where the value of the work is.
-2. **Keep it, default off.** Requires a user-facing setting, which is a
-   public-contract change needing its own design, and leaves two implementations
-   of the same arithmetic under the same bit-exactness tests forever, with the
-   macOS half untestable here.
-3. **Pipeline the dispatch.** Submit a chunk, keep deferring the next chunk's
-   polygons while the GPU works, read back one flush later. Estimated at about
-   22 percent, which would clear the gate. It restructures the stepping loop and
-   makes classification lag its faces by one chunk. Needs a design and approval.
-
-Recommendation: option 1. The plan's terms were that a successful outcome does
-not require shipping GPU code, and the branch already delivered the realistic
-tier from 6.017 s to 2.264 s on CPU work alone.
-
-Until that decision is made, the addon ships the GPU path on by default, which
-is the regression recorded under Limitations.
+The one open question no measurement here can settle is portability. Metal has
+no fp64, so `available()` returns False on macOS and those users get the CPU
+path. That is untested on actual hardware, and it means the CPU rasterizer is
+permanent and both implementations stay bound by the same bit-exactness tests.
 
 Push and pull-request creation require separate authorization and have not been
 requested.
