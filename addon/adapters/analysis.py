@@ -48,6 +48,15 @@ ImageCache = dict[tuple[int, str, float], ImageSnapshot]
 # percent because the intermediate arrays stay in cache.
 _RASTER_BATCH_POLYGONS = 256
 
+# Polygons the GPU path lets pile up before it submits a dispatch. Every
+# dispatch allocates and uploads its own textures, so a small one is nearly all
+# fixed cost: at the modal cadence's roughly 1,300 polygons per flush the path
+# returns 11.9%, and at 512 per step it is slower than the CPU outright. The
+# responsiveness contract bounds one `step`, not one dispatch, so holding faces
+# back across steps buys the larger dispatch without a longer callback.
+# Measured: 16,384 returns 23.9% for about 60 ms on the worst step.
+_GPU_SUBMIT_POLYGONS = 16_384
+
 
 def _phase_totals() -> dict[str, float]:
     """Process-wide phase accumulators, sampled as deltas around one analysis."""
@@ -1465,16 +1474,22 @@ class AnalysisEngine:
             inflight, self._inflight = self._inflight, None
             self._collect_inflight(inflight)
 
-    def _flush_pending(self) -> None:
+    def _flush_pending(self, *, final: bool = False) -> None:
         """Rasterize, count and classify every polygon deferred this chunk.
 
         Counting is grouped by image and address mode because a batch shares one
         prefix gather. Results are recorded in the original polygon order so
         neither grouping reorders the report.
+
+        The GPU path holds its polygons back until there are enough to be worth
+        a dispatch, so most calls do nothing at all. `final` overrides that and
+        is how the last, short chunk gets submitted.
         """
         if not self._pending:
             return
         if self._gpu:
+            if not final and len(self._pending) < _GPU_SUBMIT_POLYGONS:
+                return
             submitted = self._submit_pending()
             if submitted is not None:
                 # The previous chunk is read only now, with this one's
@@ -1617,11 +1632,13 @@ class AnalysisEngine:
             if self._polygon_index >= len(polygons):
                 self._polygon_index = 0
                 self._prepared_index += 1
-        self._flush_pending()
         if self._prepared_index < len(self.prepared):
+            self._flush_pending()
             return False
-        # Nothing will call back again, so the chunk still in flight has to be
-        # read here or its faces never reach the report.
+        # Nothing will call back again, so the held polygons have to be
+        # submitted and the chunk still in flight has to be read, or neither
+        # reaches the report.
+        self._flush_pending(final=True)
         self._drain_inflight()
         return True
 

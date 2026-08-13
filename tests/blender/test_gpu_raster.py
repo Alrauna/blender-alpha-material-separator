@@ -12,9 +12,12 @@ without one they report a skip instead of passing quietly.
 
 from __future__ import annotations
 
+import contextlib
+
 import bpy
 import numpy
 
+from addon.adapters import analysis as analysis_module
 from addon.adapters import gpu_raster
 from addon.adapters.analysis import AnalysisConfig, AnalysisEngine
 from addon.core import AddressMode, AlphaGrid, AnalysisSettings, rasterize_batch
@@ -336,6 +339,21 @@ def _scene(polygons: int):
     return object_
 
 
+@contextlib.contextmanager
+def _submitting_every(polygons: int):
+    """Shrink the submit threshold so a small fixture still fills the pipeline.
+
+    The shipped 16,384 would hold every face in these scenes to the very last
+    flush, which is worth testing but is not what the pipeline tests are for.
+    """
+    original = analysis_module._GPU_SUBMIT_POLYGONS
+    analysis_module._GPU_SUBMIT_POLYGONS = polygons
+    try:
+        yield
+    finally:
+        analysis_module._GPU_SUBMIT_POLYGONS = original
+
+
 def _report(object_, *, on_gpu: bool, budget: int = 64):
     engine = AnalysisEngine([object_], AnalysisConfig())
     assert engine._gpu, "the probe passed but the engine did not take the GPU path"
@@ -343,6 +361,7 @@ def _report(object_, *, on_gpu: bool, budget: int = 64):
     while not engine.step(budget):
         pass
     assert engine._inflight is None, "a completed step left a chunk on the GPU"
+    assert not engine._pending, "a completed step left polygons unsubmitted"
     return engine.finish()
 
 
@@ -406,21 +425,44 @@ def assert_the_pipeline_survives_small_steps() -> None:
     object_ = _scene(200)
     wanted = _report(object_, on_gpu=False, budget=200)
 
-    engine = AnalysisEngine([object_], AnalysisConfig())
-    assert engine._gpu
-    carried = 0
-    while not engine.step(8):
-        carried += engine._inflight is not None
-    # Without this the test would still pass on an engine that drained every
-    # step, which is the thing it exists to rule out.
-    assert carried >= 20, carried
-    produced = engine.finish()
+    with _submitting_every(8):
+        engine = AnalysisEngine([object_], AnalysisConfig())
+        assert engine._gpu
+        carried = 0
+        while not engine.step(8):
+            carried += engine._inflight is not None
+        # Without this the test would still pass on an engine that drained
+        # every step, which is the thing it exists to rule out.
+        assert carried >= 20, carried
+        produced = engine.finish()
 
     assert produced.counts == wanted.counts, (produced.counts, wanted.counts)
     for pointer, expected in wanted.object_results.items():
         faces = produced.object_results[pointer].faces
         for index, face in expected.faces.items():
             assert faces[index].result == face.result, index
+
+
+def assert_held_polygons_are_never_dropped() -> None:
+    """At the shipped threshold every face in a small scene is held to the end.
+
+    That is the ordinary case for any mesh under 16,384 polygons, and the whole
+    report then depends on one forced flush at completion firing.
+    """
+    object_ = _scene(200)
+    assert analysis_module._GPU_SUBMIT_POLYGONS > 200, "the scene must fit the hold"
+
+    engine = AnalysisEngine([object_], AnalysisConfig())
+    assert engine._gpu
+    submitted = 0
+    while not engine.step(8):
+        submitted += engine._inflight is not None
+    assert submitted == 0, "something was submitted before the hold was reached"
+    produced = engine.finish()
+
+    assert produced.counts.total() == 200, produced.counts
+    wanted = _report(object_, on_gpu=False, budget=200)
+    assert produced.counts == wanted.counts, (produced.counts, wanted.counts)
 
 
 def assert_work_in_flight_is_never_lost() -> None:
@@ -430,19 +472,20 @@ def assert_work_in_flight_is_never_lost() -> None:
     `cancel` must drop the handles rather than leave their textures alive.
     """
     object_ = _scene(64)
-    engine = AnalysisEngine([object_], AnalysisConfig())
-    assert engine._gpu
-    assert not engine.step(8)
-    assert engine._inflight is not None, "the step recorded work it should have deferred"
-    try:
-        engine.finish()
-    except RuntimeError:
-        pass
-    else:
-        raise AssertionError("finish built a report over a chunk still on the GPU")
+    with _submitting_every(8):
+        engine = AnalysisEngine([object_], AnalysisConfig())
+        assert engine._gpu
+        assert not engine.step(8)
+        assert engine._inflight is not None, "the step recorded what it should defer"
+        try:
+            engine.finish()
+        except RuntimeError:
+            pass
+        else:
+            raise AssertionError("finish built a report over a chunk on the GPU")
 
-    engine.cancel()
-    assert engine._inflight is None, "cancel left GPU textures held"
+        engine.cancel()
+        assert engine._inflight is None, "cancel left GPU textures held"
 
 
 def run() -> None:
@@ -462,6 +505,7 @@ def run() -> None:
     assert_unhandled_inputs_fall_back()
     assert_the_engine_agrees_with_itself()
     assert_the_pipeline_survives_small_steps()
+    assert_held_polygons_are_never_dropped()
     assert_work_in_flight_is_never_lost()
     gpu_raster.clear_cache()
     print("ALPHA_MATERIAL_SEPARATOR_GPU_RASTER_TESTS_OK")

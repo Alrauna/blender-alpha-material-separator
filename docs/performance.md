@@ -1848,23 +1848,69 @@ and is now covered, but the per-dispatch setup underneath it is not, and at a
 
 The responsiveness contract bounds one `step` call, not one dispatch. Deferring
 the submit until a threshold of polygons has accumulated across several steps
-buys a large dispatch without a long callback, and it reaches **-23.9% at
-16,384**, above the 20% keep gate.
-
-The worst single step rises from 217 ms to 284 ms. Both figures are dominated by
-something else: the CPU path's own worst step is 224 ms, because the first flush
-to touch a 4096² image builds that image's 2D prefix table. Holding adds about
-60 ms on top of a spike the shipped product already has. At 65,536 the worst step
-is 515 ms and that argument no longer holds.
-
-Holding is not implemented. It changes the memory profile — one held batch of
-deferred faces and their triangle arrays, roughly 6 MB at 16,384 — and it changes
-when a cancel can take effect. It is a design change beyond the reviewed
-pipelining plan and needs its own approval.
+buys a large dispatch without a long callback. Spiked at 16,384 it reached
+-23.9%, above the 20% keep gate, and it was implemented and re-measured. See
+Stage 6L.
 
 ### Position
 
-The gate is reachable, but not by the change that was approved. Pipelining alone
-lands at -11.9%; the accumulate-then-submit threshold measured on top of it
-reaches -23.9%. The re-analysis regression recorded in Stage 6J is unchanged and
-unmeasured against the held configuration, and the portability cost is unchanged.
+The gate is reachable, but not by the change that was approved on its own.
+Pipelining alone lands at -11.9%. It is a prerequisite rather than the answer:
+the accumulate-then-submit threshold is what crosses the gate.
+
+## Stage 6L, the submit threshold, which clears the gate
+
+`_GPU_SUBMIT_POLYGONS = 16_384` in `addon/adapters/analysis.py`. The GPU path
+lets polygons pile up across steps and submits only when it has that many, or
+when the run ends. Nothing else changed; the measurement below varies only that
+constant, with no patched engine internals.
+
+Same fixture, same process, all four interleaved, medians of five. Re-analysis
+is a second run over unchanged geometry with the coverage cache left warm.
+
+| Configuration | Cold | vs CPU | Re-analysis | vs CPU | Worst step |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| CPU | 2.270 s | — | 1.718 s | — | 208 ms |
+| GPU, no hold | 2.053 s | -9.6% | 1.925 s | +12.1% | 194 ms |
+| **GPU, hold 16,384** | **1.653 s** | **-27.2%** | **1.745 s** | **+1.6%** | **171 ms** |
+| GPU, 65,536 per step | 1.530 s | -32.6% | 1.707 s | -0.7% | 488 ms |
+
+Exactness held: 0 of 150,544 faces differ from the CPU report.
+
+### It clears the gate, and it fixes the two objections to shipping
+
+The keep gate is 20% and the measured cold improvement is **27.2%**.
+
+The Stage 6J re-analysis regression is gone. It was 15.1% because the GPU path
+bypasses the coverage cache and the tier shares islands across half its
+polygons; the held configuration is **+1.6%**, level within run-to-run spread.
+The kernel is now fast enough to pay for the cache it cannot use.
+
+The worst single step is **171 ms, below the CPU path's own 208 ms**, not above
+it. The earlier spike measured 284 ms because the patch used to fake the hold ran
+an extra forced flush and drain on every step. Both figures are dominated by
+lazy per-image work on first touch, and the GPU path does less of it: it builds
+packed mask textures instead of the CPU's 4096² 2D prefix table, and only builds
+the prefix table for the awkward polygons routed to the CPU partition.
+
+### What the hold costs
+
+Peak memory rises by the held chunk plus the one in flight: roughly 330 bytes per
+deferred face, so about 11 MB at 16,384 held. That is the whole cost.
+
+A cancel takes effect no later than it did before — held polygons are simply
+dropped, and `cancel` already releases the in-flight handles.
+
+The threshold is a measured constant on this machine and this tier, like
+`_RASTER_BATCH_POLYGONS`. It is not adaptive. A mesh under 16,384 polygons never
+reaches it and submits once, at the end, which is the best case for that mesh
+anyway.
+
+### Position
+
+The GPU path is worth shipping on this evidence: 27.2% cold, level on
+re-analysis, a lower worst-case callback than the CPU path, and bit-exact against
+it across 150,544 faces. The portability cost recorded in Stage 6E is unchanged
+and is now the only argument against it — Metal has no fp64, so the CPU
+rasterizer stays permanent and both implementations stay bound by the same
+bit-exactness tests.

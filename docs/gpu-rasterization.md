@@ -377,10 +377,11 @@ analysis runs on one implementation.
 
 ## Cross-step dispatch pipelining
 
-**Status: implemented and measured. It did not clear the gate.** The mechanism
-works and the guards below all hold, but the whole-workflow result at the modal
+**Status: implemented. Necessary but not sufficient.** The mechanism works and
+the guards below all hold, but on its own the whole-workflow result at the modal
 cadence is -11.9%, not the -27% this section estimated. `docs/performance.md`,
-Stage 6K, records why and what does clear it.
+Stage 6K, records why. The submit threshold below is what carries it over the
+gate, and it needs the pipeline underneath it.
 
 ### The mechanism
 
@@ -467,3 +468,38 @@ how many steps ended with a chunk still on the GPU and fails if the engine
 drains every flush, `assert_work_in_flight_is_never_lost` covers the `finish`
 refusal and the `cancel` drop, and `_report` now asserts nothing is in flight
 once a step reports completion.
+
+## The submit threshold
+
+`_GPU_SUBMIT_POLYGONS = 16_384`. The GPU path returns from `_flush_pending`
+without submitting until it holds that many polygons; `step` passes `final=True`
+on the flush that completes the run, which submits whatever is left.
+
+### Why a threshold and not a bigger step
+
+Every dispatch allocates and uploads its own input and result textures, and that
+cost does not shrink with the batch. At the modal cadence a flush is roughly
+1,300 polygons and the fixed cost dominates; at 512 polygons per step the GPU
+path is slower than the CPU outright.
+
+The obvious fix — step more polygons at a time — trades the responsiveness
+contract for the gate, because a 65,536-polygon step is one 488 ms callback.
+The threshold separates the two: the contract bounds one `step`, the threshold
+bounds one dispatch, and neither has to move for the other. Measured worst step
+with the hold is 171 ms, below the CPU path's own 208 ms.
+
+### What it must not break
+
+- The final flush must force a submit. Any mesh under 16,384 polygons never
+  reaches the threshold, so without `final=True` its entire report is empty.
+  `_report` asserts `_pending` is empty once a step reports completion, and
+  `assert_held_polygons_are_never_dropped` runs a 200-polygon scene at the
+  shipped threshold and checks nothing is submitted before the end.
+- The CPU path must not hold. It has no dispatch to amortize and holding would
+  only delay its work.
+- Peak memory rises by the held chunk and the one in flight, about 11 MB at
+  16,384 deferred faces.
+
+The threshold is a measured constant for this machine and tier, like
+`_RASTER_BATCH_POLYGONS`, and the tests that depend on pipeline depth shrink it
+through `_submitting_every` rather than building a 16,384-polygon fixture.
