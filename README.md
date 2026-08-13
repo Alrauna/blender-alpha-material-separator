@@ -111,25 +111,18 @@ Apply performs a final synchronous check before changing data.
 
 ## Speed
 
-Analysis runs on your graphics card when the hardware supports it and on the
-CPU when it does not. Both paths produce the same report. The extension checks
-the graphics path against the CPU one the first time it uses it and switches
-itself off for the session if the two disagree, so a driver that computes
-differently costs you speed rather than correctness.
+Analysis is GPU accelerated on supported hardware, and will fall back to CPU on
+unsupported hardware, such as Apple Silicon or Intel Alchemist. The extension
+automatically checks for FP64 support upon initial startup, and will check on
+"Disable GPU acceleration" under Expert>Expert Analysis Settings automatically
+if FP64 instructions do not run properly on your hardware. This check does not
+benchmark your system, please consider disabling GPU acceleration on systems
+with very powerful CPUs without HPC ready GPUs for longer workflows. Analysis
+results should be identical regardless.
 
 On the machine this was measured on, a 150,000-face model analyzed about 27
 percent faster on the graphics card. Your hardware will differ; see
 [performance](docs/performance.md) for how that was measured.
-
-Expert has a **Disable GPU acceleration** checkbox if you want the CPU path
-regardless. Like the other analysis settings, it resets when you open Blender
-again, and switching it does not invalidate a completed analysis.
-
-Some graphics hardware cannot run the accelerated path at all — Apple Silicon
-is the current example, because Metal has no double-precision math, and the
-exact texel counting depends on it. There the checkbox is already checked and
-greyed out with the reason written underneath, and analysis runs on the CPU
-exactly as it always has.
 
 ## After export
 
