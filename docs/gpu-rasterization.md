@@ -264,11 +264,14 @@ cannot, so it is the gate for the integration commit rather than an extra.
   The CPU rasterizer is a permanent fallback, and two implementations of the most
   correctness-critical code in the addon are maintained under one set of
   bit-exactness tests. This is the real price and it is not measured in seconds.
-- **One machine, one driver.** Every measurement and the exactness result come
-  from a single OpenGL NVIDIA machine. Another driver could round, fold or
-  miscompile differently; the runtime self-test is what makes that disable the
-  path rather than corrupt a report, and it is why the probe verifies results
-  rather than compilation.
+- **One machine, one driver.** Every *measurement* and the exactness result come
+  from a single OpenGL NVIDIA machine. The probe's two outcomes have since been
+  confirmed by hand on Windows/OpenGL and on a Mac, where the panel showed the
+  instruction-set message — reachable only from `NO_FP64`, so Metal took the
+  fp64 branch rather than failing some other way. Neither hand run was timed.
+  Another driver could still round, fold or miscompile differently; the runtime
+  self-test is what makes that disable the path rather than corrupt a report,
+  and it is why the probe verifies results rather than compilation.
 - **Drivers can regress.** The self-test runs every process start, so a driver
   update that breaks exactness disables the GPU path instead of corrupting
   output.

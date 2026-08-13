@@ -109,6 +109,28 @@ If a classification input changes, the panel reports
 equal inputs. Assignment-only plan changes require confirmation, not another analysis.
 Apply performs a final synchronous check before changing data.
 
+## Speed
+
+Analysis runs on your graphics card when the hardware supports it and on the
+CPU when it does not. Both paths produce the same report. The extension checks
+the graphics path against the CPU one the first time it uses it and switches
+itself off for the session if the two disagree, so a driver that computes
+differently costs you speed rather than correctness.
+
+On the machine this was measured on, a 150,000-face model analyzed about 27
+percent faster on the graphics card. Your hardware will differ; see
+[performance](docs/performance.md) for how that was measured.
+
+Expert has a **Disable GPU acceleration** checkbox if you want the CPU path
+regardless. Like the other analysis settings, it resets when you open Blender
+again, and switching it does not invalidate a completed analysis.
+
+Some graphics hardware cannot run the accelerated path at all — Apple Silicon
+is the current example, because Metal has no double-precision math, and the
+exact texel counting depends on it. There the checkbox is already checked and
+greyed out with the reason written underneath, and analysis runs on the CPU
+exactly as it always has.
+
 ## After export
 
 The source material is the opaque candidate and `__AMS_ALPHA` is the
@@ -137,6 +159,7 @@ assuming the change is always a win.
 | Mesh data is shared, linked, or read-only | Make a deliberate editable copy; the extension never does this automatically. |
 | **Already separated — no additional changes** | The selected meshes need no further material moves. |
 | Analysis is slow | Wait, press `Esc`, or use **Cancel Analysis**; cancellation keeps the previous completed report. |
+| **Disable GPU acceleration** is checked and greyed out | Your graphics hardware cannot run the accelerated path. Analysis runs on the CPU and the results are identical. |
 
 ## More documentation
 
