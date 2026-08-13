@@ -336,12 +336,13 @@ def _scene(polygons: int):
     return object_
 
 
-def _report(object_, *, on_gpu: bool):
+def _report(object_, *, on_gpu: bool, budget: int = 64):
     engine = AnalysisEngine([object_], AnalysisConfig())
     assert engine._gpu, "the probe passed but the engine did not take the GPU path"
     engine._gpu = on_gpu
-    while not engine.step(64):
+    while not engine.step(budget):
         pass
+    assert engine._inflight is None, "a completed step left a chunk on the GPU"
     return engine.finish()
 
 
@@ -395,6 +396,55 @@ def assert_the_engine_agrees_with_itself() -> None:
     ), on_cpu.metrics
 
 
+def assert_the_pipeline_survives_small_steps() -> None:
+    """Many short steps, each ending with the previous chunk still on the GPU.
+
+    A chunk is recorded one flush after it is deferred, so the step size decides
+    how much work is in flight when a step returns. The engine has to give the
+    same report whatever that size is.
+    """
+    object_ = _scene(200)
+    wanted = _report(object_, on_gpu=False, budget=200)
+
+    engine = AnalysisEngine([object_], AnalysisConfig())
+    assert engine._gpu
+    carried = 0
+    while not engine.step(8):
+        carried += engine._inflight is not None
+    # Without this the test would still pass on an engine that drained every
+    # step, which is the thing it exists to rule out.
+    assert carried >= 20, carried
+    produced = engine.finish()
+
+    assert produced.counts == wanted.counts, (produced.counts, wanted.counts)
+    for pointer, expected in wanted.object_results.items():
+        faces = produced.object_results[pointer].faces
+        for index, face in expected.faces.items():
+            assert faces[index].result == face.result, index
+
+
+def assert_work_in_flight_is_never_lost() -> None:
+    """The two ways an incomplete run can reach a caller, both refused.
+
+    `finish` must not build a short report over a chunk still on the GPU, and
+    `cancel` must drop the handles rather than leave their textures alive.
+    """
+    object_ = _scene(64)
+    engine = AnalysisEngine([object_], AnalysisConfig())
+    assert engine._gpu
+    assert not engine.step(8)
+    assert engine._inflight is not None, "the step recorded work it should have deferred"
+    try:
+        engine.finish()
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("finish built a report over a chunk still on the GPU")
+
+    engine.cancel()
+    assert engine._inflight is None, "cancel left GPU textures held"
+
+
 def run() -> None:
     assert_probe_is_total()
     if not gpu_raster.available():
@@ -411,5 +461,7 @@ def run() -> None:
     assert_budget_trips_match_the_cpu()
     assert_unhandled_inputs_fall_back()
     assert_the_engine_agrees_with_itself()
+    assert_the_pipeline_survives_small_steps()
+    assert_work_in_flight_is_never_lost()
     gpu_raster.clear_cache()
     print("ALPHA_MATERIAL_SEPARATOR_GPU_RASTER_TESTS_OK")

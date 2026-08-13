@@ -467,8 +467,12 @@ def _build():
     return gpu.shader.create_from_info(info)
 
 
-def _dispatch(shader, triangles, counts, grid, mode):
-    """Run the kernel and read back per-polygon covered and affected counts."""
+def _submit(shader, triangles, counts, grid, mode):
+    """Queue the kernel and return a handle to read later, or `None` to fall back.
+
+    Split from the readback because reading a result texture waits for the
+    dispatch that fills it. Anything the caller does between the two is free.
+    """
     import gpu
 
     chunks, layout, widest = _prepare(triangles, counts)
@@ -503,6 +507,14 @@ def _dispatch(shader, triangles, counts, grid, mode):
     gpu.compute.dispatch(shader, -(-polygons // 64), 1, 1)
     # Releasing a still-bound shader hard-crashes Blender on the next bind.
     gpu.shader.unbind()
+    # The input textures ride along in the handle. They are read by a dispatch
+    # that has not finished, so they must not be collected before it has.
+    return (outputs, polygons, (tris, layout_texture))
+
+
+def _collect(handle):
+    """Read a submitted dispatch. This is where the wait actually happens."""
+    outputs, polygons, _inputs = handle
     return {
         name: numpy.asarray(texture.read())
         .reshape(-1)[:polygons]
@@ -565,9 +577,10 @@ def _self_test(shader) -> bool:
 
     try:
         for mode in _MODE_CODE:
-            produced = _dispatch(shader, quads, counts, grid, mode)
-            if produced is None:
+            handle = _submit(shader, quads, counts, grid, mode)
+            if handle is None:
                 return False
+            produced = _collect(handle)
             if any(
                 not numpy.array_equal(produced[name], want)
                 for name, want in expected.items()
@@ -630,14 +643,30 @@ def counted_batch(
     A non-zero raster margin always falls back. The kernel counts spans as it
     unions them and never materializes them, so it has nothing to dilate, and
     reproducing `rasterize_batch`'s margin pass would mean giving that up.
+
+    This waits for the dispatch. A caller with other work to do should use
+    `submit_batch` and `collect_batch` and do that work in between.
+    """
+    result, pending = submit_batch(triangles, counts, grid, mode, settings=settings)
+    return None if result is None else collect_batch(result, pending)
+
+
+def submit_batch(
+    triangles: numpy.ndarray, counts: numpy.ndarray, grid, mode, *, settings
+):
+    """Queue this batch and return `(partial counts, pending)` for `collect_batch`.
+
+    The counters that need no rasterization are already filled in on the returned
+    `GpuCounts`; the rest arrive when it is collected. `(None, None)` means the
+    same thing `counted_batch` returning `None` does.
     """
     if mode not in _MODE_CODE or settings.margin_texels or not available():
-        return None
+        return None, None
     polygons = int(counts.shape[0])
     counts = counts.astype(numpy.int64, copy=False)
     if polygons == 0:
         empty = numpy.zeros(0, dtype=numpy.int64)
-        return GpuCounts(*([empty] * 7), {})
+        return GpuCounts(*([empty] * 7), {}), None
 
     live_counts, scanlines, invalid = _survey(triangles, counts)
     # `_within_segment` makes the CPU's budget a running total within a polygon,
@@ -666,25 +695,49 @@ def counted_batch(
 
     fast = ~slow
     by_triangle = numpy.repeat(slow, counts)
+    handle = None
     if fast.any():
-        produced = _dispatch(
+        handle = _submit(
             _shader,
             triangles if not slow.any() else triangles[~by_triangle],
             counts[fast],
             grid,
             mode,
         )
-        if produced is None:
-            return None
+        if handle is None:
+            return None, None
+    pending = (handle, fast, slow, by_triangle, triangles, counts, grid, mode, settings)
+    return result, pending
+
+
+def collect_batch(result: GpuCounts, pending) -> GpuCounts:
+    """Finish a `submit_batch`: the CPU partition first, then read the dispatch.
+
+    That order is deliberate. Reading the result texture waits for the kernel, so
+    the awkward polygons the CPU has to handle anyway are rasterized while it is
+    still running rather than after it has stopped.
+    """
+    if pending is None:
+        return result
+    handle, fast, slow, by_triangle, triangles, counts, grid, mode, settings = pending
+    if slow.any():
+        _merge_slow(result, pending)
+    if handle is not None:
+        produced = _collect(handle)
         result.affected[fast] = produced["affected"]
         result.covered_texels[fast] = produced["covered"]
         result.emitted_runs[fast] = produced["emitted"]
         result.union_runs[fast] = produced["unions"]
-    if not slow.any():
-        return result
+    return result
 
-    # One awkward polygon must not disable the GPU for the whole mesh, so the
-    # awkward ones go to the CPU and the results merge back by index.
+
+def _merge_slow(result: GpuCounts, pending) -> None:
+    """One awkward polygon must not disable the GPU for the whole mesh.
+
+    The over-cap, budget-tripped and non-finite polygons go to the CPU and the
+    results merge back by index.
+    """
+    _handle, _fast, slow, by_triangle, triangles, counts, grid, mode, settings = pending
     coverages = rasterize_batch(
         triangles[by_triangle],
         counts[slow],
@@ -713,4 +766,3 @@ def counted_batch(
         )
         for name in _COUNTERS:
             getattr(result, name)[rejected] = 0
-    return result

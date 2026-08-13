@@ -334,6 +334,21 @@ class _DeferredFace:
     classified: ClassificationResult | None = None
 
 
+@dataclass(slots=True)
+class _InFlight:
+    """One chunk's faces and the GPU dispatches that will classify them.
+
+    Reading a result texture waits for the dispatch that fills it, so the chunk
+    is submitted and then left alone while the next chunk's UV traversal runs.
+    Holding the batches also holds their textures, which the GPU is still
+    reading.
+    """
+
+    faces: list[_DeferredFace]
+    # (positions in `faces`, partial counts, the `gpu_raster` collect token).
+    batches: list[tuple[list[int], Any, Any]]
+
+
 class _Signature:
     def __init__(self) -> None:
         self._digest = hashlib.blake2b(digest_size=32)
@@ -1023,6 +1038,7 @@ class AnalysisEngine:
         self._prepared_index = 0
         self._polygon_index = 0
         self._pending: list[_DeferredFace] = []
+        self._inflight: _InFlight | None = None
         # The GPU kernel fuses rasterizing and counting, so it cannot use a
         # coverage cache keyed on geometry alone, and it has nothing to dilate
         # for a raster margin. Both make it a whole-run decision rather than a
@@ -1103,6 +1119,9 @@ class AnalysisEngine:
 
     def cancel(self) -> None:
         self.cancelled = True
+        # Dropped rather than collected. Nothing will read the result, and the
+        # handles hold GPU textures that only release when they do.
+        self._inflight = None
         self.close()
 
     def _record_unsupported(
@@ -1360,65 +1379,91 @@ class AnalysisEngine:
             unsupported_reason=reason,
         )
 
-    def _classify_pending_on_gpu(self) -> list[ClassificationResult] | None:
-        """Rasterize, count and classify this chunk with the fused kernel.
+    def _submit_pending(self) -> _InFlight | None:
+        """Queue every dispatch this chunk needs, without reading any of them.
 
         Grouped by image and address mode exactly as the CPU counting pass is,
-        because one dispatch shares one alpha mask. Returns `None` if the kernel
-        declines a batch, which leaves the caller to run the CPU path instead.
+        because one dispatch shares one alpha mask. `None` means the kernel
+        declined a batch and the caller must run the CPU path instead.
         """
         settings = self.config.settings
+        started = time.perf_counter()
         groups: dict[tuple[int, AddressMode], list[int]] = defaultdict(list)
         for position, deferred in enumerate(self._pending):
             key = (id(deferred.snapshot.grid), deferred.resolution.address_mode)
             groups[key].append(position)
 
-        classifications: list[ClassificationResult | None] = [None] * len(self._pending)
-        for positions in groups.values():
-            first = self._pending[positions[0]]
-            for begin in range(0, len(positions), _RASTER_BATCH_POLYGONS):
-                window = positions[begin : begin + _RASTER_BATCH_POLYGONS]
-                started = time.perf_counter()
-                batches = [self._pending[position].triangles for position in window]
-                produced = gpu_raster.counted_batch(
-                    numpy.concatenate(batches),
-                    numpy.fromiter(
-                        (len(batch) for batch in batches),
-                        dtype=numpy.int64,
-                        count=len(batches),
-                    ),
-                    first.snapshot.grid,
-                    first.resolution.address_mode,
-                    settings=settings,
-                )
-                classify_started = time.perf_counter()
-                self.metrics["phase_raster_seconds"] += classify_started - started
-                if produced is None:
-                    return None
-                for offset, position in enumerate(window):
-                    reason = produced.reasons.get(offset)
-                    classifications[position] = (
-                        self._unsupported_face(reason)
-                        if reason is not None
-                        else classify_stats(
-                            RasterStats(
-                                triangles=int(produced.triangles[offset]),
-                                degenerate_triangles=int(
-                                    produced.degenerate_triangles[offset]
-                                ),
-                                scanlines=int(produced.scanlines[offset]),
-                                emitted_runs=int(produced.emitted_runs[offset]),
-                                union_runs=int(produced.union_runs[offset]),
-                                covered_texels=int(produced.covered_texels[offset]),
+        # One dispatch per group, not one per `_RASTER_BATCH_POLYGONS`. That
+        # window keeps the CPU rasterizer's intermediates in cache; the kernel
+        # has no such working set, and each extra dispatch is another fixed cost
+        # for the same work.
+        batches: list[tuple[list[int], Any, Any]] = []
+        for window in groups.values():
+            first = self._pending[window[0]]
+            triangles = [self._pending[position].triangles for position in window]
+            counts, pending = gpu_raster.submit_batch(
+                numpy.concatenate(triangles),
+                numpy.fromiter(
+                    (len(one) for one in triangles),
+                    dtype=numpy.int64,
+                    count=len(triangles),
+                ),
+                first.snapshot.grid,
+                first.resolution.address_mode,
+                settings=settings,
+            )
+            if counts is None:
+                # Nothing is recorded yet, so abandoning the batches already
+                # submitted only wastes their work. Their textures go with the
+                # discarded handles.
+                self.metrics["phase_raster_seconds"] += time.perf_counter() - started
+                return None
+            batches.append((window, counts, pending))
+        self.metrics["phase_raster_seconds"] += time.perf_counter() - started
+        return _InFlight(faces=self._pending, batches=batches)
+
+    def _collect_inflight(self, inflight: _InFlight) -> None:
+        """Read a submitted chunk, classify it, and record its faces."""
+        settings = self.config.settings
+        started = time.perf_counter()
+        collected = [
+            (window, gpu_raster.collect_batch(counts, pending))
+            for window, counts, pending in inflight.batches
+        ]
+        classify_started = time.perf_counter()
+        self.metrics["phase_raster_seconds"] += classify_started - started
+
+        faces = inflight.faces
+        classifications: list[ClassificationResult | None] = [None] * len(faces)
+        for window, produced in collected:
+            for offset, position in enumerate(window):
+                reason = produced.reasons.get(offset)
+                classifications[position] = (
+                    self._unsupported_face(reason)
+                    if reason is not None
+                    else classify_stats(
+                        RasterStats(
+                            triangles=int(produced.triangles[offset]),
+                            degenerate_triangles=int(
+                                produced.degenerate_triangles[offset]
                             ),
-                            int(produced.affected[offset]),
-                            settings=settings,
-                        )
+                            scanlines=int(produced.scanlines[offset]),
+                            emitted_runs=int(produced.emitted_runs[offset]),
+                            union_runs=int(produced.union_runs[offset]),
+                            covered_texels=int(produced.covered_texels[offset]),
+                        ),
+                        int(produced.affected[offset]),
+                        settings=settings,
                     )
-                self.metrics["phase_classify_seconds"] += (
-                    time.perf_counter() - classify_started
                 )
-        return classifications
+        self.metrics["phase_classify_seconds"] += time.perf_counter() - classify_started
+        self._record_pending(faces, classifications)
+
+    def _drain_inflight(self) -> None:
+        """Finish any submitted chunk. Safe to call when there is none."""
+        if self._inflight is not None:
+            inflight, self._inflight = self._inflight, None
+            self._collect_inflight(inflight)
 
     def _flush_pending(self) -> None:
         """Rasterize, count and classify every polygon deferred this chunk.
@@ -1430,15 +1475,25 @@ class AnalysisEngine:
         if not self._pending:
             return
         if self._gpu:
-            classifications = self._classify_pending_on_gpu()
-            if classifications is not None:
-                self._record_pending(classifications)
+            submitted = self._submit_pending()
+            if submitted is not None:
+                # The previous chunk is read only now, with this one's
+                # dispatches already queued behind it, so the wait for it has
+                # been running under this chunk's UV traversal. Faces are
+                # recorded one chunk later than they are deferred.
+                self._drain_inflight()
+                self._inflight = submitted
+                self._pending = []
                 return
             # A declined batch is not a failure, only a slower route. Turning
             # the path off for the rest of the run keeps one analysis on one
             # implementation rather than alternating between two. These faces
             # were never looked up, so they are misses the CPU path is about to
             # rasterize; without the key it dedups them all into one.
+            # Whatever is in flight was submitted before the decline and is
+            # still owed a recording, and draining it here also keeps chunks in
+            # the order they were deferred.
+            self._drain_inflight()
             self._gpu = False
             self.metrics["coverage_cache_misses"] += len(self._pending)
             for deferred in self._pending:
@@ -1471,19 +1526,22 @@ class AnalysisEngine:
             for deferred, count in zip(self._pending, affected)
         ]
         self.metrics["phase_classify_seconds"] += time.perf_counter() - started
-        self._record_pending(classifications)
+        faces, self._pending = self._pending, []
+        self._record_pending(faces, classifications)
 
     def _record_pending(
-        self, classifications: list[ClassificationResult]
+        self,
+        faces: list[_DeferredFace],
+        classifications: list[ClassificationResult],
     ) -> None:
-        """Record this chunk's faces and its raster counters, then clear it."""
+        """Record one chunk's faces and its raster counters."""
         # The six raster counters are summed into locals and added to `metrics`
         # once per chunk. Adding them per face cost more than the whole of the
         # rest of `_record_face`: a fresh dict literal and a `Counter.update`
         # 150,544 times over.
         rasterized = False
         triangles = degenerate = scanlines = emitted = union = covered = 0
-        for deferred, classified in zip(self._pending, classifications):
+        for deferred, classified in zip(faces, classifications):
             self._record_face(deferred, classified)
             stats = classified.raster_stats
             if stats is not None:
@@ -1498,7 +1556,6 @@ class AnalysisEngine:
             # A chunk in which nothing rasterized left these keys absent before,
             # and `report.metrics` is the whole counter, so creating them at zero
             # would change the report rather than only its timing.
-            self._pending.clear()
             return
         metrics = self.metrics
         metrics["triangles"] += triangles
@@ -1507,7 +1564,6 @@ class AnalysisEngine:
         metrics["emitted_runs"] += emitted
         metrics["union_runs"] += union
         metrics["covered_texels"] += covered
-        self._pending.clear()
 
     def step(
         self,
@@ -1562,13 +1618,22 @@ class AnalysisEngine:
                 self._polygon_index = 0
                 self._prepared_index += 1
         self._flush_pending()
-        return self._prepared_index >= len(self.prepared)
+        if self._prepared_index < len(self.prepared):
+            return False
+        # Nothing will call back again, so the chunk still in flight has to be
+        # read here or its faces never reach the report.
+        self._drain_inflight()
+        return True
 
     def finish(self) -> AnalysisReport:
         if (
             self.cancelled
             or self._deferred_images
             or self._prepared_index < len(self.prepared)
+            # A report built over a chunk still on the GPU would be short those
+            # faces and look complete. `step` drains when it returns True, so
+            # this only fires for a caller that skipped that.
+            or self._inflight is not None
         ):
             raise RuntimeError("analysis is incomplete")
         for name, total in _phase_totals().items():

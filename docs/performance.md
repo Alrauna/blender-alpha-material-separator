@@ -1798,3 +1798,73 @@ The portability cost recorded above has not changed either. Metal has no fp64,
 so shipping this means the CPU rasterizer stays permanent and two implementations
 of the same arithmetic are bound by the same bit-exactness tests indefinitely —
 for a benefit that does not clear the threshold set before the work began.
+
+## Stage 6K, cross-step pipelining, measured at the real cadence
+
+Pipelining was implemented as designed in `docs/gpu-rasterization.md`: a flush
+submits its dispatches, then reads and records the *previous* flush. Faces are
+recorded one flush later than they are deferred. `_RASTER_BATCH_POLYGONS` no
+longer chunks the GPU path either — that window exists to keep the CPU
+rasterizer's intermediates in cache, and on the GPU it only bought more fixed
+per-dispatch cost for the same work. One dispatch per image and address mode
+group per flush.
+
+All five configurations interleaved in one process, medians of five cold runs
+after one discarded warm-up each, realistic tier, 150,544 faces.
+
+| Configuration | Cold | vs CPU | Raster phase | Worst step |
+| --- | ---: | ---: | ---: | ---: |
+| CPU, modal cadence | 2.387 s | — | 0.506 s | 224 ms |
+| GPU, modal cadence | 2.104 s | **-11.9%** | 0.501 s | 217 ms |
+| GPU, 16,384 held back | 1.817 s | **-23.9%** | 0.207 s | 284 ms |
+| GPU, 65,536 held back | 1.782 s | -25.4% | 0.157 s | 515 ms |
+| GPU, 65,536 per step | 1.782 s | -25.4% | 0.153 s | 579 ms |
+
+Exactness held: 0 of 150,544 faces differ from the CPU report.
+
+### The modal cadence is the whole story
+
+Earlier measurements used `step(4096)` with no time budget. The modal operator
+passes both budgets and the 12 ms timer almost always wins first, so the real
+flush is far smaller than 4,096 polygons. Measured in the same session, the
+same pipelined code gives -13.3% stepped at 4,096 polygons and -9.4% to -11.9%
+at the real cadence. The earlier -10.4% and -15.9% figures were taken at the
+larger, unreachable cadence and are not comparable to these.
+
+Stepping *smaller* is worse than the CPU outright: at 512 polygons per step the
+GPU path runs **+31.5%** slower, with a 1.541 s raster phase. Each dispatch
+allocates and uploads its own input and result textures, and that fixed cost is
+paid per dispatch no matter how few polygons it covers.
+
+### Pipelining works, and is not enough on its own
+
+It is worth roughly 2 percentage points at the modal cadence, not the 22% the
+Stage 6J projection estimated. The projection assumed the stall was the whole
+cost and that the next chunk's UV traversal would cover it. The stall is real
+and is now covered, but the per-dispatch setup underneath it is not, and at a
+1,300-polygon flush there are enough dispatches for that floor to dominate.
+
+### Holding polygons back does clear the gate
+
+The responsiveness contract bounds one `step` call, not one dispatch. Deferring
+the submit until a threshold of polygons has accumulated across several steps
+buys a large dispatch without a long callback, and it reaches **-23.9% at
+16,384**, above the 20% keep gate.
+
+The worst single step rises from 217 ms to 284 ms. Both figures are dominated by
+something else: the CPU path's own worst step is 224 ms, because the first flush
+to touch a 4096² image builds that image's 2D prefix table. Holding adds about
+60 ms on top of a spike the shipped product already has. At 65,536 the worst step
+is 515 ms and that argument no longer holds.
+
+Holding is not implemented. It changes the memory profile — one held batch of
+deferred faces and their triangle arrays, roughly 6 MB at 16,384 — and it changes
+when a cancel can take effect. It is a design change beyond the reviewed
+pipelining plan and needs its own approval.
+
+### Position
+
+The gate is reachable, but not by the change that was approved. Pipelining alone
+lands at -11.9%; the accumulate-then-submit threshold measured on top of it
+reaches -23.9%. The re-analysis regression recorded in Stage 6J is unchanged and
+unmeasured against the held configuration, and the portability cost is unchanged.

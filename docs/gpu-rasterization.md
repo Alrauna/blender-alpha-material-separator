@@ -375,11 +375,12 @@ coverage keys computed, are counted as cache misses since they were never looked
 up, and the CPU path finishes them; `self._gpu` stays False afterwards so one
 analysis runs on one implementation.
 
-## Proposed: cross-step dispatch pipelining
+## Cross-step dispatch pipelining
 
-**Status: awaiting approval. Not implemented.** The integrated path returned
-10.4% against a 20% keep gate; `docs/performance.md` records that measurement and
-its cause. This section is the design for the one option that can close the gap.
+**Status: implemented and measured. It did not clear the gate.** The mechanism
+works and the guards below all hold, but the whole-workflow result at the modal
+cadence is -11.9%, not the -27% this section estimated. `docs/performance.md`,
+Stage 6K, records why and what does clear it.
 
 ### The mechanism
 
@@ -444,11 +445,25 @@ a dropped, duplicated or misordered chunk fails it. Three more are needed — a
 run stepped in small budgets so several flushes are in flight in sequence, a
 cancel with work in flight, and a `finish()` attempted with work in flight.
 
-### The measurement this rests on is not yet trustworthy
+### The measurement this rested on was not trustworthy
 
 The whole-workflow figures moved between -10.4% and -19.0% for the same serial
 code across four runs in one session, while the CPU baseline drifted from
 2.470 s to 2.976 s. `VirtualDesktop.Streamer` was resident and using the GPU
 throughout, which contaminates dispatch latency specifically. The raster-region
-figures above are stable and the mechanism they show is real, but the gate
-decision needs a re-measurement on a quiet machine.
+figures above are stable, but the estimate built on them was wrong in a way the
+noise did not cause: every one of those runs stepped 4,096 polygons with no time
+budget, a cadence the modal operator never reaches.
+
+### What the implementation added beyond the design
+
+`_RASTER_BATCH_POLYGONS` no longer chunks the GPU path. It is a CPU cache-window
+constant, and on the GPU it only multiplied the per-dispatch fixed cost. The
+kernel now takes one dispatch per image and address mode group per flush.
+
+Three tests were added as this section required, and each was verified to fail
+against a deliberate break: `assert_the_pipeline_survives_small_steps` counts
+how many steps ended with a chunk still on the GPU and fails if the engine
+drains every flush, `assert_work_in_flight_is_never_lost` covers the `finish`
+refusal and the `cancel` drop, and `_report` now asserts nothing is in flight
+once a step reports completion.
