@@ -350,13 +350,18 @@ benchmark fixtures.
 - The 29 human-interaction checkboxes in `docs/testing.md` were last confirmed
   on 2026-08-01, before any of the GPU work. The new Expert checkbox has since
   been exercised by hand on Windows and macOS, but the Analyze, progress, and
-  cancellation rows have not been re-run against the GPU path.
+  cancellation rows have not been re-run against the GPU path and will not be
+  before merge: the owner's decision on 2026-08-13 is that the branch ships on
+  its automated gates plus the two-platform hand check already done, and that
+  anything the automation missed arrives as an issue.
 - `run_benchmarks.py` on the GPU path exits 11 with an access violation after
   its results are written. Pre-existing, not caused by the background gate, not
   reproduced by the headless suite with the same opt-in, and not fixed by
   clearing the mask textures. Recorded in `docs/performance.md`. Whether an
-  interactive Blender has the same teardown fault on quit after an analysis is
-  unknown and worth one deliberate check.
+  interactive Blender has the same teardown fault on quit is unknown; checking
+  it needs a human at a running Blender, so it stays unknown by the same
+  decision. A crash report naming teardown after an analysis is the signal that
+  this is the cause.
 - The manual toggle does not survive a file load, on either `load_ui` setting.
   Neither does `max_scanlines`, so this is the settings group's ordinary
   session lifetime rather than anything specific to the toggle. Measured, not
@@ -364,14 +369,11 @@ benchmark fixtures.
 
 ## Next action
 
-Open the pull request. Every automated gate is green, the packaged artifact
-matches the source, the README documents the GPU path for users, and both probe
-outcomes have been confirmed by hand on Windows and macOS.
-
-One release gate is still outstanding and is not a blocker for review: the
-Analyze, progress, and cancellation rows of the human-interaction matrix in
-`docs/testing.md` were last confirmed on 2026-08-01, before any GPU work, and
-have not been re-run against the accelerated path.
+Review and merge [pull request 20](https://github.com/Alrauna/blender-alpha-material-separator/pull/20).
+It is open and every check is green on Windows, Linux, and macOS. Nothing is
+waiting on a human at a Blender window: the remaining interaction rows are
+deliberately not being re-run, per the limitation above, and a reported issue is
+the accepted way for anything they would have caught to surface.
 
 Everything the GPU design specified exists: all four address modes, host-side
 partitioning for polygons past the span cap, budget trips with the CPU's reason
