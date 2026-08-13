@@ -4,8 +4,18 @@ Updated: 2026-08-13
 
 ## Current branch objective
 
-`feat/gpu-acceleration` is based on `origin/main` commit `6973a44`. It
-implements `PLAN.md`, the staged analysis performance plan. The plan's thesis is
+`feat/gpu-fp32-support` is based on `origin/main` commit `343a575`, which is
+pull request 20 — the whole of `feat/gpu-acceleration`, merged. Its objective is
+the experiment recorded under *Future work* in `docs/gpu-rasterization.md`:
+measure how often an fp32 kernel would actually disagree with the CPU, and
+decide from that whether an fp32 fast path is worth having. Nothing below it has
+been started. Everything else on this page is the merged branch's record, kept
+because the fp32 question is a direct continuation of it.
+
+### The merged branch
+
+`feat/gpu-acceleration` was based on `origin/main` commit `6973a44`. It
+implemented `PLAN.md`, the staged analysis performance plan. The plan's thesis is
 that GPU acceleration is a candidate gated on measurement, not a specification:
 the CPU implementation stays authoritative, every later target is chosen from a
 fresh profile, and a successful outcome does not require shipping GPU code.
@@ -369,11 +379,26 @@ benchmark fixtures.
 
 ## Next action
 
-Review and merge [pull request 20](https://github.com/Alrauna/blender-alpha-material-separator/pull/20).
-It is open and every check is green on Windows, Linux, and macOS. Nothing is
-waiting on a human at a Blender window: the remaining interaction rows are
-deliberately not being re-run, per the limitation above, and a reported issue is
-the accepted way for anything they would have caught to surface.
+Design the fp32 experiment and get it approved before writing a kernel. It
+touches the exactness contract, which is the one thing the whole GPU path rests
+on, so it is design-and-approval work rather than a narrow request.
+
+The shape it has to take, from `docs/gpu-rasterization.md`: an fp32 variant of
+the kernel, run against the existing exactness oracle across the 150,544-face
+realistic tier, reporting the number of disagreeing polygons rather than a
+pass/fail. Zero on realistic content is what would make an fp32 fast path with
+fp64 as the fallback arguable — and would give Apple Silicon acceleration. A
+non-zero count ends the question, and cheaply.
+
+Two things the design has to answer, not assume. The probe does not disappear:
+it becomes "does this GPU's fp32 match our CPU", which is a harder question than
+"does this GPU have fp64" and needs a self-test fixture chosen to discriminate.
+And a per-machine device choice would mean two devices producing two reports,
+which the current `AnalysisConfig.payload()` omission of `use_gpu` assumes can
+never happen.
+
+Pull request 20 is merged as `343a575`. Every check was green on Windows, Linux,
+and macOS.
 
 Everything the GPU design specified exists: all four address modes, host-side
 partitioning for polygons past the span cap, budget trips with the CPU's reason
