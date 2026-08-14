@@ -317,8 +317,11 @@ RED before GREEN on each, smallest relevant regression first.
 
 1. **Unit** — the fp32 self-test fixture is exactly representable: every
    coordinate survives a float32 round trip, and every slope quotient is exact.
-2. **Unit** — `AnalysisConfig.payload()` precision matrix: default ≠ CPU,
-   CPU == high precision, and the field's four input combinations.
+2. **Headless** — `AnalysisConfig.payload()` precision matrix: default ≠ CPU,
+   CPU == high precision, and the field's four input combinations. Headless
+   rather than unit only because `adapters/analysis.py` imports `bpy` at module
+   scope; `adapters/gpu_raster.py` does not, which is why test 1 can be a unit
+   test.
 3. **Headless** — `available()` is true with `_has_fp64` monkeypatched to
    `False`, `reason()` is `OK`, and `available(high_precision=True)` is false
    with `NO_FP64`.
@@ -396,20 +399,190 @@ which it does, so the clean build and installed-ZIP check run too.
    missing fp64 disables acceleration. Rewriting it is part of the last commit,
    not an afterthought.
 
-## Commit boundaries
+## Implementation plan
 
-1. Probe split: precision-keyed shaders and reasons, `available()` and
-   `reason()` keyword, fp64 no longer gating fp32. Tests 3.
-2. Templated source and the fp32 upload branch, with the new fixture and its
-   self-test. Tests 1 and 4; the fp64 self-test proves the rewrite is inert.
-3. Settings property, panel row, panel copy. Tests 6.
-4. `precision` in `payload()`, `high_precision` through `AnalysisConfig` to the
-   engine and the operator. Tests 2 and 5.
-5. Measurement: benchmark precision stamping, the three-way timing, the
-   disagreement count, `docs/performance.md`.
-6. Documentation: the `AGENTS.md` invariant amendment, README *Speed*,
-   `docs/gpu-rasterization.md` cross-reference and the removal of its *Future
-   work* section, `docs/HANDOFF.md`.
+Approved wording for the `AGENTS.md` amendment is in hand; the remaining
+approval items are listed at the end of this document.
+
+Preconditions: on `feat/gpu-fp32-support`, based on `origin/main` `343a575`,
+clean tree. Run the unit suite and both headless suites before the first
+production edit, so every later failure is attributable to this branch.
+
+Each commit is RED, then GREEN, then its own check, and is committed before the
+next begins. Run the smallest listed check during the loop and the commit's
+full check before committing. GPU work needs the opted-in headless run:
+
+```powershell
+$env:ALPHA_MATERIAL_SEPARATOR_GPU_IN_BACKGROUND = '1'
+& $Blender52 --factory-startup --background --python-exit-code 1 --python tests/blender/run_all.py
+Remove-Item env:ALPHA_MATERIAL_SEPARATOR_GPU_IN_BACKGROUND
+```
+
+Record material deviations in this section as they happen. A finding that
+changes behaviour, scope, risk, or architecture stops for renewed approval.
+
+### Commit 1 — template the kernel on its scalar type
+
+Inert by construction, so no RED: the existing fp64 self-test is the check, and
+it demands bit-equality with the CPU oracle. If it still passes, the rewrite
+changed nothing.
+
+GREEN, `addon/adapters/gpu_raster.py` only:
+
+- Prepend `#define scalar %(scalar)s` to `_SOURCE` and replace every `double`
+  in the body with `scalar`. `chunked()` keeps its `double` return for now.
+- Replace every `0.0lf` / `1.0lf` literal with `scalar(0.0)` / `scalar(1.0)`.
+  An explicit constructor is legal at both widths; the `lf` suffix is not.
+- `_build()` takes the scalar name and passes it into the format dictionary
+  beside `bits` and `cap`. Its one caller passes `"double"`.
+
+Check: the opted-in headless run. `assert_probe_is_total` and the four-mode
+self-test inside `available()` both have to stay green.
+
+### Commit 2 — the fp32 kernel, its fixture, and the probe split
+
+RED first, in this order:
+
+1. `tests/unit/test_rasterization.py` gains `class Fp32SelfTestFixture`, which
+   imports `gpu_raster._FP32_FIXTURE` and asserts the two properties that make
+   equality-without-tolerance possible: every coordinate survives a float32
+   round trip, and every triangle's three vertical extents are powers of two so
+   each slope division is exact. Fails with `AttributeError`.
+2. `tests/blender/test_gpu_raster.py` gains
+   `assert_fp32_is_the_default_probe()`: with `_has_fp64` patched to `False`
+   and the shader cache cleared, `available()` is `True` and `reason()` is
+   `OK`, while `available(high_precision=True)` is `False` with a `NO_FP64`
+   reason. Fails with `TypeError` on the keyword.
+3. `tests/blender/test_gpu_raster.py` gains
+   `assert_the_fp32_kernel_matches_the_cpu()`, running the new fixture through
+   `counted_batch(..., high_precision=False)` in all four address modes against
+   `_assert_matches_cpu`, with no tolerance.
+4. `assert_the_probe_measures_fp64()` keeps its `_has_fp64` unit assertions; its
+   closing block, which asserts `available()` is `False` without fp64, moves
+   into the new test and becomes `available(high_precision=True)`.
+
+GREEN, `addon/adapters/gpu_raster.py`:
+
+- `_FP32_FIXTURE`: the triangles, counts, and grid below, beside the existing
+  adversarial fixture. `_self_test(shader, precision)` picks by precision.
+- `%(coord)s` in the template, substituted with either the existing three-word
+  `packDouble2x32` reassembly or
+  a one-line fp32 reader that returns
+  `uintBitsToFloat(uint(imageLoad(tris, at(slot)).r))`.
+- The upload branches the same way: fp32 packs
+  `triangles.astype(numpy.float32).view(numpy.uint32)` into the same R32UI
+  texture, one word per coordinate instead of three.
+- `_shaders` and `_reasons` become dictionaries keyed `"FP32"` / `"FP64"`,
+  replacing the `_shader` / `_reason` globals. `available(*, high_precision=
+  False)` and `reason(*, high_precision=False)` read them; a private `_probe`
+  holds what `available()` does today, consulting `_has_fp64()` only for FP64.
+  The three existing tests that save and restore `_shader` / `_reason` snapshot
+  the dictionaries instead, which is shorter than what they do now.
+- `_submit` and `counted_batch` take the precision through to the packing.
+
+Check: unit suite, then the opted-in headless run.
+
+### Commit 3 — the setting and the panel
+
+RED, `tests/blender/test_expert_analysis_settings.py`:
+
+1. `_assert_public_setting_names_are_guarded` gains
+   `assert HIGH_PRECISION not in ANALYSIS_SETTING_NAMES`.
+2. New `_assert_high_precision_follows_the_hardware()`, mirroring the existing
+   GPU-toggle test: the property reads `False` after being set `True` when
+   `_has_fp64` is patched off, and toggles normally when it is not.
+3. `_assert_an_unusable_gpu_says_why` drops its `NO_FP64` case — that reason can
+   no longer reach `_gpu_unavailable_message` — and a new case asserts the fp64
+   copy is drawn while the acceleration copy is not.
+
+GREEN:
+
+- `addon/properties.py`: `_fp64_unavailable()`, `_high_precision_get/_set`
+  mirroring the existing pair, and the `high_precision_gpu` BoolProperty with
+  no `update=`.
+- `addon/panel.py`: `_fp64_unavailable_message()`, the second row under the
+  existing one, and its enablement — off when the GPU is unusable, off when
+  "Disable GPU acceleration" is checked, off when fp64 is missing.
+
+Watch for: the existing panel tests stub `gpu_raster.available = lambda: False`.
+The panel now calls `available(high_precision=True)` during draw, so those stubs
+become `lambda **_: False` and the `reason` stubs `lambda **_: "..."`. This is
+the change most likely to produce a confusing `TypeError`.
+
+Check: both headless runs.
+
+### Commit 4 — precision as an analysis input
+
+RED, `tests/blender/test_gpu_raster.py`:
+
+1. `assert_the_setting_can_refuse_the_gpu` inverts its payload assertion:
+   default `!=` `use_gpu=False`, and `use_gpu=False` `==` `high_precision=True`.
+   Its docstring changes with it; the current one states the premise fp32
+   invalidates.
+2. The same test gains the four-way precision matrix from test strategy item 2.
+3. `assert_the_engine_agrees_with_itself` runs twice, once per precision. The
+   high-precision run must equal the CPU report exactly.
+4. `tests/blender/test_expert_analysis_settings.py`'s
+   `_assert_the_gpu_toggle_keeps_a_report` becomes the new contract: a default
+   fp32 report goes `STALE` when the reader disables the GPU, and a CPU report
+   stays `CLEAN` when the reader switches high precision on. The reset still
+   leaves both toggles alone.
+
+GREEN: `AnalysisConfig.high_precision` and the derived `"precision"` field in
+`payload()`; the engine guard at `addon/adapters/analysis.py:1060` passing
+`high_precision` to `available()` and `counted_batch`; and
+`addon/operators/analyze.py:135` reading the new setting beside `use_gpu`.
+
+Check: unit suite, both headless runs.
+
+### Commit 5 — the measurement
+
+`tests/blender/run_benchmarks.py` gains a `--precision` argument and stamps the
+resolved precision into its JSON next to `device`. Then the same-session
+protocol from `docs/performance.md`, realistic tier, three configurations, plus
+the disagreement count: the same scene analysed at both precisions in one
+session, counting faces whose classification differs and splitting them by
+direction. Results and the acceptance decision go into `docs/performance.md`.
+
+No RED. This commit measures; it changes no analysis behaviour. The contract
+test that already imports `run_benchmarks` covers the argument plumbing.
+
+### Commit 6 — documentation
+
+`AGENTS.md` invariant amendment, README *Speed* (currently wrong: it tells the
+reader a missing fp64 disables acceleration), `docs/gpu-rasterization.md`
+cross-reference plus removal of its now-executed *Future work* section, this
+document's status line, and `docs/HANDOFF.md`.
+
+### The verified fp32 fixture
+
+Exactness was confirmed before planning rather than assumed. The kernel's band
+arithmetic was reproduced at both widths over every scanline of every triangle
+below: all 82 rows produce bit-identical span endpoints in float32 and float64,
+and every coordinate survives a float32 round trip. Against the same 53×17
+patterned grid the existing fixture uses, the CPU oracle gives covered texels
+`[297, 270, 0, 984, 168, 203]` and four distinct per-mode affected vectors, so
+the fixture discriminates address modes rather than merely running.
+
+```python
+[[-72.5, -24.25], [-40.5, -24.25], [-40.5, -16.25]],
+[[-72.5, -24.25], [-40.5, -16.25], [-72.5, -16.25]],
+[[-20.0, 1.25], [9.75, 1.25], [9.75, 9.25]],
+[[-20.0, 1.25], [9.75, 9.25], [-20.0, 9.25]],
+[[2.0, 7.0], [2.0, 7.0], [20.0, 11.0]],
+[[-34.0, -2.0], [100.5, -2.0], [100.5, 6.0]],
+[[-34.0, -2.0], [100.5, 6.0], [30.0, 6.0]],
+[[-34.0, -2.0], [30.0, 6.0], [-34.0, 2.0]],
+[[6.0, 1.25], [38.5, 5.25], [8.0, 9.25]],
+[[-10.25, 10.5], [-46.5, 14.5], [-6.0, 18.5]],
+# counts: [2, 2, 1, 3, 1, 1]
+```
+
+It keeps every property the adversarial fixture has except large magnitudes:
+non-power-of-two grid dimensions and negative rows and columns for the GLSL
+negative-`%` defect, coordinates outside the image on both sides of both axes,
+a degenerate triangle, a three-triangle polygon, and two triangles whose middle
+vertex is the extremum strictly inside a band.
 
 ## Approval needed before implementation
 
