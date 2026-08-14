@@ -1058,7 +1058,7 @@ class AnalysisEngine:
         # per-chunk one. Tests and the performance protocol force it either way.
         self._gpu = (
             config.use_gpu
-            and gpu_raster.available()
+            and gpu_raster.available(high_precision=True)
             and not self.config.settings.margin_texels
         )
         self.counts: Counter = Counter()
@@ -1428,6 +1428,9 @@ class AnalysisEngine:
                 first.snapshot.grid,
                 first.resolution.address_mode,
                 settings=settings,
+                # Still the exact kernel: the single-precision one exists but no
+                # setting selects it yet. See `docs/gpu-fp32-precision.md`.
+                high_precision=True,
             )
             if counts is None:
                 # Nothing is recorded yet, so abandoning the batches already

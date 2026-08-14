@@ -1,10 +1,16 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Fused UV rasterization and alpha counting on the GPU, when it is exact.
+"""Fused UV rasterization and alpha counting on the GPU.
 
 `addon.core.raster` remains the authority. This reproduces it for the cases it
 covers and returns `None` for everything else, so the caller always has a
 correct path. `docs/gpu-rasterization.md` holds the design and the measurements
 behind it.
+
+The kernel is built at one of two widths. Double precision reproduces the CPU
+bit for bit and is what `high_precision=True` asks for. Single precision is the
+default: it computes the same coverage rule in 24-bit arithmetic, which can move
+a span boundary by a few ulps, and `docs/gpu-fp32-precision.md` holds what that
+costs and why it is the default anyway.
 
 Not in `addon/core/` because that package forbids Blender imports and the unit
 suite runs without Blender, while `gpu` is a Blender module.
@@ -17,7 +23,7 @@ from dataclasses import dataclass
 
 import numpy
 
-from ..core import AddressMode, rasterize_batch
+from ..core import AddressMode, AlphaGrid, rasterize_batch
 
 #: Triangles per polygon the kernel can union in one thread. A polygon past this
 #: goes to the CPU rather than failing its batch.
@@ -79,13 +85,7 @@ ivec2 at(int linear) { return ivec2(linear %% row_width, linear / row_width); }
 
 int whole(int slot) { return int(imageLoad(layout_, at(slot)).r); }
 
-/* Three 22-bit chunks reassembled into one IEEE double. */
-scalar chunked(int slot) {
-  uint c0 = uint(imageLoad(tris, at(slot * 3 + 0)).r);
-  uint c1 = uint(imageLoad(tris, at(slot * 3 + 1)).r);
-  uint c2 = uint(imageLoad(tris, at(slot * 3 + 2)).r);
-  return packDouble2x32(uvec2(c0 | ((c1 & 0x3FFu) << 22), (c1 >> 10) | (c2 << 12)));
-}
+%(coord)s
 
 /* GLSL leaves `%%` undefined when either operand is negative, so fold the value
    positive first and never hand the operator a negative. Observed, not
@@ -190,8 +190,8 @@ void main() {
   /* The polygon's scanline range is the union of its triangles' ranges. */
   scalar first_row = scalar(0.0), stop_row = scalar(0.0);
   for (int t = 0; t < span; ++t) {
-    scalar low_y = chunked((base + t) * 6 + 1);
-    scalar high_y = chunked((base + t) * 6 + 5);
+    scalar low_y = coord((base + t) * 6 + 1);
+    scalar high_y = coord((base + t) * 6 + 5);
     scalar lo_row = floor(low_y);
     scalar hi_row = lo_row + max(scalar(0.0), ceil(high_y) - lo_row);
     first_row = (t == 0) ? lo_row : min(first_row, lo_row);
@@ -205,9 +205,9 @@ void main() {
     int found = 0;
     for (int t = 0; t < span; ++t) {
       int slot = (base + t) * 6;
-      scalar low_x = chunked(slot + 0), low_y = chunked(slot + 1);
-      scalar mid_x = chunked(slot + 2), mid_y = chunked(slot + 3);
-      scalar high_x = chunked(slot + 4), high_y = chunked(slot + 5);
+      scalar low_x = coord(slot + 0), low_y = coord(slot + 1);
+      scalar mid_x = coord(slot + 2), mid_y = coord(slot + 3);
+      scalar high_x = coord(slot + 4), high_y = coord(slot + 5);
       scalar tri_first = floor(low_y);
       if (row < tri_first
           || row >= tri_first + max(scalar(0.0), ceil(high_y) - tri_first)) {
@@ -302,14 +302,33 @@ void main() {
 }
 """
 
-#: `False` once the probe has run and failed, the shader once it has succeeded,
-#: `None` before it has run. The probe never runs twice.
-_shader: object | None | bool = None
+#: How each width reads one coordinate. Double precision has to arrive in three
+#: pieces because the upload channel carries float32 and nothing wider; single
+#: precision is already the channel's own width, so it arrives as it is.
+_COORD = {
+    False: """
+/* One texel per coordinate: `R32F` carries a float32 through unchanged. */
+scalar coord(int slot) { return imageLoad(tris, at(slot)).r; }""",
+    True: """
+/* Three 22-bit chunks reassembled into one IEEE double. */
+scalar coord(int slot) {
+  uint c0 = uint(imageLoad(tris, at(slot * 3 + 0)).r);
+  uint c1 = uint(imageLoad(tris, at(slot * 3 + 1)).r);
+  uint c2 = uint(imageLoad(tris, at(slot * 3 + 2)).r);
+  return packDouble2x32(uvec2(c0 | ((c1 & 0x3FFu) << 22), (c1 >> 10) | (c2 << 12)));
+}""",
+}
 
-#: Why the probe decided what it decided. `MISMATCH` is the one that means the
-#: machine has a working GPU that computes the wrong answer, which is a defect
-#: rather than an absent capability, so the tests fail on it instead of skipping.
-_reason = "not probed"
+#: Probe answers keyed by `high_precision`: the shader once that width has been
+#: built and verified, `False` once it has failed. A key absent from the
+#: dictionary has not been probed, and each width is probed at most once.
+_shaders: dict[bool, object | bool] = {}
+
+#: Why the probe decided what it decided, per width. `MISMATCH` is the one that
+#: means the machine has a working GPU that computes the wrong answer, which is a
+#: defect rather than an absent capability, so the tests fail on it instead of
+#: skipping.
+_reasons: dict[bool, str] = {}
 
 #: `id(grid)` to `(grid, mask texture, row-sum texture, words per row)`. The grid
 #: is held so its id cannot be reused by another object while the entry lives.
@@ -429,7 +448,7 @@ def _survey(triangles: numpy.ndarray, counts: numpy.ndarray):
     )
 
 
-def _prepare(triangles: numpy.ndarray, counts: numpy.ndarray):
+def _prepare(triangles: numpy.ndarray, counts: numpy.ndarray, high_precision: bool):
     """Drop degenerate triangles and height-sort, as `rasterize_batch` does."""
     xs, ys = triangles[:, :, 0], triangles[:, :, 1]
     live = (
@@ -449,14 +468,17 @@ def _prepare(triangles: numpy.ndarray, counts: numpy.ndarray):
     starts = numpy.concatenate(
         (numpy.zeros(1, dtype=numpy.int64), numpy.cumsum(live_counts))
     )[:-1]
+    # Single precision needs no packing: `_texture` narrows to float32, which is
+    # exactly what that kernel reads back out.
+    flat = packed.reshape(-1)
     return (
-        _chunked(packed.reshape(-1)),
+        _chunked(flat) if high_precision else flat,
         numpy.stack((starts, live_counts), axis=1),
         int(live_counts.max(initial=0)),
     )
 
 
-def _build(scalar: str = "double"):
+def _build(high_precision: bool):
     import gpu
 
     info = gpu.types.GPUShaderCreateInfo()
@@ -475,7 +497,13 @@ def _build(scalar: str = "double"):
         info.push_constant("INT", name)
     info.local_group_size(64, 1, 1)
     info.compute_source(
-        _SOURCE % {"bits": _BITS, "cap": SPAN_CAP, "scalar": scalar}
+        _SOURCE
+        % {
+            "bits": _BITS,
+            "cap": SPAN_CAP,
+            "scalar": "double" if high_precision else "float",
+            "coord": _COORD[high_precision],
+        }
     )
     return gpu.shader.create_from_info(info)
 
@@ -499,8 +527,8 @@ void main() {
 def _has_fp64() -> bool:
     """Whether this backend really computes in double precision.
 
-    The kernel's exactness rests entirely on fp64, and a backend can lack it in
-    two ways that look nothing alike. One refuses to compile `double`, which
+    High precision rests entirely on fp64, and a backend can lack it in two
+    ways that look nothing alike. One refuses to compile `double`, which
     raises here. The other compiles it as `float` and quietly returns wrong
     counts, which would otherwise surface as a self-test mismatch — reported as a
     defect rather than as the missing capability it is.
@@ -536,7 +564,7 @@ def _has_fp64() -> bool:
     return numpy.array_equal(produced, expected)
 
 
-def _submit(shader, triangles, counts, grid, mode):
+def _submit(shader, triangles, counts, grid, mode, high_precision):
     """Queue the kernel and return a handle to read later, or `None` to fall back.
 
     Split from the readback because reading a result texture waits for the
@@ -544,7 +572,7 @@ def _submit(shader, triangles, counts, grid, mode):
     """
     import gpu
 
-    chunks, layout, widest = _prepare(triangles, counts)
+    chunks, layout, widest = _prepare(triangles, counts, high_precision)
     if widest > SPAN_CAP:
         return None
     mirrored = mode is AddressMode.MIRROR
@@ -592,33 +620,25 @@ def _collect(handle):
     }
 
 
-def _self_test(shader) -> bool:
-    """Run a fixed fixture and require the CPU path's exact counts.
-
-    This verifies results rather than compilation, which is the point: a driver
-    that rounds division differently, folds `bitCount` unexpectedly, mishandles
-    the 24-bit packing or miscompiles the kernel has to fail here rather than in
-    a user's report. It does not detect multiply-add contraction, because
-    contraction does not change counts; `precise` in the source covers that.
-    """
-    from ..core import AlphaGrid, rasterize_batch
-
-    # Neither dimension is a power of two, deliberately. A driver that folds a
-    # modulo into a bit mask gives the right answer for negative operands only
-    # when the period is a power of two, so a 64x16 fixture cannot see it.
-    width, height = 53, 17
-    columns = numpy.arange(width)
-    rows = numpy.arange(height)[:, None]
-    plane = (((columns * 7 + rows * 5) % 11) < 4).astype(numpy.uint8)
-    grid = AlphaGrid(width, height, plane.reshape(-1).tobytes())
-
-    # UVs deliberately outside the unit square, on both sides and in both axes,
-    # with a degenerate triangle and a three-triangle polygon among the quads.
-    # The last two are not axis-aligned: their middle vertex is the row's
-    # extremum, strictly inside a band, which is the only case where the
-    # straddle correction changes a run. Rectangles split into right triangles
-    # never reach it, so a fixture of those alone would let that defect pass.
-    quads = numpy.array(
+#: The self-test's triangles at each width, keyed by `high_precision`.
+#:
+#: Both put UVs outside the unit square on both sides of both axes, and both
+#: carry a degenerate triangle and a three-triangle polygon among the quads. The
+#: last two triangles of each are not axis-aligned: their middle vertex is the
+#: row's extremum, strictly inside a band, which is the only case where the
+#: straddle correction changes a run. Rectangles split into right triangles never
+#: reach it, so a fixture of those alone would let that defect pass.
+#:
+#: They differ in what they can demand. Double precision reproduces the CPU
+#: exactly whatever the coordinates, so its fixture is adversarial: awkward
+#: magnitudes, decimals no binary float holds. Single precision cannot do that,
+#: so its fixture is built to be exact at 24 bits — every coordinate a small
+#: dyadic value, every vertical extent a power of two, which makes each slope
+#: division exact — and is then held to the same equality with no tolerance. A
+#: mismatch there means the driver computes wrongly, not that fp32 rounds.
+#: `tests/unit/test_rasterization.py` guards those two properties.
+_FIXTURES = {
+    True: numpy.array(
         [
             [[-121.5, -40.25], [-60.0, -40.25], [-60.0, -34.5]],
             [[-121.5, -40.25], [-60.0, -34.5], [-121.5, -34.5]],
@@ -632,8 +652,54 @@ def _self_test(shader) -> bool:
             [[-14.25, 12.4], [-52.6, 15.5], [-11.0, 16.8]],
         ],
         dtype=numpy.float64,
+    ),
+    False: numpy.array(
+        [
+            [[-72.5, -24.25], [-40.5, -24.25], [-40.5, -16.25]],
+            [[-72.5, -24.25], [-40.5, -16.25], [-72.5, -16.25]],
+            [[-20.0, 1.25], [9.75, 1.25], [9.75, 9.25]],
+            [[-20.0, 1.25], [9.75, 9.25], [-20.0, 9.25]],
+            [[2.0, 7.0], [2.0, 7.0], [20.0, 11.0]],
+            [[-34.0, -2.0], [100.5, -2.0], [100.5, 6.0]],
+            [[-34.0, -2.0], [100.5, 6.0], [30.0, 6.0]],
+            [[-34.0, -2.0], [30.0, 6.0], [-34.0, 2.0]],
+            [[6.0, 1.25], [38.5, 5.25], [8.0, 9.25]],
+            [[-10.25, 10.5], [-46.5, 14.5], [-6.0, 18.5]],
+        ],
+        dtype=numpy.float64,
+    ),
+}
+
+#: Which of those triangles belong to which polygon. The same shape serves both.
+_FIXTURE_COUNTS = numpy.array([2, 2, 1, 3, 1, 1], dtype=numpy.int64)
+
+
+def _fixture(high_precision: bool):
+    """The self-test's triangles, polygon counts, and alpha grid at one width."""
+    # Neither dimension is a power of two, deliberately. A driver that folds a
+    # modulo into a bit mask gives the right answer for negative operands only
+    # when the period is a power of two, so a 64x16 fixture cannot see it.
+    width, height = 53, 17
+    columns = numpy.arange(width)
+    rows = numpy.arange(height)[:, None]
+    plane = (((columns * 7 + rows * 5) % 11) < 4).astype(numpy.uint8)
+    return (
+        _FIXTURES[high_precision],
+        _FIXTURE_COUNTS,
+        AlphaGrid(width, height, plane.reshape(-1).tobytes()),
     )
-    counts = numpy.array([2, 2, 1, 3, 1, 1], dtype=numpy.int64)
+
+
+def _self_test(shader, high_precision: bool) -> bool:
+    """Run the fixed fixture for this width and require the CPU path's counts.
+
+    This verifies results rather than compilation, which is the point: a driver
+    that rounds division differently, folds `bitCount` unexpectedly, mishandles
+    the 24-bit packing or miscompiles the kernel has to fail here rather than in
+    a user's report. It does not detect multiply-add contraction, because
+    contraction does not change counts; `precise` in the source covers that.
+    """
+    quads, counts, grid = _fixture(high_precision)
 
     oracle = rasterize_batch(quads, counts)
     if any(isinstance(one, str) for one in oracle):
@@ -646,7 +712,7 @@ def _self_test(shader) -> bool:
 
     try:
         for mode in _MODE_CODE:
-            handle = _submit(shader, quads, counts, grid, mode)
+            handle = _submit(shader, quads, counts, grid, mode, high_precision)
             if handle is None:
                 return False
             produced = _collect(handle)
@@ -664,12 +730,8 @@ def _self_test(shader) -> bool:
     return True
 
 
-def available() -> bool:
-    """Whether this machine can run the kernel exactly. Probed once, cached."""
-    global _shader, _reason
-    if _shader is not None:
-        return _shader is not False
-    _shader = False
+def _probe(high_precision: bool):
+    """Build and verify the kernel at one width, or record why it cannot run."""
     try:
         import bpy
         import gpu
@@ -683,35 +745,57 @@ def available() -> bool:
             # headless machine that does have a GPU and costs nothing at all on
             # one that does not. Such a machine opts back in by environment.
             if not os.environ.get(_BACKGROUND_OPT_IN):
-                _reason = (
+                _reasons[high_precision] = (
                     f"UNAVAILABLE: background Blender without {_BACKGROUND_OPT_IN}"
                 )
                 return False
             gpu.init()
-        if not _has_fp64():
-            _reason = "NO_FP64: this GPU does not compute in double precision"
+        if high_precision and not _has_fp64():
+            _reasons[high_precision] = (
+                "NO_FP64: this GPU does not compute in double precision"
+            )
             return False
-        shader = _build()
-        if _self_test(shader):
-            _shader = shader
-            _reason = "OK"
-        else:
-            _reason = "MISMATCH: the self-test did not reproduce the CPU counts"
+        shader = _build(high_precision)
+        if not _self_test(shader, high_precision):
+            _reasons[high_precision] = (
+                "MISMATCH: the self-test did not reproduce the CPU counts"
+            )
+            return False
+        _reasons[high_precision] = "OK"
+        return shader
     except Exception as error:
         # A probe that raises is a probe that failed. The CPU path is correct
         # and always available, so no failure here is worth propagating.
-        _reason = f"UNAVAILABLE: {type(error).__name__}: {error}"
-        _shader = False
-    return _shader is not False
+        _reasons[high_precision] = f"UNAVAILABLE: {type(error).__name__}: {error}"
+        return False
 
 
-def reason() -> str:
+def available(*, high_precision: bool = False) -> bool:
+    """Whether this machine can run the kernel at this width. Probed once, cached.
+
+    The default is the single-precision kernel, which is what analysis uses
+    unless the reader asks for the exact one. A backend that cannot compute
+    `double` is still a backend this extension accelerates on; all it loses is
+    high precision, and `available(high_precision=True)` is what answers that.
+    """
+    if high_precision not in _shaders:
+        _shaders[high_precision] = _probe(high_precision)
+    return _shaders[high_precision] is not False
+
+
+def reason(*, high_precision: bool = False) -> str:
     """Why `available()` answered as it did. Call it after `available()`."""
-    return _reason
+    return _reasons.get(high_precision, "not probed")
 
 
 def counted_batch(
-    triangles: numpy.ndarray, counts: numpy.ndarray, grid, mode, *, settings
+    triangles: numpy.ndarray,
+    counts: numpy.ndarray,
+    grid,
+    mode,
+    *,
+    settings,
+    high_precision: bool,
 ):
     """Covered and affected texels per polygon, or `None` to use the CPU.
 
@@ -727,12 +811,20 @@ def counted_batch(
     This waits for the dispatch. A caller with other work to do should use
     `submit_batch` and `collect_batch` and do that work in between.
     """
-    result, pending = submit_batch(triangles, counts, grid, mode, settings=settings)
+    result, pending = submit_batch(
+        triangles, counts, grid, mode, settings=settings, high_precision=high_precision
+    )
     return None if result is None else collect_batch(result, pending)
 
 
 def submit_batch(
-    triangles: numpy.ndarray, counts: numpy.ndarray, grid, mode, *, settings
+    triangles: numpy.ndarray,
+    counts: numpy.ndarray,
+    grid,
+    mode,
+    *,
+    settings,
+    high_precision: bool,
 ):
     """Queue this batch and return `(partial counts, pending)` for `collect_batch`.
 
@@ -740,7 +832,11 @@ def submit_batch(
     `GpuCounts`; the rest arrive when it is collected. `(None, None)` means the
     same thing `counted_batch` returning `None` does.
     """
-    if mode not in _MODE_CODE or settings.margin_texels or not available():
+    if (
+        mode not in _MODE_CODE
+        or settings.margin_texels
+        or not available(high_precision=high_precision)
+    ):
         return None, None
     polygons = int(counts.shape[0])
     counts = counts.astype(numpy.int64, copy=False)
@@ -778,11 +874,12 @@ def submit_batch(
     handle = None
     if fast.any():
         handle = _submit(
-            _shader,
+            _shaders[high_precision],
             triangles if not slow.any() else triangles[~by_triangle],
             counts[fast],
             grid,
             mode,
+            high_precision,
         )
         if handle is None:
             return None, None

@@ -68,9 +68,24 @@ def _oracle(triangles, counts, grid, mode, settings=_DEFAULTS):
     return want, reasons
 
 
-def _assert_matches_cpu(triangles, counts, grid, mode, settings=_DEFAULTS, label=""):
+def _assert_matches_cpu(
+    triangles,
+    counts,
+    grid,
+    mode,
+    settings=_DEFAULTS,
+    label="",
+    high_precision=True,
+):
+    """Bit-equality with the CPU, which is the double-precision kernel's contract.
+
+    `high_precision` defaults to on because that is what these fixtures demand:
+    coordinates near `1e7` with sub-ulp spacing cannot survive a 24-bit
+    significand. The single-precision kernel is held to the same equality on the
+    one fixture built to be exact at that width.
+    """
     produced = gpu_raster.counted_batch(
-        triangles, counts, grid, mode, settings=settings
+        triangles, counts, grid, mode, settings=settings, high_precision=high_precision
     )
     assert produced is not None, f"{label}{mode} batch was refused"
     want, want_reasons = _oracle(triangles, counts, grid, mode, settings)
@@ -93,6 +108,30 @@ def _patterned_grid(width, height, seed):
     return AlphaGrid(width, height, plane.reshape(-1).tobytes())
 
 
+@contextlib.contextmanager
+def _fresh_probe(**patches):
+    """Re-probe inside the block, with patches applied, then put it all back.
+
+    The probe caches one shader and one reason per precision and never runs
+    twice, so a test that wants to see it decide differently has to clear the
+    cache first and restore this machine's real answers afterwards.
+    """
+    shaders, reasons = dict(gpu_raster._shaders), dict(gpu_raster._reasons)
+    originals = {name: getattr(gpu_raster, name) for name in patches}
+    for name, value in patches.items():
+        setattr(gpu_raster, name, value)
+    gpu_raster._shaders.clear()
+    try:
+        yield
+    finally:
+        for name, value in originals.items():
+            setattr(gpu_raster, name, value)
+        gpu_raster._shaders.clear()
+        gpu_raster._shaders.update(shaders)
+        gpu_raster._reasons.clear()
+        gpu_raster._reasons.update(reasons)
+
+
 def assert_probe_is_total() -> None:
     """`available()` answers, caches, and never lets a failure escape."""
     first = gpu_raster.available()
@@ -111,18 +150,18 @@ def assert_background_needs_an_opt_in() -> None:
     """
     assert bpy.app.background, "these tests only run in a background Blender"
 
-    shader, why = gpu_raster._shader, gpu_raster._reason
     opted_in = os.environ.pop(gpu_raster._BACKGROUND_OPT_IN, None)
-    gpu_raster._shader = None
     try:
-        assert gpu_raster.available() is False, "background probed the GPU uninvited"
-        assert gpu_raster.reason().startswith(
-            "UNAVAILABLE: background"
-        ), gpu_raster.reason()
+        with _fresh_probe():
+            assert gpu_raster.available() is False, (
+                "background probed the GPU uninvited"
+            )
+            assert gpu_raster.reason().startswith(
+                "UNAVAILABLE: background"
+            ), gpu_raster.reason()
     finally:
         if opted_in is not None:
             os.environ[gpu_raster._BACKGROUND_OPT_IN] = opted_in
-        gpu_raster._shader, gpu_raster._reason = shader, why
 
 
 def assert_the_probe_measures_fp64() -> None:
@@ -133,7 +172,7 @@ def assert_the_probe_measures_fp64() -> None:
     quietly computes it in single precision compiles fine, fails the self-test,
     and is then reported as a defect rather than as a missing capability.
     """
-    assert gpu_raster._has_fp64() is True, gpu_raster.reason()
+    assert gpu_raster._has_fp64() is True, gpu_raster.reason(high_precision=True)
 
     # The fixture only discriminates because single precision cannot hold it. A
     # value float32 could reproduce would make the probe answer yes on a
@@ -141,15 +180,40 @@ def assert_the_probe_measures_fp64() -> None:
     single = numpy.float32(1.0) + numpy.float32(2.0) ** numpy.float32(-52)
     assert single == numpy.float32(1.0), single
 
-    probe, shader, why = gpu_raster._has_fp64, gpu_raster._shader, gpu_raster._reason
-    gpu_raster._has_fp64 = lambda: False
-    gpu_raster._shader = None
-    try:
-        assert gpu_raster.available() is False, "a backend without fp64 was accepted"
-        assert gpu_raster.reason().startswith("NO_FP64"), gpu_raster.reason()
-    finally:
-        gpu_raster._has_fp64 = probe
-        gpu_raster._shader, gpu_raster._reason = shader, why
+
+def assert_fp32_is_the_default_probe() -> None:
+    """A GPU without fp64 still accelerates; it only loses the exact mode.
+
+    The probe answers two questions now, and the double-precision one no longer
+    decides the first. A backend that cannot compute `double` runs the default
+    single-precision kernel like any other, and what turns off is the checkbox
+    that would have asked for double.
+    """
+    with _fresh_probe(_has_fp64=lambda: False):
+        assert gpu_raster.available() is True, gpu_raster.reason()
+        assert gpu_raster.reason() == "OK", gpu_raster.reason()
+        assert gpu_raster.available(high_precision=True) is False, (
+            "a backend without fp64 was accepted for high precision"
+        )
+        assert gpu_raster.reason(high_precision=True).startswith("NO_FP64"), (
+            gpu_raster.reason(high_precision=True)
+        )
+
+
+def assert_the_fp32_kernel_matches_the_cpu() -> None:
+    """Single precision, held to the same equality, on a fixture built for it.
+
+    Every coordinate is exactly representable at 24 bits and every vertical
+    extent is a power of two, so each slope division is exact and the CPU's
+    counts are reachable without a tolerance. That is what makes a mismatch here
+    mean "this driver computes wrongly" rather than "single precision rounds",
+    which is the same thing the adversarial fixture does for double precision.
+    """
+    quads, counts, grid = gpu_raster._fixture(high_precision=False)
+    for mode in AddressMode:
+        _assert_matches_cpu(
+            quads, counts, grid, mode, label="fp32 ", high_precision=False
+        )
 
 
 def assert_the_setting_can_refuse_the_gpu() -> None:
@@ -328,7 +392,12 @@ def assert_unhandled_inputs_fall_back() -> None:
     margined = AnalysisSettings(margin_texels=1)
     assert (
         gpu_raster.counted_batch(
-            triangles, counts, grid, AddressMode.REPEAT, settings=margined
+            triangles,
+            counts,
+            grid,
+            AddressMode.REPEAT,
+            settings=margined,
+            high_precision=True,
         )
         is None
     ), "a raster margin must fall back; the kernel does not dilate"
@@ -339,6 +408,7 @@ def assert_unhandled_inputs_fall_back() -> None:
         grid,
         AddressMode.REPEAT,
         settings=_DEFAULTS,
+        high_precision=True,
     )
     assert empty is not None and empty.covered_texels.size == 0, empty
 
@@ -570,6 +640,8 @@ def run() -> None:
         print("ALPHA_MATERIAL_SEPARATOR_GPU_RASTER_TESTS_SKIPPED")
         return
     assert_the_probe_measures_fp64()
+    assert_fp32_is_the_default_probe()
+    assert_the_fp32_kernel_matches_the_cpu()
     assert_the_setting_can_refuse_the_gpu()
     assert_modes_cross_edges()
     assert_exact_at_scale()
