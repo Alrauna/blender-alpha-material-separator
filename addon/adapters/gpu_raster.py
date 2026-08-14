@@ -70,12 +70,17 @@ _MODE_CODE = {
 }
 
 _SOURCE = """
+/* The arithmetic width this kernel was built at. Everything below is written
+   in `scalar` so one source serves both, and literals are constructed rather
+   than suffixed because `1.0lf` is a double and only a double. */
+#define scalar %(scalar)s
+
 ivec2 at(int linear) { return ivec2(linear %% row_width, linear / row_width); }
 
 int whole(int slot) { return int(imageLoad(layout_, at(slot)).r); }
 
 /* Three 22-bit chunks reassembled into one IEEE double. */
-double chunked(int slot) {
+scalar chunked(int slot) {
   uint c0 = uint(imageLoad(tris, at(slot * 3 + 0)).r);
   uint c1 = uint(imageLoad(tris, at(slot * 3 + 1)).r);
   uint c2 = uint(imageLoad(tris, at(slot * 3 + 2)).r);
@@ -183,12 +188,12 @@ void main() {
   }
 
   /* The polygon's scanline range is the union of its triangles' ranges. */
-  double first_row = 0.0lf, stop_row = 0.0lf;
+  scalar first_row = scalar(0.0), stop_row = scalar(0.0);
   for (int t = 0; t < span; ++t) {
-    double low_y = chunked((base + t) * 6 + 1);
-    double high_y = chunked((base + t) * 6 + 5);
-    double lo_row = floor(low_y);
-    double hi_row = lo_row + max(0.0lf, ceil(high_y) - lo_row);
+    scalar low_y = chunked((base + t) * 6 + 1);
+    scalar high_y = chunked((base + t) * 6 + 5);
+    scalar lo_row = floor(low_y);
+    scalar hi_row = lo_row + max(scalar(0.0), ceil(high_y) - lo_row);
     first_row = (t == 0) ? lo_row : min(first_row, lo_row);
     stop_row = (t == 0) ? hi_row : max(stop_row, hi_row);
   }
@@ -196,33 +201,34 @@ void main() {
   uint total_covered = 0u, total_affected = 0u;
   uint total_emitted = 0u, total_unions = 0u;
   int lo[%(cap)d], hi[%(cap)d];
-  for (double row = first_row; row < stop_row; row += 1.0lf) {
+  for (scalar row = first_row; row < stop_row; row += scalar(1.0)) {
     int found = 0;
     for (int t = 0; t < span; ++t) {
       int slot = (base + t) * 6;
-      double low_x = chunked(slot + 0), low_y = chunked(slot + 1);
-      double mid_x = chunked(slot + 2), mid_y = chunked(slot + 3);
-      double high_x = chunked(slot + 4), high_y = chunked(slot + 5);
-      double tri_first = floor(low_y);
-      if (row < tri_first || row >= tri_first + max(0.0lf, ceil(high_y) - tri_first)) {
+      scalar low_x = chunked(slot + 0), low_y = chunked(slot + 1);
+      scalar mid_x = chunked(slot + 2), mid_y = chunked(slot + 3);
+      scalar high_x = chunked(slot + 4), high_y = chunked(slot + 5);
+      scalar tri_first = floor(low_y);
+      if (row < tri_first
+          || row >= tri_first + max(scalar(0.0), ceil(high_y) - tri_first)) {
         continue;
       }
 
       /* `precise` holds bit-equality with the CPU; see the design document. */
-      precise double long_slope = (high_x - low_x) / (high_y - low_y);
-      precise double lower_slope =
-          (mid_y > low_y) ? (mid_x - low_x) / (mid_y - low_y) : 0.0lf;
-      precise double upper_slope =
-          (high_y > mid_y) ? (high_x - mid_x) / (high_y - mid_y) : 0.0lf;
+      precise scalar long_slope = (high_x - low_x) / (high_y - low_y);
+      precise scalar lower_slope =
+          (mid_y > low_y) ? (mid_x - low_x) / (mid_y - low_y) : scalar(0.0);
+      precise scalar upper_slope =
+          (high_y > mid_y) ? (high_x - mid_x) / (high_y - mid_y) : scalar(0.0);
 
       /* The scalar loop carries the previous row's cross-sections forward.
          That is the value at the band's lower boundary: the bottom vertex on
          the triangle's first row, and the scanline everywhere else. */
       bool is_first = row == tri_first;
-      double lower_y = is_first ? low_y : row;
-      precise double previous_long =
+      scalar lower_y = is_first ? low_y : row;
+      precise scalar previous_long =
           is_first ? low_x : low_x + (lower_y - low_y) * long_slope;
-      precise double previous_short;
+      precise scalar previous_short;
       if (is_first) {
         previous_short = (mid_y == low_y) ? mid_x : low_x;
       } else if (lower_y < mid_y) {
@@ -236,12 +242,12 @@ void main() {
       /* The last band ends on the top vertex. Use its coordinate directly;
          recomputing it from a slope can land a rounding step past a texel
          boundary and widen the run. */
-      double upper = row + 1.0lf;
+      scalar upper = row + scalar(1.0);
       bool at_top = upper >= high_y;
-      double upper_y = at_top ? high_y : upper;
-      precise double current_long =
+      scalar upper_y = at_top ? high_y : upper;
+      precise scalar current_long =
           at_top ? high_x : low_x + (upper_y - low_y) * long_slope;
-      precise double current_short;
+      precise scalar current_short;
       if (at_top) {
         current_short = (mid_y == high_y) ? mid_x : high_x;
       } else if (upper_y < mid_y) {
@@ -252,9 +258,9 @@ void main() {
         current_short = mid_x;
       }
 
-      double minimum = min(min(previous_long, previous_short),
+      scalar minimum = min(min(previous_long, previous_short),
                            min(current_long, current_short));
-      double maximum = max(max(previous_long, previous_short),
+      scalar maximum = max(max(previous_long, previous_short),
                            max(current_long, current_short));
       /* The middle vertex is the only extremum off a band edge. */
       if (row < mid_y && mid_y < upper_y) {
@@ -450,7 +456,7 @@ def _prepare(triangles: numpy.ndarray, counts: numpy.ndarray):
     )
 
 
-def _build():
+def _build(scalar: str = "double"):
     import gpu
 
     info = gpu.types.GPUShaderCreateInfo()
@@ -468,7 +474,9 @@ def _build():
     ):
         info.push_constant("INT", name)
     info.local_group_size(64, 1, 1)
-    info.compute_source(_SOURCE % {"bits": _BITS, "cap": SPAN_CAP})
+    info.compute_source(
+        _SOURCE % {"bits": _BITS, "cap": SPAN_CAP, "scalar": scalar}
+    )
     return gpu.shader.create_from_info(info)
 
 
