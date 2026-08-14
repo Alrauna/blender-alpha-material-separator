@@ -361,6 +361,24 @@ Both runs are recorded with `run_benchmarks.py`, which already stamps `device`
 into its JSON; it gains `precision` the same way, for the same reason — so a
 number cannot later be read as having come from the other kernel.
 
+**Outcome: the gate is met and the default flips.** Recorded in
+`docs/performance.md`, "Single precision, measured against the gate that decides
+the default". fp32 is level to 3.2% faster with a consistently faster raster
+phase; 0 of 150,544 faces are reclassified, and still 0 when the tier's UVs are
+jittered off the exactness the unmodified tier was benefiting from, which does
+move 1.79% of covered-texel counts. A control shows the measurement can see a
+difference: fp32 diverges as soon as a coordinate stops fitting in 24 bits.
+
+Two things the measurement changed about this document's reasoning:
+
+- **The upload is exact for power-of-two images, not merely close.** Blender
+  stores UVs as float32, so `uv * dimension` is an exponent shift when the
+  dimension is a power of two. The error budget below applies to the kernel's
+  own span arithmetic, not to the coordinates reaching it.
+- **The classification gates are not knife-edge.** 2,694 faces came back with a
+  different covered-texel count and none of them crossed a boundary. That, not
+  the size of the rounding, is why single precision is safe here.
+
 ## Validation
 
 Full production-branch matrix: the unit suite, both headless runs (default for

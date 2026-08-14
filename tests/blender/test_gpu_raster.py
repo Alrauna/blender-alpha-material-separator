@@ -79,10 +79,11 @@ def _assert_matches_cpu(
 ):
     """Bit-equality with the CPU, which is the double-precision kernel's contract.
 
-    `high_precision` defaults to on because that is what these fixtures demand:
-    coordinates near `1e7` with sub-ulp spacing cannot survive a 24-bit
-    significand. The single-precision kernel is held to the same equality on the
-    one fixture built to be exact at that width.
+    `high_precision` defaults to on because only that kernel owes this by
+    construction. The fixtures below are not built to be exact at 24 bits, so
+    holding single precision to them would assert luck; it is held to the same
+    equality on the one fixture that is. Measured, it passes several of these
+    anyway — `docs/performance.md` records where it stops.
     """
     produced = gpu_raster.counted_batch(
         triangles, counts, grid, mode, settings=settings, high_precision=high_precision
