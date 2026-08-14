@@ -438,6 +438,28 @@ changes behaviour, scope, risk, or architecture stops for renewed approval.
 - **`_assert_matches_cpu` defaults to high precision.** That helper carries the
   bit-equality contract, which belongs to the double-precision kernel; the
   single-precision kernel is held to it only on the fixture built for it.
+- **Test strategy item 5 was wrong about the engine scene.** `_scene()` builds
+  its UVs from `generator.random(...) * 5.0 - 2.0`, so they are arbitrary, not
+  exactly representable, and single-precision equality there cannot be claimed
+  by construction. It was measured instead: zero differing counters over all
+  seven of them, in all four address modes, and zero differing faces through
+  the whole engine. The fp32 arm asserts the equality anyway, as a deliberate
+  canary — a machine that breaks it has found a precision difference to record
+  here, which is exactly what the measurement gate is for.
+- **Staleness comes from an `update=` callback, not from the signature.**
+  `validate_report` recomputes the signature from `report.config`, never from
+  the current settings, so a property with no `update=` can never make a
+  completed report stale — the comment commit 3 left on both GPU properties
+  claimed otherwise and is corrected. `_precision_changed` in
+  `addon/properties.py` implements the approved contract directly: it compares
+  the width the two checkboxes now resolve to against the width the report was
+  analyzed at, and marks `SETTINGS_CHANGED` only when they differ. This is the
+  mechanism, not a change to the agreed behaviour.
+
+Future work, not taken on this branch: `assert_the_probe_measures_fp64` asserts
+`_has_fp64() is True` for every machine that reaches it, so the headless GPU
+suite still cannot run on a GPU without double precision — which is precisely
+the machine this branch exists to serve.
 
 ### Commit 1 — template the kernel on its scalar type
 

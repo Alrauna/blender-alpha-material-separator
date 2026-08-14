@@ -219,15 +219,25 @@ def assert_the_fp32_kernel_matches_the_cpu() -> None:
 def assert_the_setting_can_refuse_the_gpu() -> None:
     """`use_gpu=False` is the manual fallback, and it has to reach the engine.
 
-    It is not in `AnalysisConfig.payload()` on purpose: both devices produce the
-    same report, so the choice of device must not enter the input signature and
-    make a completed report stale.
+    What enters `AnalysisConfig.payload()` is the width the numbers were
+    computed at, not the device. The CPU and the double-precision kernel are
+    exact reproductions of each other, so all three of their combinations carry
+    one input; the single-precision default is the one that can answer
+    differently, and it has to be distinguishable from them.
     """
     object_ = _scene(64)
     assert AnalysisEngine([object_], AnalysisConfig())._gpu
     engine = AnalysisEngine([object_], AnalysisConfig(use_gpu=False))
     assert not engine._gpu, "the setting did not reach the engine"
-    assert AnalysisConfig().payload() == AnalysisConfig(use_gpu=False).payload()
+
+    exact = AnalysisConfig(use_gpu=False).payload()
+    assert AnalysisConfig(use_gpu=False, high_precision=True).payload() == exact
+    assert AnalysisConfig(high_precision=True).payload() == exact, (
+        "the exact kernel was recorded as a different input from the CPU"
+    )
+    assert AnalysisConfig().payload() != exact, (
+        "single precision was recorded as the same input as the exact result"
+    )
 
 
 def assert_modes_cross_edges() -> None:
@@ -491,8 +501,10 @@ def _submitting_every(polygons: int):
         analysis_module._GPU_SUBMIT_POLYGONS = original
 
 
-def _report(object_, *, on_gpu: bool, budget: int = 64):
-    engine = AnalysisEngine([object_], AnalysisConfig())
+def _report(object_, *, on_gpu: bool, budget: int = 64, high_precision: bool = False):
+    engine = AnalysisEngine(
+        [object_], AnalysisConfig(high_precision=high_precision)
+    )
     assert engine._gpu, "the probe passed but the engine did not take the GPU path"
     engine._gpu = on_gpu
     while not engine.step(budget):
@@ -503,48 +515,60 @@ def _report(object_, *, on_gpu: bool, budget: int = 64):
 
 
 def assert_the_engine_agrees_with_itself() -> None:
-    """A whole analysis on the GPU equals the same analysis on the CPU.
+    """A whole analysis on either kernel equals the same analysis on the CPU.
 
     Face by face, not in aggregate: two paths can reach the same totals from
     different per-face answers, and the report is per-face.
+
+    The double-precision run owes the CPU this by construction. The default
+    single-precision run does not: this scene's UVs are arbitrary, so its
+    equality is measured rather than guaranteed, and it is asserted anyway as a
+    canary. A machine that breaks it has found a real precision difference to
+    record in `docs/gpu-fp32-precision.md`, not necessarily a defective kernel.
     """
     object_ = _scene(200)
-    on_gpu = _report(object_, on_gpu=True)
     on_cpu = _report(object_, on_gpu=False)
-
-    assert on_gpu.counts == on_cpu.counts, (on_gpu.counts, on_cpu.counts)
-    for pointer, wanted in on_cpu.object_results.items():
-        produced = on_gpu.object_results[pointer]
-        assert produced.skipped_reason == wanted.skipped_reason
-        assert set(produced.faces) == set(wanted.faces), "different polygons analyzed"
-        for index, face in wanted.faces.items():
-            assert produced.faces[index].result == face.result, (
-                index,
-                produced.faces[index].result,
-                face.result,
-            )
     assert on_cpu.counts.total() == 200, on_cpu.counts
 
-    # The raster counters are part of the report, so they have to agree too.
-    for name in (
-        "triangles",
-        "degenerate_triangles",
-        "scanlines",
-        "emitted_runs",
-        "union_runs",
-        "covered_texels",
-    ):
-        assert on_gpu.metrics[name] == on_cpu.metrics[name], (
-            name,
-            on_gpu.metrics[name],
-            on_cpu.metrics[name],
-        )
+    for high_precision in (True, False):
+        label = "fp64" if high_precision else "fp32"
+        on_gpu = _report(object_, on_gpu=True, high_precision=high_precision)
 
-    # The one deliberate report difference: the GPU counts what it skipped
-    # instead of hits and misses, because a fused kernel has nothing to cache.
-    assert on_gpu.metrics["coverage_cache_bypassed"] == 200, on_gpu.metrics
-    assert "coverage_cache_misses" not in on_gpu.metrics, on_gpu.metrics
-    assert "coverage_cache_hits" not in on_gpu.metrics, on_gpu.metrics
+        assert on_gpu.counts == on_cpu.counts, (label, on_gpu.counts, on_cpu.counts)
+        for pointer, wanted in on_cpu.object_results.items():
+            produced = on_gpu.object_results[pointer]
+            assert produced.skipped_reason == wanted.skipped_reason
+            assert set(produced.faces) == set(wanted.faces), "different polygons analyzed"
+            for index, face in wanted.faces.items():
+                assert produced.faces[index].result == face.result, (
+                    label,
+                    index,
+                    produced.faces[index].result,
+                    face.result,
+                )
+
+        # The raster counters are part of the report, so they have to agree too.
+        for name in (
+            "triangles",
+            "degenerate_triangles",
+            "scanlines",
+            "emitted_runs",
+            "union_runs",
+            "covered_texels",
+        ):
+            assert on_gpu.metrics[name] == on_cpu.metrics[name], (
+                label,
+                name,
+                on_gpu.metrics[name],
+                on_cpu.metrics[name],
+            )
+
+        # The one deliberate report difference: the GPU counts what it skipped
+        # instead of hits and misses, because a fused kernel has nothing to cache.
+        assert on_gpu.metrics["coverage_cache_bypassed"] == 200, on_gpu.metrics
+        assert "coverage_cache_misses" not in on_gpu.metrics, on_gpu.metrics
+        assert "coverage_cache_hits" not in on_gpu.metrics, on_gpu.metrics
+
     assert on_cpu.metrics["coverage_cache_bypassed"] == 0, on_cpu.metrics
     assert (
         on_cpu.metrics["coverage_cache_hits"] + on_cpu.metrics["coverage_cache_misses"]

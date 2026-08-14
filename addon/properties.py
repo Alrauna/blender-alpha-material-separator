@@ -71,6 +71,28 @@ def _high_precision_set(self, value: bool) -> None:
     self["high_precision_gpu"] = bool(value)
 
 
+def _precision_changed(self, _context) -> None:
+    """Invalidate a report only when the width its numbers came from changed.
+
+    Device alone is not an analysis input — the CPU and the double-precision
+    kernel reproduce each other exactly — so this compares the width the two
+    checkboxes now resolve to against the width the completed report was
+    analyzed at, rather than reacting to either checkbox on its own.
+    """
+    from . import runtime
+    from .adapters.analysis import AnalysisConfig
+
+    report = runtime.report()
+    if report is None:
+        return
+    resolved = AnalysisConfig(
+        use_gpu=not self.disable_gpu_acceleration,
+        high_precision=self.high_precision_gpu,
+    ).precision()
+    if resolved != report.config.precision():
+        runtime.mark_dirty("SETTINGS_CHANGED")
+
+
 def _policy_changed(_self, context) -> None:
     from . import runtime
 
@@ -244,18 +266,18 @@ class ALPHA_MATERIAL_SEPARATOR_PG_settings(bpy.types.PropertyGroup):
         min=1,
         update=_settings_changed,
     )
-    # No `update=`: clearing the review outright is heavier than this needs.
-    # Where the choice changes the numbers the input signature carries it and
-    # the report is reported stale, which leaves the reader the report they are
-    # comparing against. Outside ANALYSIS_SETTING_NAMES for the same reason both
-    # of these are: they choose a device and a width, not an analysis parameter,
-    # and "Reset to Default Values" must not move the reader off either.
+    # `_precision_changed` rather than `_settings_changed`: between them these
+    # two choose a device and a width, and only the width changes the numbers.
+    # Both are outside ANALYSIS_SETTING_NAMES because neither is an analysis
+    # parameter, so "Reset to Default Values" must not move the reader off
+    # either.
     disable_gpu_acceleration: BoolProperty(
         name="Disable GPU acceleration",
         description="Manual fallback to full CPU analysis",
         default=False,
         get=_disable_gpu_get,
         set=_disable_gpu_set,
+        update=_precision_changed,
     )
     high_precision_gpu: BoolProperty(
         name="High precision GPU acceleration",
@@ -266,6 +288,7 @@ class ALPHA_MATERIAL_SEPARATOR_PG_settings(bpy.types.PropertyGroup):
         default=False,
         get=_high_precision_get,
         set=_high_precision_set,
+        update=_precision_changed,
     )
 
     address_mode: EnumProperty(

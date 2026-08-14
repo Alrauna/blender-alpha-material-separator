@@ -262,12 +262,14 @@ def _assert_an_unusable_gpu_says_why() -> None:
         assert GPU_UNKNOWN_FAILURE not in drawn, drawn
 
 
-def _assert_the_gpu_toggle_keeps_a_report() -> None:
-    """Switching device does not make a completed report stale.
+def _assert_the_gpu_toggles_track_precision() -> None:
+    """A change of width invalidates a report; a change of device alone does not.
 
-    The two paths are exact reproductions of each other, so the input signature
-    does not carry the choice, and a reset of the analysis settings leaves it
-    where the reader put it.
+    The default kernel computes in single precision, so leaving it for the CPU
+    changes what the numbers would be and the report no longer matches its
+    inputs. Going from the CPU to high precision does not: those two reproduce
+    each other exactly. A settings reset still leaves both toggles where the
+    reader put them, because neither is an analysis parameter.
     """
     if not gpu_raster.available(high_precision=True):
         return
@@ -277,18 +279,40 @@ def _assert_the_gpu_toggle_keeps_a_report() -> None:
     _quad("AMS_GPU_TOGGLE_OBJECT", material)
     settings = _settings()
 
+    # Single precision on the GPU, then the exact result: a different input.
     _analyze_clean_report()
     setattr(settings, GPU_TOGGLE, True)
+    assert runtime.validation_state() == runtime.VALIDATION_STALE, (
+        runtime.validation_state()
+    )
+    assert runtime.dirty_reason() == "SETTINGS_CHANGED", runtime.dirty_reason()
+    result = bpy.ops.alpha_material_separator.reset_analysis_settings()
+    assert result == {"FINISHED"}, result
+    assert getattr(settings, GPU_TOGGLE) is True, "a settings reset changed the device"
+
+    # The CPU report the reader now holds is exactly what high precision would
+    # produce, so asking for it leaves that report standing.
+    _analyze_clean_report()
+    setattr(settings, HIGH_PRECISION, True)
     assert runtime.validation_state() == runtime.VALIDATION_CLEAN, (
         runtime.validation_state()
     )
     result = bpy.ops.alpha_material_separator.reset_analysis_settings()
     assert result == {"FINISHED"}, result
-    assert getattr(settings, GPU_TOGGLE) is True, "a settings reset changed the device"
+    assert getattr(settings, HIGH_PRECISION) is True, (
+        "a settings reset changed the width"
+    )
 
-    # The CPU fallback has to produce the same report the GPU just produced.
-    _analyze_clean_report()
+    # Back to the GPU at the same width is still that report; back to the
+    # default width is not.
     setattr(settings, GPU_TOGGLE, False)
+    assert runtime.validation_state() == runtime.VALIDATION_CLEAN, (
+        runtime.validation_state()
+    )
+    setattr(settings, HIGH_PRECISION, False)
+    assert runtime.validation_state() == runtime.VALIDATION_STALE, (
+        runtime.validation_state()
+    )
     _clear_scene()
 
 
@@ -317,6 +341,6 @@ def run() -> None:
     _assert_the_gpu_toggle_follows_the_hardware()
     _assert_high_precision_follows_the_hardware()
     _assert_an_unusable_gpu_says_why()
-    _assert_the_gpu_toggle_keeps_a_report()
+    _assert_the_gpu_toggles_track_precision()
     _assert_reset_behavior()
     print("ALPHA_MATERIAL_SEPARATOR_EXPERT_SETTINGS_TESTS_OK")
