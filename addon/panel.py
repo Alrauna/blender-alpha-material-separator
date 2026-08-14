@@ -43,19 +43,15 @@ NO_DOUBLE_PRECISION_MESSAGE = (
 )
 
 
-def _gpu_unavailable_message(_reason: str) -> str:
-    """Say why the GPU is out, drawn as copy for the same reason as above.
-
-    One message, because there is only one thing left to say. A driver that
-    miscompiles the kernel, a probe that raised, a Blender with no window to
-    borrow a context from: none of it is something the reader can act on, so it
-    does not pretend to be. A GPU that merely lacks double precision no longer
-    reaches here at all — it accelerates.
-    """
-    return (
-        "This GPU does not support GPU acceleration with this extension for an "
-        "unknown reason"
-    )
+#: One message, because there is only one thing left to say. A driver that
+#: miscompiles the kernel, a probe that raised, a Blender with no window to
+#: borrow a context from: none of it is something the reader can act on, so it
+#: does not pretend to be. A GPU that merely lacks double precision no longer
+#: reaches here at all — it accelerates.
+GPU_UNAVAILABLE_MESSAGE = (
+    "This GPU does not support GPU acceleration with this extension for an "
+    "unknown reason"
+)
 
 
 def _override_payload(settings) -> tuple[str, bool]:
@@ -589,7 +585,7 @@ class ALPHA_MATERIAL_SEPARATOR_PT_analysis_settings(_ExpertPanel, bpy.types.Pane
         if not usable:
             _label_lines(
                 layout,
-                _gpu_unavailable_message(gpu_raster.reason()),
+                GPU_UNAVAILABLE_MESSAGE,
                 icon="INFO",
                 available_width=available_width,
             )
