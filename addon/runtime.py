@@ -329,6 +329,8 @@ def record_validation(
     for window_manager in bpy.data.window_managers:
         clear_review(window_manager)
     tag_redraw()
+
+
 def coverage_get(key: str):
     return _COVERAGE_CACHE.get(key)
 

@@ -232,6 +232,23 @@ class CiWorkflowContractTests(unittest.TestCase):
             self.text.index("gh release edit"),
         )
 
+    def test_only_one_publish_may_hold_the_release_at_a_time(self) -> None:
+        """The tag-absence check and the mutation it guards are not atomic.
+
+        Two `workflow_dispatch` runs can both read "no such tag" before either
+        creates one. Serializing the only job that mutates closes that window,
+        and it must never cancel a run mid-publish to do it.
+        """
+        publish = self.text.split("\n  release_publish:\n", 1)[1]
+        self.assertIn(
+            "    concurrency:\n"
+            "      group: alpha-material-separator-release-publish\n"
+            "      cancel-in-progress: false\n",
+            publish,
+        )
+        self.assertEqual(self.text.count("concurrency:"), 1)
+        self.assertNotIn("cancel-in-progress: true", self.text)
+
     def test_release_attestation_is_isolated_from_content_writes(self) -> None:
         for marker in (
             "\n  release_package:\n",

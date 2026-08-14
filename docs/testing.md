@@ -173,6 +173,13 @@ draft targeted at exact `GITHUB_SHA`, upload those exact two files, re-download
 the stored ZIP, verify the same digest, and publish. `GH_TOKEN` remains exposed
 only to individual native GitHub CLI steps.
 
+`release_publish` is additionally serialized by a
+`alpha-material-separator-release-publish` concurrency group with
+`cancel-in-progress: false`. Its tag-absence check and the mutation that check
+guards are not atomic, so two concurrent dispatches could otherwise both pass
+the check. No other job takes a concurrency group, and no job may cancel one in
+progress.
+
 A package or attestation failure creates no draft. A failure after draft
 creation leaves an unpublished draft. No path publishes before successful
 attestation and stored-release ZIP digest verification.

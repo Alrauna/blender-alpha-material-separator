@@ -7,6 +7,7 @@ import bpy
 from bpy.props import PointerProperty
 
 from . import panel, properties, runtime
+from .adapters import gpu_raster
 from .operators.analyze import ALPHA_MATERIAL_SEPARATOR_OT_analyze
 from .operators.assign_materials import ALPHA_MATERIAL_SEPARATOR_OT_assign_materials
 from .operators.clear_results import ALPHA_MATERIAL_SEPARATOR_OT_clear_results
@@ -69,6 +70,10 @@ def unregister() -> None:
     """Remove all extension-owned state, properties, and classes."""
     runtime.unregister_handlers()
     runtime.clear()
+    # The mask textures outlive any one analysis on purpose, so nothing else
+    # drops them. Disabling the extension has to, or the VRAM they hold stays
+    # held until Blender exits.
+    gpu_raster.clear_cache()
 
     if hasattr(bpy.types.WindowManager, "alpha_material_separator_ui"):
         del bpy.types.WindowManager.alpha_material_separator_ui

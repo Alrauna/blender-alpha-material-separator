@@ -916,7 +916,10 @@ def validate_report(report: AnalysisReport) -> tuple[bool, str]:
     attempted_mode = "STRUCTURAL"
     try:
         for object_ in report.objects:
-            if object_.name_full not in bpy.data.objects or bpy.data.objects.get(object_.name_full) != object_:
+            if (
+                object_.name_full not in bpy.data.objects
+                or bpy.data.objects.get(object_.name_full) != object_
+            ):
                 reason = "OBJECT_DELETED_OR_REPLACED"
                 record("STRUCTURAL", False, reason)
                 return False, reason
@@ -951,7 +954,16 @@ def validate_report(report: AnalysisReport) -> tuple[bool, str]:
             prepared,
             report.config,
         )
-    except (OverrideConfigError, ReferenceError, RuntimeError, ValueError):
+    except (
+        AttributeError,
+        OverrideConfigError,
+        ReferenceError,
+        RuntimeError,
+        ValueError,
+    ):
+        # Same net as `validate_report_for_publication`, which is the stricter
+        # of the two and already caught AttributeError. This one is the door
+        # Preview and Apply come through, so it cannot be the leakier door.
         reason = "INPUT_DATABLOCK_UNAVAILABLE"
         record(attempted_mode, False, reason)
         return False, reason
