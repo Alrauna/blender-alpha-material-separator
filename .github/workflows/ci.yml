@@ -289,6 +289,14 @@ jobs:
     needs: [release_package, release_attestation]
     runs-on: windows-2025
     timeout-minutes: 10
+    # The tag-absence check and the mutation that relies on it are in the same
+    # job but not in the same instant. Two dispatches can both pass the check
+    # before either creates the tag, so only one may hold this job at a time.
+    # Never cancel: an interrupted publish is the state this job exists to
+    # avoid, so a second dispatch queues behind the first instead.
+    concurrency:
+      group: alpha-material-separator-release-publish
+      cancel-in-progress: false
     environment: release
     permissions:
       actions: read
