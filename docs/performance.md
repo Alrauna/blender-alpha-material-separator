@@ -1928,3 +1928,72 @@ it across 150,544 faces. The portability cost recorded in Stage 6E is unchanged
 and is now the only argument against it — Metal has no fp64, so the CPU
 rasterizer stays permanent and both implementations stay bound by the same
 bit-exactness tests.
+
+## Single precision, measured against the gate that decides the default
+
+`docs/gpu-fp32-precision.md` makes flipping the default kernel to single
+precision conditional on this measurement: fp32 must be at least as fast as
+fp64, and no face may *lose* alpha classification. Both hold.
+
+Same session, one fixture, realistic tier, three configurations interleaved so
+drift lands on all of them, medians of eleven after one discarded warm-up each.
+
+| Configuration | Cold | vs CPU | Spread | Raster phase | Worst step |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| CPU | 2.400 s | — | 2.354–2.540 s | 0.517 s | 180 ms |
+| GPU fp64 | 1.879 s | -21.7% | 1.773–1.995 s | 0.229 s | 210 ms |
+| **GPU fp32** | **1.819 s** | **-24.2%** | 1.748–1.937 s | **0.193 s** | 209 ms |
+
+fp32 is 3.2% faster than fp64 end to end. An earlier pass of the same script at
+five measured runs put it 1.9% *slower*, so the totals are inside the spread and
+the honest reading is "level". The raster phase is the part the width can move,
+and it is faster in both passes — 0.193 s against 0.229 s here, 0.160 s against
+0.170 s there. That is enough for a gate that asks for "at least as fast", and
+the coverage argument, not the clock, is what the change is for.
+
+### Disagreement: 0 faces reclassified, in every configuration measured
+
+The fp64 report is the oracle. Three measurements, all on 150,544 faces:
+
+| Fixture | Differing texel counts | Reclassified | Gained alpha | Lost alpha |
+| --- | ---: | ---: | ---: | ---: |
+| Realistic tier | 0 | 0 | 0 | 0 |
+| Realistic tier, UVs jittered | 2,694 | **0** | 0 | 0 |
+
+The unjittered zero is structural, not luck. Blender stores UVs as float32, and
+every image in the tier is power-of-two, so `uv * dimension` is an exponent
+shift — exact at 24 bits. The tier's quads are axis-aligned in UV, which leaves
+their diagonals at slopes of exactly ±1 on the square images and ±2 on the
+1024×512 one, so the span arithmetic is exact as well. Real texture atlases are
+power-of-two often enough that this case matters, but it flatters fp32.
+
+The jittered row is the answer to that. Every UV corner moved by up to a third
+of a texel at 4096, which destroys both the alignment and the exact slopes.
+Single precision then rounds as expected — 1.79% of faces come back with a
+different covered-texel count, worst case 11 texels — and **not one of them
+crosses a classification boundary**. The classification gates are not
+knife-edge at this scale, which is why the rounding does not reach the report.
+
+### The apparatus can see a difference, which is why the zeros mean something
+
+A control, because three zeroes in a row deserve one. Six quads at
+quarter-texel coordinates, run at four address modes:
+
+| Coordinate magnitude | Representable at 24 bits | fp64 | fp32 |
+| --- | --- | ---: | ---: |
+| 1e4, 1e5, 1e6 | yes | 0 differ | 0 differ |
+| 1e7 | no | 0 differ | 2 of 6 differ |
+
+Single precision tracks the CPU exactly right up to the point where the
+coordinate itself stops fitting, and then it does not, in all four modes. The
+kernel under test is the single-precision one; the zeros above are measurements,
+not a mislabelled fp64 run.
+
+### Position
+
+The default flips. fp32 is level or faster, reclassifies nothing on a
+real-shaped asset, and reclassifies nothing even when that asset is perturbed
+specifically to break the exactness it was benefiting from. What it buys is the
+machines fp64 excludes, which is the whole reason the branch exists; high
+precision stays one checkbox away for a reader who wants the CPU's exact
+numbers.

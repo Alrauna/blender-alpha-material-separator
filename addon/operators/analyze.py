@@ -123,8 +123,9 @@ class ALPHA_MATERIAL_SEPARATOR_OT_analyze(bpy.types.Operator):
                 "Selection-wide image override cannot be combined with per-material overrides",
             )
         # Read from the session settings rather than mirrored onto this operator:
-        # the two paths give the same report, so which device runs is not an
-        # analysis parameter and has no place in the published operator surface.
+        # both choose where and how wide the analysis runs, which is a machine
+        # capability rather than an analysis parameter, and neither belongs in
+        # the published operator surface.
         settings = context.window_manager.alpha_material_separator_settings
         return AnalysisConfig(
             image_name=self.image_name,
@@ -133,6 +134,7 @@ class ALPHA_MATERIAL_SEPARATOR_OT_analyze(bpy.types.Operator):
             address_mode=self.address_mode,
             material_overrides=material_overrides,
             use_gpu=not settings.disable_gpu_acceleration,
+            high_precision=settings.high_precision_gpu,
             settings=AnalysisSettings(
                 alpha_threshold=self.alpha_threshold,
                 min_affected_texels=self.min_affected_texels,

@@ -19,13 +19,13 @@ those. The solid faces stay on a material the renderer can draw the cheap way.
 The result is one object with separate opaque and alpha material sections. The
 extension does not cut geometry, split objects, or rewrite shaders.
 
-Version 1.4.0 targets Blender 5.2 LTS.
+Version 1.4.1 targets Blender 5.2 LTS.
 
 ![The Simple interface in Blender's AMS sidebar](docs/images/01-panel-simple.png)
 
 ## Install
 
-1. Download `alpha_material_separator-1.4.0.zip`. Do not unzip it.
+1. Download `alpha_material_separator-1.4.1.zip`. Do not unzip it.
 2. In Blender 5.2, open **Edit → Preferences → Get Extensions**.
 3. Open the upper-right menu, choose **Install from Disk**, and select the ZIP.
 4. Confirm that **Blender Alpha Material Separator** is enabled.
@@ -112,16 +112,23 @@ Apply performs a final synchronous check before changing data.
 ## Speed
 
 Analysis is GPU accelerated on supported hardware, and will fall back to CPU on
-unsupported hardware, such as Apple Silicon or Intel Alchemist. The extension
-automatically checks for FP64 support upon initial startup, and will check on
-"Disable GPU acceleration" under Expert>Expert Analysis Settings automatically
-if FP64 instructions do not run properly on your hardware. This check does not
-benchmark your system, please consider disabling GPU acceleration on systems
-with very powerful CPUs without HPC ready GPUs for longer workflows. Analysis
-results should be identical regardless.
+hardware that cannot run the accelerated path. The extension checks your
+graphics hardware once on startup, and if that check fails it checks "Disable
+GPU acceleration" under Expert>Expert Analysis Settings for you and greys it
+out. This check does not benchmark your system, please consider disabling GPU
+acceleration on systems with very powerful CPUs without HPC ready GPUs for
+longer workflows.
 
-On the machine this was measured on, a 150,000-face model analyzed about 27
-percent faster on the graphics card. Your hardware will differ; see
+"High precision GPU acceleration", beside it, analyzes in double precision and
+reproduces the CPU result exactly. It is off by default, and hardware without
+double precision — Apple Silicon and Intel Alchemist among others — loses only
+that checkbox, not acceleration itself. The default path can round a face's
+covered pixel count by a pixel or two; on a 150,000-face model that changed no
+face's result. Turn it on if you would rather have the CPU's exact numbers.
+
+On the machine this was measured on, a 150,000-face model analyzed about 24
+percent faster on the graphics card, and about 22 percent faster with high
+precision on. Your hardware will differ; see
 [performance](docs/performance.md) for how that was measured.
 
 ## After export
@@ -153,6 +160,7 @@ assuming the change is always a win.
 | **Already separated — no additional changes** | The selected meshes need no further material moves. |
 | Analysis is slow | Wait, press `Esc`, or use **Cancel Analysis**; cancellation keeps the previous completed report. |
 | **Disable GPU acceleration** is checked and greyed out | Your graphics hardware cannot run the accelerated path. Analysis runs on the CPU and the results are identical. |
+| **High precision GPU acceleration** is greyed out | Your graphics hardware has no double precision. Acceleration still runs; only the exact mode is unavailable. |
 
 ## More documentation
 

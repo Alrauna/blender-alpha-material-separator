@@ -21,13 +21,18 @@ from tests.blender.test_ux_overrides import _RecordingLayout
 
 GPU_TOGGLE = "disable_gpu_acceleration"
 GPU_TOGGLE_DESCRIPTION = "Manual fallback to full CPU analysis"
-GPU_MISSING_INSTRUCTIONS = (
-    "This GPU does not support the necessary instructions for GPU acceleration "
-    "with this extension"
+HIGH_PRECISION = "high_precision_gpu"
+HIGH_PRECISION_DESCRIPTION = (
+    "Analyze in double precision on the GPU, which reproduces CPU analysis "
+    "exactly and is slower"
 )
 GPU_UNKNOWN_FAILURE = (
     "This GPU does not support GPU acceleration with this extension for an "
     "unknown reason"
+)
+NO_DOUBLE_PRECISION = (
+    "This GPU does not compute in double precision. Analysis still runs on the "
+    "GPU in single precision; disable GPU acceleration for exact results"
 )
 
 EXPECTED_DESCRIPTIONS = {
@@ -183,7 +188,7 @@ def _assert_the_gpu_toggle_follows_the_hardware() -> None:
     assert getattr(settings, GPU_TOGGLE) is not gpu_raster.available()
 
     original = gpu_raster.available
-    gpu_raster.available = lambda: False
+    gpu_raster.available = lambda **_: False
     try:
         assert getattr(settings, GPU_TOGGLE) is True
         setattr(settings, GPU_TOGGLE, False)
@@ -192,41 +197,81 @@ def _assert_the_gpu_toggle_follows_the_hardware() -> None:
         gpu_raster.available = original
 
 
-def _assert_an_unusable_gpu_says_why() -> None:
-    """Two messages, and the reason picks between them.
+def _assert_high_precision_follows_the_hardware() -> None:
+    """Off by default, and unreachable where the GPU cannot compute in double.
 
-    A missing instruction set is a fact about the hardware and is worth saying
-    plainly. Anything else — a driver that miscompiles the kernel, a probe that
-    raised — is not something the reader can act on, so it says so.
+    A machine without fp64 keeps accelerating; the only thing it loses is this
+    mode. The refusal lives in the property rather than in the panel row for the
+    same reason the device fallback does: the engine and any script read the
+    property, and a greyed-out row would only stop the row.
+    """
+    settings = _settings()
+    described = settings.bl_rna.properties[HIGH_PRECISION]
+    assert described.name == "High precision GPU acceleration", described.name
+    assert described.description == HIGH_PRECISION_DESCRIPTION, described.description
+    assert HIGH_PRECISION not in ANALYSIS_SETTING_NAMES
+
+    original = gpu_raster.available
+    gpu_raster.available = lambda **kwargs: not kwargs.get("high_precision")
+    try:
+        setattr(settings, HIGH_PRECISION, True)
+        assert getattr(settings, HIGH_PRECISION) is False, (
+            "high precision was offered on a GPU without double precision"
+        )
+    finally:
+        gpu_raster.available = original
+
+    if gpu_raster.available(high_precision=True):
+        assert getattr(settings, HIGH_PRECISION) is True, (
+            "the stored choice did not come back when the hardware allows it"
+        )
+        setattr(settings, HIGH_PRECISION, False)
+        assert getattr(settings, HIGH_PRECISION) is False
+
+
+def _assert_an_unusable_gpu_says_why() -> None:
+    """Two situations, and the reader is told which one this machine is in.
+
+    A GPU the kernel cannot run at all is not something the reader can act on,
+    so the copy says only that. A GPU that merely lacks double precision is a
+    different message entirely: acceleration is still on, and what the reader
+    loses is the exact mode. Saying the first where the second is true would
+    send someone hunting for a driver they do not need.
     """
     original_available, original_reason = gpu_raster.available, gpu_raster.reason
-    gpu_raster.available = lambda: False
     try:
-        gpu_raster.reason = lambda: "NO_FP64: this GPU computes double as single"
-        drawn = _drawn_text(_draw_settings_panel())
-        assert GPU_MISSING_INSTRUCTIONS in drawn, drawn
-
-        gpu_raster.reason = lambda: "MISMATCH: the self-test did not reproduce"
+        gpu_raster.available = lambda **_: False
+        gpu_raster.reason = lambda **_: "MISMATCH: the self-test did not reproduce"
         drawn = _drawn_text(_draw_settings_panel())
         assert GPU_UNKNOWN_FAILURE in drawn, drawn
+        assert NO_DOUBLE_PRECISION not in drawn, drawn
+
+        # The kernel runs; only double precision is missing.
+        gpu_raster.available = lambda **kwargs: not kwargs.get("high_precision")
+        gpu_raster.reason = lambda **_: "NO_FP64: this GPU computes double as single"
+        drawn = _drawn_text(_draw_settings_panel())
+        assert NO_DOUBLE_PRECISION in drawn, drawn
+        assert GPU_UNKNOWN_FAILURE not in drawn, drawn
     finally:
         gpu_raster.available, gpu_raster.reason = original_available, original_reason
 
-    # A usable GPU explains nothing, because there is nothing to explain.
-    if gpu_raster.available():
+    # A wholly usable GPU explains nothing, because there is nothing to explain.
+    if gpu_raster.available(high_precision=True):
         drawn = _drawn_text(_draw_settings_panel())
-        assert GPU_MISSING_INSTRUCTIONS not in drawn, drawn
+        assert NO_DOUBLE_PRECISION not in drawn, drawn
         assert GPU_UNKNOWN_FAILURE not in drawn, drawn
 
 
-def _assert_the_gpu_toggle_keeps_a_report() -> None:
-    """Switching device does not make a completed report stale.
+def _assert_the_gpu_toggles_track_precision() -> None:
+    """A change of width invalidates a report; a change of device alone does not.
 
-    The two paths are exact reproductions of each other, so the input signature
-    does not carry the choice, and a reset of the analysis settings leaves it
-    where the reader put it.
+    The default kernel computes in single precision, so leaving it for the CPU
+    changes what the numbers would be and the report no longer matches its
+    inputs. Going from the CPU to high precision does not: those two reproduce
+    each other exactly. A settings reset still leaves both toggles where the
+    reader put them, because neither is an analysis parameter.
     """
-    if not gpu_raster.available():
+    if not gpu_raster.available(high_precision=True):
         return
     _clear_scene()
     image = _image("AMS_GPU_TOGGLE_IMAGE")
@@ -234,18 +279,40 @@ def _assert_the_gpu_toggle_keeps_a_report() -> None:
     _quad("AMS_GPU_TOGGLE_OBJECT", material)
     settings = _settings()
 
+    # Single precision on the GPU, then the exact result: a different input.
     _analyze_clean_report()
     setattr(settings, GPU_TOGGLE, True)
+    assert runtime.validation_state() == runtime.VALIDATION_STALE, (
+        runtime.validation_state()
+    )
+    assert runtime.dirty_reason() == "SETTINGS_CHANGED", runtime.dirty_reason()
+    result = bpy.ops.alpha_material_separator.reset_analysis_settings()
+    assert result == {"FINISHED"}, result
+    assert getattr(settings, GPU_TOGGLE) is True, "a settings reset changed the device"
+
+    # The CPU report the reader now holds is exactly what high precision would
+    # produce, so asking for it leaves that report standing.
+    _analyze_clean_report()
+    setattr(settings, HIGH_PRECISION, True)
     assert runtime.validation_state() == runtime.VALIDATION_CLEAN, (
         runtime.validation_state()
     )
     result = bpy.ops.alpha_material_separator.reset_analysis_settings()
     assert result == {"FINISHED"}, result
-    assert getattr(settings, GPU_TOGGLE) is True, "a settings reset changed the device"
+    assert getattr(settings, HIGH_PRECISION) is True, (
+        "a settings reset changed the width"
+    )
 
-    # The CPU fallback has to produce the same report the GPU just produced.
-    _analyze_clean_report()
+    # Back to the GPU at the same width is still that report; back to the
+    # default width is not.
     setattr(settings, GPU_TOGGLE, False)
+    assert runtime.validation_state() == runtime.VALIDATION_CLEAN, (
+        runtime.validation_state()
+    )
+    setattr(settings, HIGH_PRECISION, False)
+    assert runtime.validation_state() == runtime.VALIDATION_STALE, (
+        runtime.validation_state()
+    )
     _clear_scene()
 
 
@@ -272,7 +339,8 @@ def run() -> None:
     _assert_descriptions_are_artist_readable()
     _assert_minimum_affected_pixels_is_reachable()
     _assert_the_gpu_toggle_follows_the_hardware()
+    _assert_high_precision_follows_the_hardware()
     _assert_an_unusable_gpu_says_why()
-    _assert_the_gpu_toggle_keeps_a_report()
+    _assert_the_gpu_toggles_track_precision()
     _assert_reset_behavior()
     print("ALPHA_MATERIAL_SEPARATOR_EXPERT_SETTINGS_TESTS_OK")

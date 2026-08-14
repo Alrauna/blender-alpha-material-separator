@@ -68,8 +68,12 @@ a skill merely to create ceremony.
 - Analyze invoked from Mesh Edit Mode must switch to Object Mode before reading
   authoritative base-mesh polygons, loops, or UV data. This is intended.
 - Use exact positive-area UV triangle/texel-cell coverage. Do not use centroid,
-  vertex-only, sparse fixed sampling, or an approximation after a raster budget
-  failure.
+  vertex-only, or sparse fixed sampling, and never approximate after a raster
+  budget failure. The CPU path and the high-precision GPU path evaluate that
+  rule in double precision and agree bit for bit. The default GPU path
+  evaluates the same rule in single precision, where a span boundary can move
+  by a few ulps; that is the only approved departure, it is measured before it
+  ships, and it is switchable off in Expert Analysis Settings.
 - Analyze must not persistently change mesh, material, image, face selection,
   or topology data. Preview may change face/object selection and enter
   multi-object Edit Mode only as defined by the reviewed plan.

@@ -50,6 +50,49 @@ def _disable_gpu_set(self, value: bool) -> None:
     self["disable_gpu_acceleration"] = bool(value)
 
 
+def _no_double_precision() -> bool:
+    """Whether this machine cannot run the kernel in double precision.
+
+    A separate question from `_gpu_unavailable`: a GPU without `double` still
+    accelerates, and all it loses is this mode.
+    """
+    from .adapters import gpu_raster
+
+    return not gpu_raster.available(high_precision=True)
+
+
+def _high_precision_get(self) -> bool:
+    # Forced off where double precision cannot run, for the same reason the
+    # fallback above is forced on: the engine and any script read the property.
+    return False if _no_double_precision() else self.get("high_precision_gpu", False)
+
+
+def _high_precision_set(self, value: bool) -> None:
+    self["high_precision_gpu"] = bool(value)
+
+
+def _precision_changed(self, _context) -> None:
+    """Invalidate a report only when the width its numbers came from changed.
+
+    Device alone is not an analysis input — the CPU and the double-precision
+    kernel reproduce each other exactly — so this compares the width the two
+    checkboxes now resolve to against the width the completed report was
+    analyzed at, rather than reacting to either checkbox on its own.
+    """
+    from . import runtime
+    from .adapters.analysis import AnalysisConfig
+
+    report = runtime.report()
+    if report is None:
+        return
+    resolved = AnalysisConfig(
+        use_gpu=not self.disable_gpu_acceleration,
+        high_precision=self.high_precision_gpu,
+    ).precision()
+    if resolved != report.config.precision():
+        runtime.mark_dirty("SETTINGS_CHANGED")
+
+
 def _policy_changed(_self, context) -> None:
     from . import runtime
 
@@ -223,16 +266,29 @@ class ALPHA_MATERIAL_SEPARATOR_PG_settings(bpy.types.PropertyGroup):
         min=1,
         update=_settings_changed,
     )
-    # No `update=`: both devices produce the same report, so switching one for
-    # the other is not a settings change and must not make a report stale. For
-    # the same reason it is outside ANALYSIS_SETTING_NAMES, which also keeps
-    # "Reset to Default Values" from moving the reader back onto the GPU.
+    # `_precision_changed` rather than `_settings_changed`: between them these
+    # two choose a device and a width, and only the width changes the numbers.
+    # Both are outside ANALYSIS_SETTING_NAMES because neither is an analysis
+    # parameter, so "Reset to Default Values" must not move the reader off
+    # either.
     disable_gpu_acceleration: BoolProperty(
         name="Disable GPU acceleration",
         description="Manual fallback to full CPU analysis",
         default=False,
         get=_disable_gpu_get,
         set=_disable_gpu_set,
+        update=_precision_changed,
+    )
+    high_precision_gpu: BoolProperty(
+        name="High precision GPU acceleration",
+        description=(
+            "Analyze in double precision on the GPU, which reproduces CPU "
+            "analysis exactly and is slower"
+        ),
+        default=False,
+        get=_high_precision_get,
+        set=_high_precision_set,
+        update=_precision_changed,
     )
 
     address_mode: EnumProperty(

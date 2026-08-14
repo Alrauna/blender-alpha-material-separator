@@ -81,10 +81,21 @@ class AnalysisConfig:
     address_mode: str = "AUTO"
     settings: AnalysisSettings = AnalysisSettings()
     material_overrides: tuple[MaterialOverride, ...] = ()
-    #: The reader's manual CPU fallback. Deliberately absent from `payload()`:
-    #: the two paths are exact reproductions of each other, so which device ran
-    #: is not an input, and switching must not make a completed report stale.
+    #: The reader's manual CPU fallback, and the exact-kernel opt-in. Neither is
+    #: in `payload()` directly: what changes the numbers is the width they were
+    #: computed at, which these two together resolve to.
     use_gpu: bool = True
+    high_precision: bool = False
+
+    def precision(self) -> str:
+        """The width this configuration computes at, as an input signature field.
+
+        The CPU and the double-precision kernel are exact reproductions of each
+        other, so they are one input under three of the four combinations. The
+        default single-precision kernel can classify a face differently, so it
+        has to be told apart from them.
+        """
+        return "EXACT" if not self.use_gpu or self.high_precision else "FP32"
 
     def payload(self) -> dict[str, Any]:
         return {
@@ -92,6 +103,7 @@ class AnalysisConfig:
             "image_channel": self.image_channel,
             "image_name": self.image_name,
             "material_overrides": [item.payload() for item in self.material_overrides],
+            "precision": self.precision(),
             "settings": asdict(self.settings),
             "uv_map_name": self.uv_map_name,
         }
@@ -1058,7 +1070,7 @@ class AnalysisEngine:
         # per-chunk one. Tests and the performance protocol force it either way.
         self._gpu = (
             config.use_gpu
-            and gpu_raster.available()
+            and gpu_raster.available(high_precision=config.high_precision)
             and not self.config.settings.margin_texels
         )
         self.counts: Counter = Counter()
@@ -1428,6 +1440,7 @@ class AnalysisEngine:
                 first.snapshot.grid,
                 first.resolution.address_mode,
                 settings=settings,
+                high_precision=self.config.high_precision,
             )
             if counts is None:
                 # Nothing is recorded yet, so abandoning the batches already

@@ -10,6 +10,7 @@ import unittest.mock
 
 import numpy
 
+from addon.adapters import gpu_raster
 from addon.core import raster
 from addon.core import (
     InvalidRasterInput,
@@ -424,6 +425,40 @@ class BatchedRasterizationTests(unittest.TestCase):
             results = self._assert_batch_matches(polygons)
         self.assertTrue(lexsort.called, "the fast key did not overflow")
         self.assertGreater(results[1].stats.covered_texels, 0)
+
+
+class SinglePrecisionFixture(unittest.TestCase):
+    """The GPU's single-precision self-test fixture has to be exact at 24 bits.
+
+    That self-test demands the CPU's counts with no tolerance, which is only
+    reachable because this fixture was built so that single precision computes
+    the same spans double precision does. The two properties below are what make
+    that true, and they are asserted here rather than beside the GPU tests so
+    that an edit which drops a convenient-looking `1.3` into the fixture fails
+    on any machine, not only on one with a GPU.
+    """
+
+    def setUp(self):
+        self.quads, _counts, _grid = gpu_raster._fixture(high_precision=False)
+
+    def test_every_coordinate_survives_single_precision(self):
+        for value in self.quads.reshape(-1):
+            self.assertEqual(numpy.float32(value), value)
+
+    def test_every_slope_divides_exactly(self):
+        for index, triangle in enumerate(self.quads):
+            low, mid, high = triangle[numpy.argsort(triangle[:, 1], kind="stable")]
+            # The three the kernel computes: the long edge and the two short ones.
+            for start, end in ((low, high), (low, mid), (mid, high)):
+                rise = end[1] - start[1]
+                if rise == 0.0:
+                    continue
+                run = end[0] - start[0]
+                self.assertEqual(
+                    numpy.float32(run) / numpy.float32(rise),
+                    run / rise,
+                    f"triangle {index} has an inexact slope",
+                )
 
 
 if __name__ == "__main__":

@@ -230,11 +230,16 @@ def _grid_fixture(
     return object_, images, materials
 
 
+#: Set once from `--precision`, because every analysis in a run has to be timed
+#: at the same width for the JSON's one `precision` field to describe them all.
+_CONFIG = AnalysisConfig()
+
+
 def _run_analysis(object_, *, clear_coverage):
     if clear_coverage:
         runtime.clear_coverage_cache()
     started = time.perf_counter()
-    engine = AnalysisEngine((object_,), AnalysisConfig())
+    engine = AnalysisEngine((object_,), _CONFIG)
     while not engine.step(4096):
         pass
     report = engine.finish()
@@ -543,14 +548,33 @@ def main(argv=None) -> int:
         default="all",
         help="Run the complete release baseline or only the mode/revalidation tier",
     )
+    parser.add_argument(
+        "--precision",
+        choices=("default", "high"),
+        default="default",
+        help="Time the single-precision default kernel or the exact one",
+    )
     args = parser.parse_args(argv)
     # A benchmark exists to time the real path, so it opts this background
     # Blender back into the probe that `gpu_raster` keeps off by default. Here
     # rather than at module scope: `test_benchmark_contract` imports this module
     # inside the headless suite, which must stay off.
     os.environ.setdefault(gpu_raster._BACKGROUND_OPT_IN, "1")
-    device = "GPU" if gpu_raster.available() else f"CPU: {gpu_raster.reason()}"
-    print(f"DEVICE {device}", flush=True)
+    global _CONFIG
+    high_precision = args.precision == "high"
+    on_gpu = gpu_raster.available(high_precision=high_precision)
+    _CONFIG = AnalysisConfig(high_precision=high_precision)
+    device = (
+        "GPU"
+        if on_gpu
+        else f"CPU: {gpu_raster.reason(high_precision=high_precision)}"
+    )
+    # What the engine will resolve to, not what was asked for: a request for the
+    # exact kernel on a machine without it is a CPU run, and both are EXACT.
+    precision = AnalysisConfig(
+        use_gpu=on_gpu, high_precision=high_precision
+    ).precision()
+    print(f"DEVICE {device} PRECISION {precision}", flush=True)
     tiers = (
         {"name": "small", "segments": 70, "image_sizes": [1024], "material_count": 1},
         {
@@ -602,8 +626,11 @@ def main(argv=None) -> int:
             "python": platform.python_version(),
         },
         "method": "one discarded warm-up, median of five measured runs",
+        # Beside `device` for the same reason: the two kernels can classify a
+        # face differently, so a number cannot later be read as the other one's.
+        "precision": precision,
         "revalidation": _revalidation_benchmark(),
-        "schema_version": 2,
+        "schema_version": 3,
     }
     if args.only == "all":
         result.update(
