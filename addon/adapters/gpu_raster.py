@@ -330,9 +330,11 @@ _shaders: dict[bool, object | bool] = {}
 #: skipping.
 _reasons: dict[bool, str] = {}
 
-#: `id(grid)` to `(grid, mask texture, row-sum texture, words per row)`. The grid
-#: is held so its id cannot be reused by another object while the entry lives.
-_masks: dict[int, tuple] = {}
+#: `(id(grid), mirrored)` to `(grid, mask texture, row-sum texture, words per
+#: row)`. MIRROR folds the plane before packing, so one grid can hold two
+#: entries. The grid is held so its id cannot be reused by another object while
+#: the entry lives, and `registration.unregister` drops the whole mapping.
+_masks: dict[tuple[int, bool], tuple] = {}
 
 #: Set this to anything non-empty to let a background Blender probe the GPU.
 #: Off by default: see `available()`.
