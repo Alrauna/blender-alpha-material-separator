@@ -5,12 +5,23 @@ Updated: 2026-08-13
 ## Current branch objective
 
 `feat/gpu-fp32-support` is based on `origin/main` commit `343a575`, which is
-pull request 20 — the whole of `feat/gpu-acceleration`, merged. Its objective is
-the experiment recorded under *Future work* in `docs/gpu-rasterization.md`:
+pull request 20 — the whole of `feat/gpu-acceleration`, merged. Its objective
+was the experiment recorded under *Future work* in `docs/gpu-rasterization.md`:
 measure how often an fp32 kernel would actually disagree with the CPU, and
-decide from that whether an fp32 fast path is worth having. Nothing below it has
-been started. Everything else on this page is the merged branch's record, kept
-because the fp32 question is a direct continuation of it.
+decide from that whether an fp32 fast path is worth having.
+
+It disagreed on nothing, so the branch went past the experiment and shipped what
+the answer allows. Single precision is now the default GPU path; double
+precision is **High precision GPU acceleration**, its own checkbox in Expert
+Analysis Settings. A machine without fp64 — Apple Silicon, Intel Alchemist —
+loses that checkbox and keeps acceleration, which is the whole point. The design
+is `docs/gpu-fp32-precision.md`, approved by the user, and all six of its commit
+boundaries are implemented, measured, and validated.
+
+**The branch is complete and unpushed. No pull request exists and neither push
+nor pull-request creation has been authorized.** Everything on this page below
+the fp32 material is the merged branch's record, kept because this work is a
+direct continuation of it.
 
 ### The merged branch
 
@@ -37,6 +48,40 @@ acceleration** fallback. The branch's implementation work is complete; what
 remains is the packaging and release gates.
 
 ## Decisions
+
+### Single precision
+
+- One templated GLSL source produces both kernels. The scalar type and its
+  constructors are substituted, so the fp64 kernel is byte-identical to `main`
+  and the two cannot drift apart by editing one of them.
+- **Precision is the analysis input, not the device.** `AnalysisConfig` carries
+  `use_gpu` and `high_precision`, and `precision()` resolves them to `EXACT` or
+  `FP32`, which is what enters `payload()`. The CPU and the fp64 kernel
+  reproduce each other bit for bit, so three of the four combinations are one
+  input; only crossing into or out of fp32 changes the numbers.
+- **A payload field alone cannot invalidate a report.** `validate_report`
+  recomputes the input signature from `report.config`, never from the current
+  settings, so an existing report can only go stale through an RNA `update=`
+  callback. `_precision_changed` in `addon/properties.py` compares the width the
+  two checkboxes now resolve to against the width the report was analyzed at and
+  calls `runtime.mark_dirty("SETTINGS_CHANGED")` only when they differ. **The
+  design assumed the signature did this by itself; it does not.** Recorded as a
+  deviation in `docs/gpu-fp32-precision.md`.
+- fp64 now gates only `high_precision=True`. The probe runs the self-test once
+  per precision per process, and the fp32 self-test has its own fixture, since
+  the fp64 one cannot discriminate a wrong fp32 kernel.
+- **Zero disagreements on the unmodified realistic tier is arithmetic, not
+  evidence.** Blender stores UVs as float32 and the tier's images are all
+  power-of-two, so `uv * dimension` is an exponent shift and exact at 24 bits;
+  its axis-aligned quads give exact diagonal slopes too. That is why the gate
+  also ran a jittered tier and a magnitude control, and why the claim in
+  `docs/performance.md` is measured rather than structural.
+- The exactness invariant in `AGENTS.md` was amended rather than quietly bent.
+  Single precision on the default GPU path is named as the only approved
+  departure, measured before it ships, and switchable off. The user approved the
+  wording verbatim before implementation began.
+
+### The merged GPU branch
 
 - Implemented on this one branch with a coherent commit per stage, rather than
   the five separate `codex/*` branches `PLAN.md` names. Those would each need
@@ -169,6 +214,25 @@ remains is the packaging and release gates.
 
 ## Commits
 
+On `feat/gpu-fp32-support`, in order:
+
+- `1f6ac48`, `f7df947` — the ships-on-automation decision, and the handoff that
+  pointed at the fp32 question;
+- `669aacb` — the approved fp32 design;
+- `c551c93` — its test-first plan;
+- `b47db17` — the kernel templated on its scalar type;
+- `84edb27` — the fp32 kernel, its own self-test fixture, and the probe split;
+- `1112f65` — the first three plan deviations;
+- `f42833d` — **High precision GPU acceleration** as its own setting and panel
+  row;
+- `185d58d` — precision as an analysis input, plus the staleness callback the
+  plan did not anticipate;
+- `d5b41d0` — the measurement, and the flipped default;
+- this documentation pass, which carries the `AGENTS.md` amendment, the README
+  *Speed* rewrite, `docs/gpu-rasterization.md`, and this handoff.
+
+From the merged `feat/gpu-acceleration`:
+
 - `af5de91` — vectorized image extraction and per-phase instrumentation
   (Stages 1 and 2);
 - `f01a016` — cross-section scanline rasterization (Stage 3);
@@ -225,24 +289,42 @@ agent the most time:
 
 ## Verification evidence
 
-Fresh local results on this branch:
+Fresh local results at fp32 branch completion:
 
-- unit suite on Blender's bundled Python 3.13.13: 141 passed;
-- headless Blender suite: exit 0, all 19 modules OK, including
-  `ALPHA_MATERIAL_SEPARATOR_GPU_RASTER_TESTS_OK`;
+- unit suite on Blender's bundled Python 3.13.13: 143 passed in 8.0 s;
+- headless Blender suite twice, both exit 0. Default run reports
+  `ALPHA_MATERIAL_SEPARATOR_GPU_RASTER_TESTS_SKIPPED`, which is the CPU fallback
+  proven; the run with `ALPHA_MATERIAL_SEPARATOR_GPU_IN_BACKGROUND=1` reports
+  `ALPHA_MATERIAL_SEPARATOR_GPU_RASTER_TESTS_OK`, which is the kernel proven;
 - `blender --factory-startup --command extension validate addon`: success;
-- packaging and the isolated installed-ZIP gate:
-  `ALPHA_MATERIAL_SEPARATOR_INSTALLED_ZIP_TEST_OK` against
-  `alpha_material_separator-1.4.0.zip`, rebuilt at 99,515 bytes after the fp64
-  probe and the manual fallback landed. Install status was `Installed`, not
-  `Reinstalled`, which is the tell that the isolated root held;
+- clean rebuild to `alpha_material_separator-1.4.0.zip` at 102,216 bytes,
+  archive validation success, and the isolated install gate
+  `ALPHA_MATERIAL_SEPARATOR_INSTALLED_ZIP_TEST_OK`. Install status was
+  `Installed`, not `Reinstalled`, which is the tell that the isolated root held;
 - `git diff --check`: clean before each commit;
-- both probe outcomes hand-run in a real Blender window: Windows/OpenGL, where
-  **Disable GPU acceleration** is unchecked and usable, and a Mac, where it is
-  checked, greyed out, and captioned with the instruction-set sentence. Neither
-  run was timed;
+- both probe outcomes hand-run in a real Blender window **before the fp32
+  work**: Windows/OpenGL, where **Disable GPU acceleration** was unchecked and
+  usable, and a Mac, where it came up checked, greyed out, and captioned.
+  Neither run was timed, and the Mac outcome has since changed by design — see
+  *Limitations*;
 - same-session before/after benchmarks per stage, each with wall time and peak
   working set, recorded in `docs/performance.md`.
+
+The fp32 gate, same session, realistic tier, 150,544 faces, three
+configurations interleaved, medians of eleven:
+
+| Configuration | Cold | vs CPU | Raster phase | Worst step |
+| --- | ---: | ---: | ---: | ---: |
+| CPU | 2.400 s | — | 0.517 s | 180 ms |
+| GPU, high precision | 1.879 s | -21.7% | 0.229 s | 210 ms |
+| **GPU, default fp32** | **1.819 s** | **-24.2%** | **0.193 s** | 209 ms |
+
+fp32 against the fp64 oracle: 0 of 150,544 faces reclassified on the tier, and
+still 0 with the tier's UVs jittered off their exactness, which does move 1.79
+percent of covered-texel counts. A magnitude control confirms the apparatus can
+see a difference — fp32 diverges as soon as a coordinate stops fitting in 24
+bits. Full detail, including why the unjittered zero is arithmetic rather than
+luck, is in `docs/performance.md`.
 
 High-tier cold analysis across the three landed changes, each percentage
 same-session:
@@ -340,17 +422,37 @@ benchmark fixtures.
   earlier stages were.
 - The integrated measurement is one machine, one driver, one OpenGL backend.
   Only that machine has timings.
-- Both probe outcomes have now run on real hardware. The user exercised the
-  Expert panel on Windows/OpenGL, where the checkbox is off and usable, and on a
-  Mac, where it came up checked, greyed out, and captioned with the
-  instruction-set sentence. That caption is only reachable from a `NO_FP64`
-  reason, so Metal took the fp64 branch rather than failing some other way, and
-  the fallback is confirmed rather than assumed. Neither run was timed and the
-  Mac has no measurement.
+- **The macOS hand check no longer describes what a Mac does.** It was run
+  before fp32: Metal returned `NO_FP64`, so **Disable GPU acceleration** came up
+  checked and greyed out, which confirmed the reason string reached the panel.
+  On this branch that same `NO_FP64` greys out **High precision GPU
+  acceleration** instead and leaves acceleration on. Nobody has put a Mac in
+  front of the new panel, and no Mac has ever produced a timing. The Windows
+  hand check still holds.
 - **Disable GPU acceleration** in Expert Analysis Settings forces the CPU path.
-  It is outside `ANALYSIS_SETTING_NAMES` and outside `AnalysisConfig.payload()`
-  on purpose, so it neither resets with the analysis settings nor makes a
-  completed report stale.
+  Neither it nor the high-precision checkbox is in `ANALYSIS_SETTING_NAMES`, so
+  neither resets with the analysis settings. What they resolve to — `EXACT` or
+  `FP32` — *is* in `AnalysisConfig.payload()`, so a change that moves the width
+  marks a completed report stale and one that does not, does not. The earlier
+  claim on this page that the device can never invalidate a report was true of
+  the merged branch and is not true of this one.
+- **Single precision is a real departure from the exactness invariant**, now
+  named as such in `AGENTS.md`. A span boundary can move by a few ulps on the
+  default path. It reclassified nothing across the measurements above, but that
+  is a measurement on one asset shape on one GPU, not a proof. A reader who
+  needs the CPU's exact numbers has one checkbox.
+- The fp32 self-test is the only thing standing between a wrong single-precision
+  kernel and a wrong report, and it has run on one GPU. A driver that rounds
+  differently would have to fail that fixture to be caught.
+- The disagreement measurement used the realistic tier and a jittered copy of
+  it. No private asset, no non-power-of-two atlas, and no UV coordinate above
+  the tier's range was measured against the fp64 oracle. The magnitude control
+  says divergence starts where 24-bit representability ends, which bounds the
+  risk but does not survey real content.
+- `assert_the_probe_measures_fp64` still hard-requires fp64, so the headless GPU
+  suite cannot pass on a machine that only has the default path. Recorded as
+  future work in `docs/gpu-fp32-precision.md`; this machine has fp64, so nothing
+  is being skipped silently here.
 - The GPU tests skip on a machine without a usable GPU, so CI proves the
   fallback rather than the kernel. Only this machine has run them, and only with
   `ALPHA_MATERIAL_SEPARATOR_GPU_IN_BACKGROUND` set: a background Blender does not
@@ -379,23 +481,28 @@ benchmark fixtures.
 
 ## Next action
 
-Design the fp32 experiment and get it approved before writing a kernel. It
-touches the exactness contract, which is the one thing the whole GPU path rests
-on, so it is design-and-approval work rather than a narrow request.
+Review the branch and decide whether it gets pushed. Push and pull-request
+creation each require explicit authorization and neither has been given, so
+nothing leaves this machine until the owner says so.
 
-The shape it has to take, from `docs/gpu-rasterization.md`: an fp32 variant of
-the kernel, run against the existing exactness oracle across the 150,544-face
-realistic tier, reporting the number of disagreeing polygons rather than a
-pass/fail. Zero on realistic content is what would make an fp32 fast path with
-fp64 as the fallback arguable — and would give Apple Silicon acceleration. A
-non-zero count ends the question, and cheaply.
+What to look at, in order:
 
-Two things the design has to answer, not assume. The probe does not disappear:
-it becomes "does this GPU's fp32 match our CPU", which is a harder question than
-"does this GPU have fp64" and needs a self-test fixture chosen to discriminate.
-And a per-machine device choice would mean two devices producing two reports,
-which the current `AnalysisConfig.payload()` omission of `use_gpu` assumes can
-never happen.
+1. The approval block at the end of `docs/gpu-fp32-precision.md`. Item 1, the
+   `AGENTS.md` amendment, was approved verbatim and is in `AGENTS.md`. Items 2,
+   3 and 4 — precision as an analysis input, the panel copy for a GPU without
+   fp64, and the measurement gate's acceptance criteria — were built as designed
+   and reviewed only by their author.
+2. `_precision_changed` in `addon/properties.py`. It is the only production code
+   the approved plan did not contain, and it is what makes a width change
+   invalidate a completed report.
+3. The default flip itself. Every other part of this branch is reversible with a
+   checkbox; this is the one that changes what an unattended user gets.
+
+The open behavioural question a human could settle in a minute is the macOS
+panel: fp32 default on, **High precision GPU acceleration** greyed out,
+acceleration still running. Nobody has seen it.
+
+### The merged branch's closing record
 
 Pull request 20 is merged as `343a575`. Every check was green on Windows, Linux,
 and macOS.
@@ -424,13 +531,14 @@ Packaging is done and the automated export gate runs headlessly
 human-interaction gates in `docs/testing.md` were confirmed on 2026-08-01 and
 have not been re-run since any GPU work landed.
 
-Portability is settled for the two backends anyone here can reach. The kernel
-needs fp64 and `_has_fp64()` decides that per machine rather than by backend
-name; Windows/OpenGL takes the GPU path and a Mac falls back with `NO_FP64` and
-says so in the panel. Both were confirmed by hand. What that does not change is
-the price: the CPU rasterizer is permanent, and both implementations stay bound
-by the same bit-exactness tests. A reader on a machine that does have fp64 can
-still force the CPU path with **Disable GPU acceleration**.
+Portability is settled for the two backends anyone here can reach. `_has_fp64()`
+decides per machine rather than by backend name; Windows/OpenGL had fp64 and a
+Mac returned `NO_FP64`, both confirmed by hand. On the merged branch that meant
+the Mac fell back to the CPU, which is exactly what the fp32 branch above
+removes: `NO_FP64` now costs a machine the high-precision checkbox and nothing
+else. What neither branch changes is the price — the CPU rasterizer is
+permanent, the exact paths stay bound by the same bit-exactness tests, and any
+reader can force the CPU with **Disable GPU acceleration**.
 
 Push and pull-request creation require separate authorization and have not been
 requested.

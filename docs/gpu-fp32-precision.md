@@ -2,7 +2,8 @@
 
 # GPU single-precision analysis design
 
-Status: proposed. Not approved, not implemented.
+Status: implemented on `feat/gpu-fp32-support`. The measurement gate below was
+met and the default has flipped; `docs/performance.md` records the numbers.
 
 Companion to `docs/gpu-rasterization.md`, which describes the kernel this
 changes. Read that first; this document only records what is different.
@@ -644,9 +645,14 @@ vertex is the extremum strictly inside a band.
 
 ## Approval needed before implementation
 
-1. The `AGENTS.md` invariant amendment quoted above.
+1. The `AGENTS.md` invariant amendment quoted above. **Approved as written**,
+   and now the wording in `AGENTS.md`.
 2. Precision entering the input signature, which makes a completed report go
-   STALE when the reader toggles either GPU checkbox.
-3. The proposed panel copy for a GPU without fp64.
+   STALE when the reader toggles either GPU checkbox. Built as designed, with
+   one correction: only a change of *width* invalidates, so leaving the CPU for
+   high precision keeps the report. Still open for review.
+3. The proposed panel copy for a GPU without fp64. Built as designed; still
+   open for review.
 4. The measurement gate's acceptance criteria, in particular that any face
-   losing alpha classification blocks the default flip.
+   losing alpha classification blocks the default flip. Measured against these
+   criteria and met; the criteria themselves are still open for review.

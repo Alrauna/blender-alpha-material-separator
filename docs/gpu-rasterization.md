@@ -47,13 +47,13 @@ data file, so packaging is unaffected.
 
 ### Capability probe
 
-`gpu_raster.available()`, evaluated once per process and cached, returning False
-on any failure without letting an exception escape:
+`gpu_raster.available()`, evaluated once per precision per process and cached,
+returning False on any failure without letting an exception escape:
 
 0. This is not a background Blender, or one that set
    `ALPHA_MATERIAL_SEPARATOR_GPU_IN_BACKGROUND`.
-1. `gpu` imports and `_has_fp64()` proves the backend computes in double
-   precision.
+1. `gpu` imports, and for `available(high_precision=True)` only, `_has_fp64()`
+   proves the backend computes in double precision.
 2. The shader compiles.
 3. A fixed self-test batch reproduces its expected results exactly.
 
@@ -71,9 +71,11 @@ are covered by a second headless run with the variable set, per
 `docs/testing.md`. An interactive Blender is unaffected: it has a context
 already and never reaches this step.
 
-Step 1 is measured, not looked up. It compiles a one-thread shader that takes
-the halves of `1.0 + 2**-52` through push constants — so nothing can be folded on
-the host — subtracts one, and requires the halves of `2**-52` back. A backend
+Step 1 is measured, not looked up, and it now gates only the high-precision
+kernel: the default single-precision one asks nothing of `double`. It compiles a
+one-thread shader that takes the halves of `1.0 + 2**-52` through push constants
+— so nothing can be folded on the host — subtracts one, and requires the halves
+of `2**-52` back. A backend
 without fp64 either rejects the source, which is caught, or computes it as
 `float` and returns zero, which is also caught. Both answer `NO_FP64`. Naming a
 backend instead would be wrong twice over: the list goes stale whenever a driver
@@ -272,12 +274,12 @@ cannot, so it is the gate for the integration commit rather than an extra.
 
 ## Risks
 
-- **Some machines cannot run this.** The kernel needs fp64, which Metal does not
-  have. That is measured rather than assumed: `_has_fp64()` compiles and runs one
-  `double` before anything else and reports `NO_FP64` when the backend either
-  refuses the source or computes it in single precision. No backend is named
-  anywhere, so a driver that gains or loses the capability needs no code change.
-  The CPU rasterizer is a permanent fallback, and two implementations of the most
+- **Some machines cannot run this.** Written when fp64 was the only kernel and
+  Metal, which does not have it, was therefore excluded outright. Single
+  precision has since become the default and `NO_FP64` now costs a machine one
+  checkbox rather than acceleration. What survives unchanged: the capability is
+  measured rather than assumed, no backend is named anywhere, the CPU rasterizer
+  is a permanent fallback, and two implementations of the most
   correctness-critical code in the addon are maintained under one set of
   bit-exactness tests. This is the real price and it is not measured in seconds.
 - **One machine, one driver.** Every *measurement* and the exactness result come
@@ -552,9 +554,9 @@ Three things it deliberately is not:
 
 - Not in `ANALYSIS_SETTING_NAMES`, so it is not an `analyze()` keyword and
   **Reset to Default Values** does not move the reader back onto the GPU.
-- Not in `AnalysisConfig.payload()`, so it is not in the input signature.
-  Both paths reproduce each other exactly, so switching device must not make a
-  completed report stale.
+- Not in `AnalysisConfig.payload()` itself. What is in the signature is the
+  width the numbers came from, which this checkbox and the high-precision one
+  resolve to between them; see `docs/gpu-fp32-precision.md`.
 - Not carried on the analyze operator. Which device runs is not an analysis
   parameter, so `_config` reads it from the settings group and the published
   operator surface is unchanged.
@@ -565,27 +567,19 @@ text is decided per machine. `NO_FP64` gets the instruction-set sentence;
 `MISMATCH`, `UNAVAILABLE`, and anything else get the unknown-reason sentence,
 which is honest — none of them is something the reader can act on.
 
-## Future work: measure what fp32 would actually cost
+## What fp32 actually cost, which is now measured
 
-fp64 is not here for geometric accuracy. It is here because the CPU rasterizer
-is authoritative, computes in float64, and the kernel's contract is bit-equality
-with it — the kernel reassembles the CPU's own float64 bit patterns and runs the
-same expressions. An fp32 kernel would disagree at boundaries, fail the
-self-test, and disable itself, so it would not be a faster path but an absent
-one.
+This section used to be future work. It was done: `docs/gpu-fp32-precision.md`
+carries the design, and single precision is now the default kernel, with the
+double-precision one behind **High precision GPU acceleration**.
 
-What has never been measured is how often fp32 would actually disagree. The
-error is not harmless in principle — a span endpoint that lands on the wrong
-side of an integer texel boundary changes an alpha count by one, and one texel
-can move a face between opaque, mixed, and below-significance; UVs are scaled by
-image dimensions and tile far outside the unit square, where an f32 ulp is a
-whole texel; and the slope is a quotient of differences. But on ordinary assets
-the disagreeing set could be empty.
+Everything above still describes the fp64 kernel, and still holds for it — same
+source, templated on its scalar type, same bit-equality contract against the CPU
+on the same adversarial fixture. What changed is that it is no longer the only
+kernel, and that `available()` and `reason()` now answer per precision. A
+machine without fp64 keeps acceleration and loses one checkbox.
 
-The experiment: build an fp32 variant of the kernel and count disagreeing
-polygons across the 150,544-face tier, reusing the existing exactness oracle. If
-it is zero on realistic content, an fp32 fast path with fp64 as the fallback is
-arguable, and Apple Silicon would gain acceleration. It does not remove the
-probe; it replaces "does this GPU have fp64" with "does this GPU's fp32 match
-our CPU", which is a harder question. Not a blocker for this branch, and it
-would need its own design approval, since it touches the exactness contract.
+The disagreement the paragraph above worried about is real and turned out not to
+reach the report: 1.79% of faces come back with a different covered-texel count
+on a tier perturbed to make single precision round, and none of them changes
+classification. `docs/performance.md` records the numbers.
