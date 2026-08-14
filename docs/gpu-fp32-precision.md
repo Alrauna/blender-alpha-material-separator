@@ -421,6 +421,24 @@ Remove-Item env:ALPHA_MATERIAL_SEPARATOR_GPU_IN_BACKGROUND
 Record material deviations in this section as they happen. A finding that
 changes behaviour, scope, risk, or architecture stops for renewed approval.
 
+### Deviations
+
+- **The fp32 upload is simpler than designed.** No `uintBitsToFloat`, no bit
+  reinterpretation: the triangle texture is already `R32F` and `_texture`
+  already narrows to float32, so a single-precision coordinate rides through
+  the existing channel verbatim and `coord()` is one `imageLoad`. The
+  three-word chunking exists only because a double does not fit that channel.
+- **The precision argument is required, not defaulted, on the batch entry
+  points.** `submit_batch` and `counted_batch` take `high_precision` with no
+  default, and the engine passes `True` until commit 4. Otherwise commit 2
+  would have moved every existing caller onto the new kernel silently, and the
+  exactness suite — coordinates near `1e7` — would have started failing for a
+  reason that has nothing to do with a defect. The default flip is now one
+  line in the commit that introduces the setting.
+- **`_assert_matches_cpu` defaults to high precision.** That helper carries the
+  bit-equality contract, which belongs to the double-precision kernel; the
+  single-precision kernel is held to it only on the fixture built for it.
+
 ### Commit 1 — template the kernel on its scalar type
 
 Inert by construction, so no RED: the existing fp64 self-test is the check, and
