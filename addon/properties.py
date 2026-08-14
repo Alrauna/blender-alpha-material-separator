@@ -50,6 +50,27 @@ def _disable_gpu_set(self, value: bool) -> None:
     self["disable_gpu_acceleration"] = bool(value)
 
 
+def _no_double_precision() -> bool:
+    """Whether this machine cannot run the kernel in double precision.
+
+    A separate question from `_gpu_unavailable`: a GPU without `double` still
+    accelerates, and all it loses is this mode.
+    """
+    from .adapters import gpu_raster
+
+    return not gpu_raster.available(high_precision=True)
+
+
+def _high_precision_get(self) -> bool:
+    # Forced off where double precision cannot run, for the same reason the
+    # fallback above is forced on: the engine and any script read the property.
+    return False if _no_double_precision() else self.get("high_precision_gpu", False)
+
+
+def _high_precision_set(self, value: bool) -> None:
+    self["high_precision_gpu"] = bool(value)
+
+
 def _policy_changed(_self, context) -> None:
     from . import runtime
 
@@ -223,16 +244,28 @@ class ALPHA_MATERIAL_SEPARATOR_PG_settings(bpy.types.PropertyGroup):
         min=1,
         update=_settings_changed,
     )
-    # No `update=`: both devices produce the same report, so switching one for
-    # the other is not a settings change and must not make a report stale. For
-    # the same reason it is outside ANALYSIS_SETTING_NAMES, which also keeps
-    # "Reset to Default Values" from moving the reader back onto the GPU.
+    # No `update=`: clearing the review outright is heavier than this needs.
+    # Where the choice changes the numbers the input signature carries it and
+    # the report is reported stale, which leaves the reader the report they are
+    # comparing against. Outside ANALYSIS_SETTING_NAMES for the same reason both
+    # of these are: they choose a device and a width, not an analysis parameter,
+    # and "Reset to Default Values" must not move the reader off either.
     disable_gpu_acceleration: BoolProperty(
         name="Disable GPU acceleration",
         description="Manual fallback to full CPU analysis",
         default=False,
         get=_disable_gpu_get,
         set=_disable_gpu_set,
+    )
+    high_precision_gpu: BoolProperty(
+        name="High precision GPU acceleration",
+        description=(
+            "Analyze in double precision on the GPU, which reproduces CPU "
+            "analysis exactly and is slower"
+        ),
+        default=False,
+        get=_high_precision_get,
+        set=_high_precision_set,
     )
 
     address_mode: EnumProperty(

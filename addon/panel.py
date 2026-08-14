@@ -34,19 +34,24 @@ def _label_lines(
         layout.label(text=line, icon=icon if index == 0 else "NONE")
 
 
-def _gpu_unavailable_message(reason: str) -> str:
-    """Say why the GPU is out, drawn as copy because tooltips are fixed at
-    registration and this text is decided per machine.
+#: Why high precision is unreachable here. Drawn as copy rather than left to a
+#: tooltip because tooltips are fixed at registration and this is per machine.
+#: It says what still works, because acceleration itself is unaffected.
+NO_DOUBLE_PRECISION_MESSAGE = (
+    "This GPU does not compute in double precision. Analysis still runs on the "
+    "GPU in single precision; disable GPU acceleration for exact results"
+)
 
-    A missing instruction set is a plain fact about the hardware. Everything
-    else — a driver that miscompiles the kernel, a probe that raised — is not
-    something the reader can act on, so it does not pretend to be.
+
+def _gpu_unavailable_message(_reason: str) -> str:
+    """Say why the GPU is out, drawn as copy for the same reason as above.
+
+    One message, because there is only one thing left to say. A driver that
+    miscompiles the kernel, a probe that raised, a Blender with no window to
+    borrow a context from: none of it is something the reader can act on, so it
+    does not pretend to be. A GPU that merely lacks double precision no longer
+    reaches here at all — it accelerates.
     """
-    if reason.startswith("NO_FP64"):
-        return (
-            "This GPU does not support the necessary instructions for GPU "
-            "acceleration with this extension"
-        )
     return (
         "This GPU does not support GPU acceleration with this extension for an "
         "unknown reason"
@@ -566,16 +571,32 @@ class ALPHA_MATERIAL_SEPARATOR_PT_analysis_settings(_ExpertPanel, bpy.types.Pane
             text="Reset to Default Values",
             icon="LOOP_BACK",
         )
-        # Below the reset deliberately: the device is not an analysis setting and
-        # the reset does not restore it.
+        # Below the reset deliberately: neither of these is an analysis setting
+        # and the reset does not restore them.
         usable = gpu_raster.available()
         row = layout.row()
         row.enabled = usable
         row.prop(settings, "disable_gpu_acceleration")
+        exact = layout.row()
+        # Off where there is no GPU to run it on, and off where the reader has
+        # already sent analysis to the CPU, which is exact anyway.
+        exact.enabled = (
+            usable
+            and not settings.disable_gpu_acceleration
+            and gpu_raster.available(high_precision=True)
+        )
+        exact.prop(settings, "high_precision_gpu")
         if not usable:
             _label_lines(
                 layout,
                 _gpu_unavailable_message(gpu_raster.reason()),
+                icon="INFO",
+                available_width=available_width,
+            )
+        elif not gpu_raster.available(high_precision=True):
+            _label_lines(
+                layout,
+                NO_DOUBLE_PRECISION_MESSAGE,
                 icon="INFO",
                 available_width=available_width,
             )
