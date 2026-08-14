@@ -228,8 +228,10 @@ On `feat/gpu-fp32-support`, in order:
 - `185d58d` — precision as an analysis input, plus the staleness callback the
   plan did not anticipate;
 - `d5b41d0` — the measurement, and the flipped default;
-- this documentation pass, which carries the `AGENTS.md` amendment, the README
-  *Speed* rewrite, `docs/gpu-rasterization.md`, and this handoff.
+- `49d676c` — the documentation pass carrying the `AGENTS.md` amendment, the
+  README *Speed* rewrite, `docs/gpu-rasterization.md`, and this handoff;
+- the version bump to 1.4.1. The release itself is not made: no tag, no
+  published archive, and the built ZIP stays out of the repository.
 
 From the merged `feat/gpu-acceleration`:
 
@@ -297,10 +299,11 @@ Fresh local results at fp32 branch completion:
   proven; the run with `ALPHA_MATERIAL_SEPARATOR_GPU_IN_BACKGROUND=1` reports
   `ALPHA_MATERIAL_SEPARATOR_GPU_RASTER_TESTS_OK`, which is the kernel proven;
 - `blender --factory-startup --command extension validate addon`: success;
-- clean rebuild to `alpha_material_separator-1.4.0.zip` at 102,216 bytes,
-  archive validation success, and the isolated install gate
-  `ALPHA_MATERIAL_SEPARATOR_INSTALLED_ZIP_TEST_OK`. Install status was
-  `Installed`, not `Reinstalled`, which is the tell that the isolated root held;
+- clean rebuild, archive validation success, and the isolated install gate
+  `ALPHA_MATERIAL_SEPARATOR_INSTALLED_ZIP_TEST_OK`, run twice: at 1.4.0
+  (102,216 bytes) when the fp32 work was complete, and again at 1.4.1
+  (102,218 bytes) after the version bump. Install status was `Installed`, not
+  `Reinstalled`, both times, which is the tell that the isolated root held;
 - `git diff --check`: clean before each commit;
 - both probe outcomes hand-run in a real Blender window **before the fp32
   work**: Windows/OpenGL, where **Disable GPU acceleration** was unchecked and
