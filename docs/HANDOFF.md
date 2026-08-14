@@ -1,8 +1,27 @@
 # Repository handoff
 
-Updated: 2026-08-13
+Updated: 2026-08-14
 
 ## Current branch objective
+
+`chore/post-audit-cleanup` is stacked on `feat/gpu-fp32-support`, not on
+`origin/main`. That is deliberate: the fp32 branch is complete and unpushed, and
+branching the cleanup from `main` would have put both branches' edits to the
+same files on a collision course. Its pull request therefore carries the fp32
+commits until that branch merges.
+
+Its objective is the approved subset of a whole-repository code quality,
+over-engineering, and security audit the owner requested on 2026-08-14. Six
+items were approved and are implemented; three are recorded under *Future work*
+below; one was declined; one dissolved on inspection and is recorded with the
+reason so it is not re-raised.
+
+The audit found no exploitable defect. `addon/` has no `eval`, `exec`,
+`subprocess`, socket, `urllib`, or `pickle` surface at all, the Blender download
+is anchored on a committed SHA-256 rather than a fetched one, and `contents:
+write` never coexists with a job that reaches the network.
+
+### The fp32 branch
 
 `feat/gpu-fp32-support` is based on `origin/main` commit `343a575`, which is
 pull request 20 — the whole of `feat/gpu-acceleration`, merged. Its objective
@@ -291,6 +310,20 @@ agent the most time:
 
 ## Verification evidence
 
+Fresh local results at cleanup branch completion:
+
+- unit suite: 144 passed in 8.6 s. The extra test over the fp32 branch's 143 is
+  `test_only_one_publish_may_hold_the_release_at_a_time`, confirmed RED against
+  the workflow without the concurrency block before it was kept;
+- headless Blender suite twice, both exit 0, with the same
+  `..._GPU_RASTER_TESTS_SKIPPED` and `..._GPU_RASTER_TESTS_OK` split as below;
+- `extension validate addon`: success. `git diff --check`: clean.
+
+No rebuild or benchmark was run for the cleanup branch. Nothing in it changes
+packaging, and nothing in it is a speed claim — the one performance finding the
+audit raised is deferred under *Future work* precisely because it would need
+one.
+
 Fresh local results at fp32 branch completion:
 
 - unit suite on Blender's bundled Python 3.13.13: 143 passed in 8.0 s;
@@ -482,11 +515,60 @@ benchmark fixtures.
   session lifetime rather than anything specific to the toggle. Measured, not
   assumed.
 
+## Future work
+
+Deferred from the 2026-08-14 audit. Each is a real finding with evidence; none
+is urgent, and none belongs on the cleanup branch.
+
+- **Vectorize the preview and assignment writes.** `select_faces.py:178-201`
+  sets `vertex.select`, `edge.select`, and `polygon.select` one element at a
+  time, and `assignment.py:616` and `:683` do the same for `material_index`. On
+  a 150,000-face mesh a preview is roughly 600,000 Python-level RNA writes. The
+  analysis path was vectorized with `foreach_get` across Stages 1-5; the write
+  side never got the matching `foreach_set` pass. Needs the same-session
+  protocol in `docs/performance.md`, because the claim is a speed claim.
+- **Add a linter.** No `pyproject.toml`, `ruff.toml`, `.flake8`, or pre-commit
+  config exists, and the workflow has no lint step — "source validation" is
+  Blender's `extension validate`, which reads the manifest, not the Python.
+  Style is currently held by hand and mostly holds; 134 lines in `addon/` exceed
+  88 columns, most of them deliberate single-line table entries in
+  `presentation.py`. Adding a CI step needs approval under `docs/testing.md`.
+- **Move the scalar rasterizer oracle into `tests/`.** `rasterize_polygon`,
+  `classify_polygon`, `classify_coverage`, `count_run`, and `count_coverage`
+  have no production caller; production runs `rasterize_batch` → `count_batch` →
+  `classify_counted`. About 250 lines across `core/raster.py` and
+  `core/alpha.py` ship to users purely as the differential oracle the batch path
+  is tested against. Keeping one authoritative reference implementation is correct; having
+  it inside the extension is what is questionable. Moving it is a public-surface
+  change to `addon/core/__init__.py` and needs its own design.
+
+Two audit findings are closed rather than deferred, recorded so they are not
+re-raised:
+
+- **The three-way checksum consensus stays.** It provides no integrity property
+  the committed SHA-256 pin at `scripts/ci.py:445` does not already provide —
+  the archive is verified against the constant, so consensus cannot change
+  whether a tampered archive is accepted. What it does provide is early,
+  specific detection that the upstream publisher's file changed. The owner
+  reviewed that reasoning on 2026-08-14 and chose to keep it, and
+  `docs/testing.md` forbids weakening it regardless.
+- **`counted_batch`, `clear_coverage_cache`, and `snapshot` are not dead.** The
+  audit listed them as dead production code because no production path calls
+  them. That was true and the conclusion was wrong. `counted_batch` is the
+  documented interface in `docs/gpu-rasterization.md`, the simple form that
+  `submit_batch` + `collect_batch` must equal. The other two are the only way
+  tests can clear the coverage cache without also dropping the report, or read
+  runtime state without poking eight module globals; deleting them would move
+  six test sites onto private attributes. Only the fourth item on that list,
+  `panel._gpu_unavailable_message`, was genuinely vestigial, and it is gone.
+
 ## Next action
 
-Review the branch and decide whether it gets pushed. Push and pull-request
+Review both branches and decide whether they get pushed. Push and pull-request
 creation each require explicit authorization and neither has been given, so
-nothing leaves this machine until the owner says so.
+nothing leaves this machine until the owner says so. `chore/post-audit-cleanup`
+is six small changes and is quick to read; the list below is the fp32 branch
+underneath it, which is the part that carries risk.
 
 What to look at, in order:
 
